@@ -1,0 +1,163 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Validación cuantitativa · modelo de régimen</title><style>
+:root{--bg:#faf9f6;--pn:#fff;--tx:#1a1a1a;--mut:#666;--fa:#aaa;--bd:#e2ded4;--ac:#2f6fb0;--ng:#c0563a;}
+@media(prefers-color-scheme:dark){:root{--bg:#12141a;--pn:#171a21;--tx:#e7e9ee;--mut:#9aa0ad;--fa:#5a606c;--bd:#2a303b;--ac:#5b9bd8;--ng:#d1704f;}}
+*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.65 Georgia,"Times New Roman",serif;}
+article{max-width:840px;margin:0 auto;padding:44px 26px 80px;}
+.eyebrow{font:600 11px/1 ui-sans-serif,system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:var(--ac);margin-bottom:12px;}
+h1{font-size:30px;line-height:1.2;margin:0 0 10px;letter-spacing:-.01em;text-wrap:balance;}
+.byline,.modelv{font:13px/1.5 ui-sans-serif,system-ui,sans-serif;color:var(--mut);}
+.modelv{margin-top:3px;color:var(--fa);font-size:12px;}
+.ph{border-bottom:2px solid var(--tx);padding-bottom:20px;margin-bottom:8px;}
+h2{font-size:21px;margin:34px 0 12px;padding-bottom:5px;border-bottom:1px solid var(--bd);letter-spacing:-.01em;}
+h3{font:600 15px/1.3 ui-sans-serif,system-ui,sans-serif;margin:22px 0 8px;color:var(--tx);}
+p{margin:10px 0;}ul{margin:10px 0;padding-left:22px;}li{margin:6px 0;}
+code{font:13px ui-monospace,Menlo,monospace;background:color-mix(in srgb,var(--tx) 7%,transparent);padding:1px 5px;border-radius:4px;}
+em{color:var(--mut);}
+.semaforo{background:var(--pn);border:1px solid var(--bd);border-radius:12px;padding:8px 22px 20px;margin:22px 0;}
+table.sem{width:100%;border-collapse:collapse;font:14px/1.4 ui-sans-serif,system-ui,sans-serif;}
+table.sem td{padding:9px 6px;border-bottom:1px solid var(--bd);}
+table.sem tr:last-child td{border-bottom:none;}
+table.sem td.dot{width:34px;font-size:17px;text-align:center;}
+table.sem td:last-child{color:var(--mut);width:150px;}
+.conc{font:14px/1.6 ui-sans-serif,system-ui,sans-serif;margin-top:14px;color:var(--tx);}
+table.data{width:100%;border-collapse:collapse;font:13px/1.4 ui-monospace,Menlo,monospace;margin:12px 0;overflow-x:auto;display:block;}
+table.data thead th{font:600 11px/1 ui-sans-serif,system-ui,sans-serif;text-transform:uppercase;letter-spacing:.03em;color:var(--mut);text-align:right;padding:8px 10px;border-bottom:1.5px solid var(--bd);white-space:nowrap;}
+table.data th:first-child,table.data td:first-child{text-align:left;font-family:ui-sans-serif,system-ui,sans-serif;color:var(--tx);}
+table.data td{text-align:right;padding:6px 10px;border-bottom:1px solid var(--bd);white-space:nowrap;font-variant-numeric:tabular-nums;}
+table.data tr:last-child td{border-bottom:none;}
+.half{max-width:360px;}
+.fig{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start;}
+.figc{flex:1;min-width:280px;}
+svg.plot{width:100%;height:auto;background:var(--pn);border:1px solid var(--bd);border-radius:10px;}
+svg.plot text{font:11px ui-sans-serif,system-ui,sans-serif;fill:var(--mut);}
+.plot .axl{font-size:10px;fill:var(--fa);}.plot .bl{fill:var(--tx);text-anchor:middle;font-size:10px;}
+.plot .bx{fill:var(--mut);text-anchor:middle;font-size:9.5px;}
+.cap{font:12px/1.45 ui-sans-serif,system-ui,sans-serif;color:var(--mut);margin-top:6px;}
+.mut{color:var(--mut);}
+.pf{margin-top:40px;padding-top:16px;border-top:1px solid var(--bd);font:12px/1.5 ui-sans-serif,system-ui,sans-serif;color:var(--fa);}
+</style></head>
+<body><article>
+<header class="ph">
+  <div class="eyebrow">Informe de validación · research grade</div>
+  <h1>Validación cuantitativa del modelo de régimen de mercado</h1>
+  <div class="byline">24 activos · walk-forward causal estricto · horizontes 1m–24m ·
+    generado 2026-08-03 14:27:38</div>
+  <div class="modelv">régimen v1 · Score causal (percentil expandido) · 3 ejes equipeso · analogías por régimen</div>
+</header>
+
+<section class="semaforo">
+  <h2>Semáforo de credibilidad</h2>
+  <table class="sem"><tbody><tr><td>Motor cuantitativo (causalidad)</td><td class="dot">🟢</td><td class="mut">Sólido</td></tr><tr><td>Calibración probabilística</td><td class="dot">🟠</td><td class="mut">Riesgo moderado</td></tr><tr><td>Cobertura de intervalos</td><td class="dot">🟠</td><td class="mut">Riesgo moderado</td></tr><tr><td>Estacionariedad temporal</td><td class="dot">🟢</td><td class="mut">Sólido</td></tr><tr><td>Múltiples comparaciones (FDR)</td><td class="dot">🟢</td><td class="mut">Sólido</td></tr><tr><td>Skill frente a modelos ingenuos</td><td class="dot">🟠</td><td class="mut">Riesgo moderado</td></tr></tbody></table>
+  <p class="conc"><b>Conclusión técnica.</b> El motor es causal y verificado, y la transparencia es alta. La cobertura de intervalos es de 80% frente al 95% nominal (sesgada). La calibración media presenta pendiente 0.13 (lejos de 1, hay des-calibración). El modelo apenas mejora —o no mejora— la predicción del baseline (skill -0.09): su valor está en el encuadre y la disciplina, no en batir la media. El único resultado estadísticamente fuerte es transversal: de 115 evidencias, tras control de falsos positivos sobreviven 25 (esperadas por azar ≈ 6), concentradas en horizontes largos. La puntuación es poco sensible a shocks de ±20% (elasticidades ≈ 0.02) y está gobernada por la relación exceso/IC; el N efectivo casi no la mueve. En conjunto: el motor es causal y transparente, y existe estructura transversal real a horizontes largos; PERO como predictor de retorno o temporizador de mercado no supera a modelos ingenuos (pierde frente a buy&hold en Sharpe) y sus intervalos son algo optimistas. Uso defendible: contexto de régimen y screening relativo, no señal mecánica de asignación ni market-timing. La precisión se degrada en regímenes de crisis, poco frecuentes.</p>
+</section>
+
+<section><h2>Resumen</h2>
+<p>Se audita el modelo de régimen <em>tal como se publica</em>, sin modificar motor, inferencia,
+datasets ni scores. Para cada activo y fecha se reconstruye la predicción que habría existido ese día
+usando <b>únicamente análogos cuyo horizonte terminó antes de la fecha de decisión</b>
+(<code>j+h ≤ t</code>), y se compara con el resultado realizado. Sobre esos pares out-of-sample se calculan
+exactitud, calibración, robustez temporal y por régimen, estabilidad por bootstrap, tasa de falsos
+positivos y comparación contra modelos ingenuos.</p></section>
+
+<section><h2>1 · Objetivo</h2>
+<p>Demostrar con evidencia reproducible <b>cuándo</b> el modelo funciona, <b>cuándo</b> falla y con
+<b>qué grado de confianza</b> pueden usarse sus recomendaciones. Donde el análisis revela debilidad,
+se muestra de forma explícita en lugar de ocultarse.</p></section>
+
+<section><h2>2 · Metodología</h2>
+<ul>
+<li><b>Walk-forward causal estricto.</b> Predicción en <code>t</code> = mediana de los retornos forward
+de los análogos del mismo régimen cuyo <b>periodo completo terminó antes de t</b>. Esto es más estricto
+que el muestreador de calibración que se envía en el panel (que permite que la ventana de un análogo
+pasado asome más allá de t); por eso algunas cifras aquí son algo peores, a propósito.</li>
+<li><b>Horizontes:</b> 1m (21d), 3m (63d), 6m (126d), 12m (252d), 24m (504d).</li>
+<li><b>Muestreo:</b> una decisión cada 5 días hábiles; mínimo 20 análogos.</li>
+<li><b>Definiciones.</b> Bias = media(pred−obs), positivo = sobreestima. Cobertura = P(obs∈[p2.5,p97.5]
+de los análogos). Exceso = obs−baseline as-of. Estrategia táctica (Sharpe/Hit) long-only cuando el
+exceso predicho &gt; 0, evaluada en decisiones <b>no solapadas</b> (separación ≥ h) para no inflar por
+autocorrelación.</li>
+<li><b>Intervalos:</b> bootstrap circular por bloques (bloque ≈ √n) sobre las decisiones no solapadas.</li>
+<li><b>FDR:</b> Benjamini–Hochberg sobre 115 hipótesis (activo × horizonte), p-valor por
+bootstrap del exceso actual.</li>
+</ul></section>
+
+<section><h2>3 · Supuestos</h2>
+<ul>
+<li>Las etiquetas de régimen y el Score son causales (verificado empíricamente: §4 y abajo).</li>
+<li>El pasado del mismo régimen es informativo del futuro (hipótesis central del modelo — es lo que se pone a prueba).</li>
+<li>Retornos forward solapados ⇒ autocorrelados; se corrige con bloques y decisiones no solapadas.</li>
+<li>Verificación de causalidad del motor: al ocultar las últimas 400 sesiones y recomputar, el Score no cambia
+(máx. |Δ| = 0.000000000) y 5196/5196 etiquetas de régimen son idénticas
+(✓ pasa — el motor no mira el futuro).</li>
+</ul></section>
+
+<section><h2>4 · Resultados</h2>
+
+<h3>4.1 · Exactitud walk-forward (P5-1)</h3>
+<table class="data"><thead><tr><th>Métrica</th><th>1m</th><th>3m</th><th>6m</th><th>12m</th><th>24m</th></tr></thead><tbody><tr><td>N decisiones</td><td>19617</td><td>18954</td><td>18125</td><td>16862</td><td>14433</td></tr><tr><td>MAE</td><td>0.063</td><td>0.119</td><td>0.180</td><td>0.279</td><td>0.419</td></tr><tr><td>RMSE</td><td>0.122</td><td>0.264</td><td>0.346</td><td>0.462</td><td>0.700</td></tr><tr><td>Bias (pred−obs)</td><td>-0.3%</td><td>-1.1%</td><td>-1.8%</td><td>-2.9%</td><td>-9.8%</td></tr><tr><td>Cobertura IC95</td><td>90%</td><td>84%</td><td>80%</td><td>75%</td><td>72%</td></tr><tr><td>Sharpe exceso</td><td>-0.04</td><td>0.08</td><td>0.02</td><td>0.09</td><td>0.11</td></tr><tr><td>Hit rate</td><td>48%</td><td>50%</td><td>50%</td><td>50%</td><td>64%</td></tr><tr><td>Corr pred-obs</td><td>0.03</td><td>0.09</td><td>0.12</td><td>0.10</td><td>0.04</td></tr><tr><td>Corr exceso (Spearman)</td><td>-0.02</td><td>-0.02</td><td>-0.03</td><td>0.06</td><td>0.02</td></tr></tbody></table>
+
+<h3>4.2 · Calibración probabilística (P5-2)</h3>
+<div class="fig"><div class="figc"><svg viewBox="0 0 430 300" class="plot"><line x1="163.1" y1="12" x2="163.1" y2="274" stroke="var(--bd)"/><line x1="42" y1="189.6" x2="418" y2="189.6" stroke="var(--bd)"/><line x1="42.0" y1="274.0" x2="418.0" y2="12.0" stroke="var(--fa)" stroke-dasharray="4 3"/><circle cx="67.9" cy="137.6" r="3.4" fill="var(--ac)"/><circle cx="136.0" cy="152.0" r="3.4" fill="var(--ac)"/><circle cx="155.3" cy="161.0" r="3.4" fill="var(--ac)"/><circle cx="168.6" cy="167.9" r="3.4" fill="var(--ac)"/><circle cx="179.7" cy="166.4" r="3.4" fill="var(--ac)"/><circle cx="191.4" cy="164.9" r="3.4" fill="var(--ac)"/><circle cx="202.6" cy="177.9" r="3.4" fill="var(--ac)"/><circle cx="218.7" cy="153.8" r="3.4" fill="var(--ac)"/><circle cx="239.1" cy="170.2" r="3.4" fill="var(--ac)"/><circle cx="392.1" cy="137.3" r="3.4" fill="var(--ac)"/><text x="42" y="292" class="axl">predicción →</text><text x="6" y="18" class="axl">observado ↑</text></svg><div class="cap">Diagrama de fiabilidad a 6m: predicción media vs
+resultado medio por decil. La diagonal punteada es calibración perfecta.</div></div>
+<table class="data half"><thead><tr><th>Métrica</th><th>3m</th><th>6m</th><th>12m</th></tr></thead><tbody><tr><td>Pendiente (ideal 1)</td><td>0.26</td><td>0.13</td><td>0.12</td></tr><tr><td>Intercepto (ideal 0)</td><td>+3.0%</td><td>+6.0%</td><td>+10.8%</td></tr><tr><td>R²</td><td>0.008</td><td>0.014</td><td>0.010</td></tr><tr><td>ECE (menor mejor)</td><td>0.035</td><td>0.053</td><td>0.070</td></tr></tbody></table></div>
+
+<h3>4.3 · Robustez temporal (P5-3)</h3>
+<table class="data"><thead><tr><th>Época (6m)</th><th>N</th><th>MAE</th><th>Bias</th><th>Cobertura</th><th>Hit</th><th>Sharpe</th></tr></thead><tbody><tr><td>2001-2008</td><td>1530</td><td>0.212</td><td>+10.0%</td><td>39%</td><td>26%</td><td>-0.52</td></tr><tr><td>2009-2016</td><td>6489</td><td>0.150</td><td>-1.2%</td><td>79%</td><td>46%</td><td>-0.11</td></tr><tr><td>2017-2020</td><td>4306</td><td>0.189</td><td>-6.5%</td><td>84%</td><td>49%</td><td>0.07</td></tr><tr><td>2021-actual</td><td>5800</td><td>0.197</td><td>-2.1%</td><td>87%</td><td>55%</td><td>0.13</td></tr></tbody></table>
+<div class="figc"><svg viewBox="0 0 430 260" class="plot"><line x1="30" y1="226.0" x2="422" y2="226.0" stroke="var(--bd)"/><rect x="44.7" y="14.0" width="68.6" height="212.0" fill="var(--ac)" rx="2"/><text x="79.0" y="10.0" class="bl">0.212</text><text x="79.0" y="252.0" class="bx">2001-2008</text><rect x="142.7" y="75.9" width="68.6" height="150.1" fill="var(--ac)" rx="2"/><text x="177.0" y="71.9" class="bl">0.150</text><text x="177.0" y="252.0" class="bx">2009-2016</text><rect x="240.7" y="37.5" width="68.6" height="188.5" fill="var(--ac)" rx="2"/><text x="275.0" y="33.5" class="bl">0.189</text><text x="275.0" y="252.0" class="bx">2017-2020</text><rect x="338.7" y="29.0" width="68.6" height="197.0" fill="var(--ac)" rx="2"/><text x="373.0" y="25.0" class="bl">0.197</text><text x="373.0" y="252.0" class="bx">2021-actual</text></svg><div class="cap">MAE por época a 6m. Dispersión alta ⇒ no estacionariedad.</div></div>
+
+<h3>4.4 · Robustez por régimen (P5-4)</h3>
+<table class="data"><thead><tr><th>Régimen (6m)</th><th>N</th><th>N ef.</th><th>MAE</th><th>Bias</th><th>Cobertura</th><th>Hit</th></tr></thead><tbody><tr><td>Distribución</td><td>24</td><td>1.0</td><td>0.059</td><td>+2.3%</td><td>71%</td><td>100%</td></tr><tr><td>Sobrecalentamiento</td><td>1513</td><td>60.0</td><td>0.099</td><td>+0.8%</td><td>76%</td><td>18%</td></tr><tr><td>Corrección</td><td>227</td><td>9.0</td><td>0.143</td><td>-3.2%</td><td>59%</td><td>50%</td></tr><tr><td>Lateral</td><td>5767</td><td>228.8</td><td>0.154</td><td>-1.8%</td><td>84%</td><td>47%</td></tr><tr><td>Recuperación</td><td>2180</td><td>86.5</td><td>0.188</td><td>+1.2%</td><td>82%</td><td>53%</td></tr><tr><td>Alcista sano</td><td>5210</td><td>206.7</td><td>0.190</td><td>-0.2%</td><td>81%</td><td>53%</td></tr><tr><td>Capitulación</td><td>2047</td><td>81.2</td><td>0.237</td><td>-7.0%</td><td>78%</td><td>50%</td></tr><tr><td>Pánico</td><td>1157</td><td>45.9</td><td>0.263</td><td>-8.6%</td><td>62%</td><td>64%</td></tr></tbody></table>
+<div class="figc"><svg viewBox="0 0 430 260" class="plot"><line x1="30" y1="226.0" x2="422" y2="226.0" stroke="var(--bd)"/><rect x="37.4" y="178.0" width="34.3" height="48.0" fill="var(--ac)" rx="2"/><text x="54.5" y="174.0" class="bl">0.059</text><text x="54.5" y="252.0" class="bx">Distri</text><rect x="86.3" y="146.1" width="34.3" height="79.9" fill="var(--ac)" rx="2"/><text x="103.5" y="142.1" class="bl">0.099</text><text x="103.5" y="252.0" class="bx">Sobrec</text><rect x="135.3" y="110.4" width="34.3" height="115.6" fill="var(--ac)" rx="2"/><text x="152.5" y="106.4" class="bl">0.143</text><text x="152.5" y="252.0" class="bx">Correc</text><rect x="184.3" y="102.1" width="34.3" height="123.9" fill="var(--ac)" rx="2"/><text x="201.5" y="98.1" class="bl">0.154</text><text x="201.5" y="252.0" class="bx">Latera</text><rect x="233.3" y="74.4" width="34.3" height="151.6" fill="var(--ac)" rx="2"/><text x="250.5" y="70.4" class="bl">0.188</text><text x="250.5" y="252.0" class="bx">Recupe</text><rect x="282.4" y="73.2" width="34.3" height="152.8" fill="var(--ac)" rx="2"/><text x="299.5" y="69.2" class="bl">0.190</text><text x="299.5" y="252.0" class="bx">Alcist</text><rect x="331.4" y="35.2" width="34.3" height="190.8" fill="var(--ac)" rx="2"/><text x="348.5" y="31.2" class="bl">0.237</text><text x="348.5" y="252.0" class="bx">Capitu</text><rect x="380.4" y="14.0" width="34.3" height="212.0" fill="var(--ac)" rx="2"/><text x="397.5" y="10.0" class="bl">0.263</text><text x="397.5" y="252.0" class="bx">Pánico</text></svg><div class="cap">MAE por régimen a 6m (ordenado). Los regímenes raros tienen peor precisión.</div></div>
+
+<h3>4.5 · Estabilidad por bootstrap (P5-5)</h3>
+<table class="data"><thead><tr><th>IC95</th><th>1m</th><th>3m</th><th>6m</th><th>12m</th><th>24m</th></tr></thead><tbody><tr><td>IC95 MAE</td><td>[0.05, 0.07]</td><td>[0.09, 0.15]</td><td>[0.14, 0.23]</td><td>[0.22, 0.37]</td><td>[0.31, 0.56]</td></tr><tr><td>IC95 Sharpe</td><td>[-0.20, 0.08]</td><td>[-0.07, 0.15]</td><td>[-0.07, 0.12]</td><td>[0.01, 0.16]</td><td>[0.03, 0.18]</td></tr><tr><td>IC95 Hit rate</td><td>[45.83, 50.71]</td><td>[46.02, 53.68]</td><td>[45.00, 55.86]</td><td>[42.86, 58.78]</td><td>[54.69, 74.19]</td></tr><tr><td>IC95 exceso medio</td><td>[-0.00, 0.00]</td><td>[-0.00, 0.03]</td><td>[-0.01, 0.03]</td><td>[-0.00, 0.09]</td><td>[0.02, 0.22]</td></tr></tbody></table>
+
+<h3>4.6 · Falsos positivos y FDR (P5-6)</h3>
+<p><b>115</b> hipótesis (activo × horizonte). A α=0.05 se esperarían
+<b>5.8</b> falsos positivos por azar; hay <b>31</b> "significativas"
+en crudo. Tras Benjamini–Hochberg (q=0.05) sobreviven <b>25</b>.</p>
+<table class="data"><thead><tr><th>Activo</th><th>Horiz.</th><th>Exceso</th><th>p</th></tr></thead><tbody><tr><td>QQQ</td><td>3m</td><td>+3.6%</td><td>0.0007</td></tr><tr><td>QQQ</td><td>24m</td><td>+9.1%</td><td>0.0007</td></tr><tr><td>^RUT</td><td>24m</td><td>-13.5%</td><td>0.0007</td></tr><tr><td>URTH</td><td>24m</td><td>-9.2%</td><td>0.0007</td></tr><tr><td>EEM</td><td>24m</td><td>-19.0%</td><td>0.0007</td></tr><tr><td>^KS11</td><td>6m</td><td>+15.9%</td><td>0.0007</td></tr><tr><td>^KS11</td><td>12m</td><td>+29.2%</td><td>0.0007</td></tr><tr><td>^KS11</td><td>24m</td><td>+37.5%</td><td>0.0007</td></tr><tr><td>GLD</td><td>12m</td><td>-11.2%</td><td>0.0007</td></tr><tr><td>GLD</td><td>24m</td><td>-25.9%</td><td>0.0007</td></tr><tr><td>SLV</td><td>6m</td><td>+2.8%</td><td>0.0007</td></tr><tr><td>SLV</td><td>12m</td><td>+6.1%</td><td>0.0007</td></tr><tr><td>SLV</td><td>24m</td><td>-31.8%</td><td>0.0007</td></tr><tr><td>BZ=F</td><td>24m</td><td>+12.6%</td><td>0.0007</td></tr><tr><td>URNM</td><td>12m</td><td>+31.3%</td><td>0.0007</td></tr><tr><td>URNM</td><td>24m</td><td>+7.2%</td><td>0.0007</td></tr><tr><td>GDX</td><td>24m</td><td>-9.0%</td><td>0.0007</td></tr><tr><td>GDXJ</td><td>6m</td><td>-6.3%</td><td>0.0007</td></tr><tr><td>GDXJ</td><td>12m</td><td>-5.7%</td><td>0.0007</td></tr><tr><td>GDXJ</td><td>24m</td><td>-9.8%</td><td>0.0007</td></tr><tr><td>KOS</td><td>12m</td><td>+36.6%</td><td>0.0007</td></tr><tr><td>KOS</td><td>24m</td><td>+26.6%</td><td>0.0007</td></tr><tr><td>QQQ</td><td>12m</td><td>+5.2%</td><td>0.0027</td></tr><tr><td>^KS11</td><td>3m</td><td>+3.6%</td><td>0.0040</td></tr><tr><td>KOS</td><td>6m</td><td>+19.4%</td><td>0.0093</td></tr></tbody></table>
+
+<h3>4.7 · Sensibilidad y elasticidades (P5-7)</h3>
+<div class="figc"><svg viewBox="0 0 380 220" class="plot"><line x1="30" y1="186.0" x2="372" y2="186.0" stroke="var(--bd)"/><rect x="47.1" y="177.0" width="79.8" height="9.0" fill="var(--ng)" rx="2"/><text x="87.0" y="173.0" class="bl">-0.00</text><text x="87.0" y="212.0" class="bx">N efectivo</text><rect x="161.1" y="16.9" width="79.8" height="169.1" fill="var(--ng)" rx="2"/><text x="201.0" y="12.9" class="bl">-0.02</text><text x="201.0" y="212.0" class="bx">Exceso</text><rect x="275.1" y="14.0" width="79.8" height="172.0" fill="var(--ac)" rx="2"/><text x="315.0" y="10.0" class="bl">0.02</text><text x="315.0" y="212.0" class="bx">IC</text></svg><div class="cap">Elasticidad media de Opportunity a ±20% en cada variable.
+Domina: <b>ic</b>.</div></div>
+
+<h3>4.8 · Comparación contra modelos ingenuos (P5-8)</h3>
+<table class="data"><thead><tr><th>Métrica</th><th>1m</th><th>3m</th><th>6m</th><th>12m</th><th>24m</th></tr></thead><tbody><tr><td>MAE modelo</td><td>0.063</td><td>0.119</td><td>0.180</td><td>0.279</td><td>0.419</td></tr><tr><td>MAE exceso-cero (baseline)</td><td>0.062</td><td>0.113</td><td>0.165</td><td>0.255</td><td>0.390</td></tr><tr><td>MAE media histórica</td><td>0.062</td><td>0.116</td><td>0.168</td><td>0.269</td><td>0.413</td></tr><tr><td>MAE momentum</td><td>0.087</td><td>0.159</td><td>0.221</td><td>0.325</td><td>0.520</td></tr><tr><td>Skill vs cero (1−MAEm/MAE0)</td><td>-0.027</td><td>-0.055</td><td>-0.089</td><td>-0.093</td><td>-0.074</td></tr><tr><td>Sharpe modelo</td><td>-0.04</td><td>0.08</td><td>0.02</td><td>0.09</td><td>0.11</td></tr><tr><td>Sharpe buy&hold</td><td>0.37</td><td>0.30</td><td>0.34</td><td>0.29</td><td>0.31</td></tr><tr><td>Sharpe momentum</td><td>0.27</td><td>0.27</td><td>0.29</td><td>0.22</td><td>0.24</td></tr></tbody></table>
+<p class="mut">Skill vs cero &gt; 0 ⇒ el modelo predice mejor que asumir exceso nulo (baseline). Sharpe modelo &gt;
+Sharpe buy&amp;hold ⇒ la señal táctica añade valor ajustado por riesgo.</p>
+</section>
+
+<section><h2>5 · Limitaciones</h2>
+<ul>
+<li>Muestra efectiva pequeña a horizontes largos (ventanas solapadas): los IC de 12m–24m son anchos.</li>
+<li>Regímenes raros (Pánico, Clímax) con pocos episodios ⇒ predicción poco fiable ahí.</li>
+<li>El exceso es sobre el propio mercado (beta descontada), no rentabilidad absoluta.</li>
+<li>La diversificación por grupos del panel no modela correlación real entre activos.</li>
+</ul></section>
+
+<section><h2>6 · Amenazas a la validez</h2>
+<ul>
+<li><b>No estacionariedad / cambio estructural:</b> el futuro puede no parecerse a ningún análogo histórico.</li>
+<li><b>Múltiples comparaciones:</b> con 24 activos × 5 horizontes, parte de la "evidencia" es ruido (§4.6).</li>
+<li><b>Sesgo de supervivencia del universo:</b> los ETFs/índices actuales sobreviven; los que no, no están.</li>
+<li><b>Data-snooping del diseñador:</b> el modelo se diseñó conociendo esta misma historia.</li>
+</ul></section>
+
+<section><h2>7 · Conclusiones</h2><p>El motor es causal y verificado, y la transparencia es alta. La cobertura de intervalos es de 80% frente al 95% nominal (sesgada). La calibración media presenta pendiente 0.13 (lejos de 1, hay des-calibración). El modelo apenas mejora —o no mejora— la predicción del baseline (skill -0.09): su valor está en el encuadre y la disciplina, no en batir la media. El único resultado estadísticamente fuerte es transversal: de 115 evidencias, tras control de falsos positivos sobreviven 25 (esperadas por azar ≈ 6), concentradas en horizontes largos. La puntuación es poco sensible a shocks de ±20% (elasticidades ≈ 0.02) y está gobernada por la relación exceso/IC; el N efectivo casi no la mueve. En conjunto: el motor es causal y transparente, y existe estructura transversal real a horizontes largos; PERO como predictor de retorno o temporizador de mercado no supera a modelos ingenuos (pierde frente a buy&hold en Sharpe) y sus intervalos son algo optimistas. Uso defendible: contexto de régimen y screening relativo, no señal mecánica de asignación ni market-timing. La precisión se degrada en regímenes de crisis, poco frecuentes.</p></section>
+
+<section><h2>8 · Trabajo futuro</h2>
+<ul>
+<li>Registro persistente de recomendaciones para un backtest de cartera real (no solo por activo).</li>
+<li>Matriz de correlación para diversificación efectiva verdadera.</li>
+<li>Pruebas formales de cambio estructural (Chow / CUSUM) por serie.</li>
+<li>Validación out-of-universe en activos no usados en el diseño.</li>
+</ul></section>
+
+<footer class="pf">El motor cuantitativo (Score causal, FSM de régimen, analogías condicionales) permanece
+idéntico. Todo este informe es análisis derivado y reproducible sobre el modelo publicado.
+· Runtime 40.6s.</footer>
+</article></body></html>

@@ -1,0 +1,30 @@
+/* Screener — usa los tokens de regime.css (enlazado antes). */
+table.scr{width:100%;border-collapse:collapse;font-size:13px;min-width:720px;}
+table.scr th{font-family:var(--mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);
+  text-align:left;padding:9px 12px;border-bottom:1px solid var(--border);cursor:pointer;user-select:none;white-space:nowrap;}
+table.scr th.num,table.scr td.num{text-align:right;font-variant-numeric:tabular-nums;}
+table.scr th:hover{color:var(--text);}
+table.scr td{padding:9px 12px;border-bottom:1px solid var(--border);}
+table.scr tbody tr:last-child td{border-bottom:none;}
+table.scr tr:hover td{background:color-mix(in srgb,var(--text) 4%,transparent);}
+.scr .sym{font-family:var(--mono);font-weight:600;}
+.scr .nm{color:var(--muted);font-size:11.5px;}
+.scr .rdot{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:7px;vertical-align:middle;}
+.scr .evdot{display:inline-block;width:11px;height:11px;border-radius:50%;}
+.scr .loading{color:var(--faint);}
+.scr .err{color:#cf5b3a;}
+.conf-Alta{color:#3fae6b;font-weight:600;}
+.conf-Media{color:#d99a2b;font-weight:600;}
+.conf-Baja{color:#cf5b3a;font-weight:600;}
+
+/* P2: grade, selección de fila, tabla de comparación */
+.scr .gr{font-family:var(--mono);font-weight:700;font-size:11px;border:1px solid var(--muted);border-radius:5px;padding:1px 5px;margin-right:5px;}
+.scr tr.row{cursor:pointer;}
+.scr tr.sel td{background:color-mix(in srgb,var(--accent) 14%,transparent)!important;}
+.scr tr.sel td:first-child{box-shadow:inset 3px 0 var(--accent);}
+table.cmp{width:100%;border-collapse:collapse;font-size:13px;min-width:420px;}
+table.cmp th{text-align:right;padding:8px 14px;border-bottom:1px solid var(--border);font-family:var(--mono);}
+table.cmp th.win{color:var(--accent);}
+table.cmp td{text-align:right;padding:7px 14px;border-bottom:1px solid var(--border);font-variant-numeric:tabular-nums;}
+table.cmp td.ck,table.cmp th:first-child{text-align:left;color:var(--muted);font-family:inherit;}
+table.cmp tr:last-child td{border-bottom:none;}

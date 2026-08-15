@@ -1,0 +1,430 @@
+<title>Arquitectura de un Market Regime Dashboard institucional</title>
+<style>
+  :root{
+    --paper:#f6f5f2; --ink:#12161c; --muted:#5d6470; --faint:#8a8f99;
+    --line:#ddd9d0; --card:#fffefb; --accent:#2f8a7e; --accent-soft:#2f8a7e22;
+    --keep:#2e9e5b; --red:#c9564e; --amber:#c08a1e;
+    --keep-bg:#2e9e5b18; --red-bg:#c9564e18; --amber-bg:#c08a1e18;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+    --sans:"Helvetica Neue",Arial,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --paper:#0d1014; --ink:#e6e8ec; --muted:#9aa1ad; --faint:#6b7280;
+      --line:#232a33; --card:#12171d; --accent:#48b6a4; --accent-soft:#48b6a422;
+      --keep:#49b673; --red:#dd6b62; --amber:#d6a53c;
+      --keep-bg:#49b67320; --red-bg:#dd6b6220; --amber-bg:#d6a53c20;
+    }
+  }
+  :root[data-theme="light"]{
+    --paper:#f6f5f2; --ink:#12161c; --muted:#5d6470; --faint:#8a8f99;
+    --line:#ddd9d0; --card:#fffefb; --accent:#2f8a7e; --accent-soft:#2f8a7e22;
+    --keep:#2e9e5b; --red:#c9564e; --amber:#c08a1e;
+    --keep-bg:#2e9e5b18; --red-bg:#c9564e18; --amber-bg:#c08a1e18;
+  }
+  :root[data-theme="dark"]{
+    --paper:#0d1014; --ink:#e6e8ec; --muted:#9aa1ad; --faint:#6b7280;
+    --line:#232a33; --card:#12171d; --accent:#48b6a4; --accent-soft:#48b6a422;
+    --keep:#49b673; --red:#dd6b62; --amber:#d6a53c;
+    --keep-bg:#49b67320; --red-bg:#dd6b6220; --amber-bg:#d6a53c20;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);
+    line-height:1.62;font-size:16px;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1060px;margin:0 auto;padding:56px 28px 96px;}
+  .eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--accent);font-weight:600;}
+  h1{font-size:clamp(28px,4.4vw,44px);line-height:1.08;margin:.35em 0 .3em;letter-spacing:-.02em;
+    font-weight:750;text-wrap:balance;}
+  .lede{font-size:19px;color:var(--muted);max-width:64ch;text-wrap:pretty;}
+  .meta{font-family:var(--mono);font-size:12px;color:var(--faint);margin-top:22px;
+    display:flex;gap:20px;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:16px;}
+  h2{font-size:13px;font-family:var(--mono);letter-spacing:.06em;text-transform:uppercase;
+    color:var(--accent);margin:0 0 6px;font-weight:600;}
+  section{margin-top:64px;}
+  section > .h{border-top:2px solid var(--ink);padding-top:14px;margin-bottom:22px;}
+  section > .h h3{font-size:clamp(22px,3vw,30px);margin:.15em 0 0;letter-spacing:-.01em;line-height:1.12;font-weight:720;}
+  .num{font-family:var(--mono);color:var(--faint);font-size:13px;}
+  h4{font-size:17px;margin:30px 0 8px;letter-spacing:-.01em;}
+  p{max-width:70ch;text-wrap:pretty;}
+  strong{font-weight:680;}
+  a{color:var(--accent);}
+  code{font-family:var(--mono);font-size:.86em;background:var(--accent-soft);padding:1px 5px;border-radius:4px;}
+  .scroll{overflow-x:auto;margin:20px 0;border:1px solid var(--line);border-radius:10px;background:var(--card);}
+  table{border-collapse:collapse;width:100%;font-size:13.5px;min-width:640px;}
+  th,td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--line);vertical-align:top;}
+  thead th{font-family:var(--mono);font-size:11px;letter-spacing:.05em;text-transform:uppercase;
+    color:var(--muted);font-weight:600;background:color-mix(in srgb,var(--ink) 4%,transparent);position:sticky;top:0;}
+  tbody tr:last-child td{border-bottom:none;}
+  td.mono,th.mono{font-family:var(--mono);}
+  .tag{font-family:var(--mono);font-size:10.5px;letter-spacing:.04em;font-weight:700;text-transform:uppercase;
+    padding:2px 7px;border-radius:5px;white-space:nowrap;display:inline-block;}
+  .keep{color:var(--keep);background:var(--keep-bg);}
+  .red{color:var(--red);background:var(--red-bg);}
+  .amber{color:var(--amber);background:var(--amber-bg);}
+  .callout{border:1px solid var(--line);border-left:3px solid var(--accent);background:var(--card);
+    border-radius:0 10px 10px 0;padding:18px 22px;margin:22px 0;}
+  .callout.warn{border-left-color:var(--red);}
+  .callout h4{margin:0 0 6px;font-size:15px;}
+  .callout p{margin:.4em 0;font-size:14.5px;color:var(--muted);max-width:74ch;}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px;margin:22px 0;}
+  .fam{border:1px solid var(--line);border-radius:12px;padding:18px 20px;background:var(--card);}
+  .fam .k{font-family:var(--mono);font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--faint);}
+  .fam h5{margin:2px 0 4px;font-size:16.5px;}
+  .fam .pick{color:var(--keep);font-weight:650;font-size:14.5px;}
+  .fam p{font-size:13.5px;color:var(--muted);margin:8px 0 0;max-width:none;}
+  .fam .out{font-size:12.5px;color:var(--faint);margin-top:9px;font-family:var(--mono);}
+  ul.tight{max-width:70ch;padding-left:20px;}
+  ul.tight li{margin:5px 0;}
+  .mermaid{margin:24px 0;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;
+    overflow-x:auto;text-align:center;}
+  .kpill{display:inline-block;font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:20px;
+    border:1px solid var(--line);color:var(--muted);margin:0 4px 4px 0;}
+  hr{border:none;border-top:1px solid var(--line);margin:36px 0;}
+  .foot{margin-top:72px;border-top:1px solid var(--line);padding-top:20px;font-size:13px;color:var(--faint);
+    font-family:var(--mono);}
+  .axis{font-family:var(--mono);font-size:12px;color:var(--accent);font-weight:600;}
+</style>
+
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">Market Regime Model · Nota de arquitectura</div>
+    <h1>Un Score que resume el estado estructural del mercado</h1>
+    <p class="lede">Diseño de un dashboard de régimen —no de señales— robusto a décadas, interpretable,
+    sin lookahead, y construido bajo una sola regla: <strong>máxima información nueva por indicador
+    añadido</strong>. Aplica a índices, cripto, oro y bonos con el mismo pipeline.</p>
+    <div class="meta">
+      <span>Alcance · SP500 · Nasdaq · Russell · EuroStoxx · DAX · Nikkei · BTC · Oro · Bonos</span>
+      <span>Objetivo · estado del mercado, no trading</span>
+    </div>
+  </header>
+
+  <div class="callout warn">
+    <h4>Los dos errores que hunden estos sistemas — antes de cualquier indicador</h4>
+    <p><strong>1 · Redundancia disfrazada de diversificación.</strong> Nueve familias suenan robustas,
+    pero colapsan en ~4 ejes independientes. Cinco indicadores correlacionados no dan robustez: dan
+    <em>falsa confianza</em> y sobreajuste. Cada incorporación se justifica por su ortogonalidad con lo ya presente,
+    nunca por popularidad.</p>
+    <p><strong>2 · Normalización con lookahead.</strong> Un z-score o percentil calculado sobre <em>toda</em>
+    la muestra usa el futuro para juzgar el pasado. Institucional = ventana <strong>expanding</strong> anclada a
+    <code>t</code>. Es la corrección más importante frente a un score que normaliza in-sample.</p>
+  </div>
+
+  <!-- 1 -->
+  <section>
+    <div class="h"><h2><span class="num">01</span> · Reducción dimensional</h2>
+      <h3>De 9 familias a los ejes que de verdad son independientes</h3></div>
+    <p>Antes de elegir indicadores hay que elegir <em>dimensiones</em>. Las nueve familias propuestas no son
+    nueve fuentes de información: varias miden lo mismo con otro nombre. Empíricamente (y lo verificamos en este
+    mismo proyecto: momentum vs tendencia comparten <code>ρ≈0.8</code>, ROC vs RSI <code>0.78</code>) el espacio
+    se reduce a esto:</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Familia propuesta</th><th>Eje latente</th><th>¿Independiente?</th><th class="mono">Universal</th><th>Nota</th></tr></thead>
+      <tbody>
+        <tr><td>Extensión</td><td class="axis">Valuación / Extensión</td><td>Sí (eje 1)</td><td class="mono">Sí</td><td>Dónde está el precio vs una referencia.</td></tr>
+        <tr><td>Tendencia</td><td class="axis">Tendencia</td><td>Sí (eje 2)</td><td class="mono">Sí</td><td>Dirección y pendiente.</td></tr>
+        <tr><td>Momentum</td><td class="axis">Tendencia</td><td><span class="tag red">colapsa</span></td><td class="mono">Sí</td><td>ρ alto con tendencia; no es un eje aparte.</td></tr>
+        <tr><td>Riesgo</td><td class="axis">Volatilidad / Riesgo</td><td>Sí (eje 3)</td><td class="mono">Sí</td><td>Régimen de varianza (vol clustering).</td></tr>
+        <tr><td>Volatilidad</td><td class="axis">Volatilidad / Riesgo</td><td><span class="tag red">colapsa</span></td><td class="mono">Sí</td><td>Es el mismo eje que Riesgo.</td></tr>
+        <tr><td>Breadth</td><td class="axis">Amplitud / Participación</td><td>Sí (eje 4)</td><td class="mono">Solo índices</td><td>Salud transversal — indefinida en BTC/Oro.</td></tr>
+        <tr><td>Participación</td><td class="axis">Amplitud / Participación</td><td><span class="tag red">colapsa</span></td><td class="mono">Solo índices</td><td>≈ breadth con otro proxy.</td></tr>
+        <tr><td>Liquidez</td><td class="axis">Amplitud / Participación</td><td><span class="tag amber">parcial</span></td><td class="mono">Depende</td><td>Volumen/spread; ortogonal pero dato frágil.</td></tr>
+        <tr><td>Macro</td><td class="axis">Macro</td><td>Sí (eje 5, lento)</td><td class="mono">Exógeno</td><td>Baja frecuencia, opcional.</td></tr>
+      </tbody>
+    </table></div>
+    <p><strong>Veredicto:</strong> tres ejes <span class="axis">universales</span> (Extensión, Tendencia, Volatilidad)
+    que funcionan en <em>cualquier</em> activo con solo OHLCV, un cuarto eje <span class="axis">solo para índices</span>
+    (Amplitud), y un quinto <span class="axis">opcional/exógeno</span> (Macro). Diseña el core sobre los tres
+    universales; Amplitud entra como <em>módulo enriquecido</em> cuando el activo lo permite. Añadiría además un eje
+    semi-independiente de <span class="axis">posición de ciclo</span> (drawdown desde máximos), que no es ni pura
+    extensión ni pura tendencia.</p>
+  </section>
+
+  <!-- 2 -->
+  <section>
+    <div class="h"><h2><span class="num">02</span> · Familias e indicadores</h2>
+      <h3>Un indicador por eje, elegido por ortogonalidad — el resto se descarta</h3></div>
+    <p>Para cada eje: el elegido, y —más importante— <em>qué rechazo y por qué</em>. La regla es una sola: si un
+    candidato correlaciona &gt;~0.7 con algo ya presente, no aporta dimensión; fuera.</p>
+
+    <div class="grid">
+      <div class="fam"><div class="k">Eje 1 · Extensión</div>
+        <h5>¿Barato o caro? ¿Extendido?</h5>
+        <div class="pick">✓ Distancia a SMA200 en unidades de ATR (o de vol realizada)</div>
+        <p>Normalizar por volatilidad hace comparable el "estirón" entre regímenes tranquilos y violentos, y entre
+        activos. Interpretable: "está a 2.3σ de su media larga".</p>
+        <div class="out">✗ %distancia cruda (no comparable) · ✗ Bollinger %B (≈ lo mismo) · ✗ P/E, CAPE (no universal)</div>
+      </div>
+      <div class="fam"><div class="k">Eje 2 · Tendencia</div>
+        <h5>¿La tendencia es fuerte o débil?</h5>
+        <div class="pick">✓ Pendiente normalizada de la SMA200 (Δlog por día / vol)</div>
+        <p>Captura dirección <em>y</em> fuerza en un número, robusto y suave. Complemento ortogonal barato:
+        nº de cruces de SMA200 (inestabilidad).</p>
+        <div class="out">✗ SMA50−SMA200 (ρ≈0.8 con pendiente) · ✗ MACD (≈ momentum) · ✗ ADX (ruidoso; ya falsado aquí)</div>
+      </div>
+      <div class="fam"><div class="k">Eje 3 · Volatilidad</div>
+        <h5>¿Pánico o calma?</h5>
+        <div class="pick">✓ Vol realizada (Yang-Zhang / Parkinson), percentil expanding</div>
+        <p>Estimadores con OHLC son más eficientes que close-to-close. Complemento ortogonal: <em>semivol</em> /
+        asimetría a la baja — el miedo no es simétrico.</p>
+        <div class="out">✗ ATR crudo (no normalizado) · ✗ Bollinger width (≈ vol) · △ VIX/term-structure (solo índices con opciones)</div>
+      </div>
+      <div class="fam"><div class="k">Eje 4 · Amplitud <span class="tag amber">índices</span></div>
+        <h5>¿Sube todo o solo 5 valores?</h5>
+        <div class="pick">✓ % de constituyentes sobre su MA200 (o A/D line, new highs−lows)</div>
+        <p>La <em>divergencia</em> breadth-precio es el mejor anticipador de Distribución/Clímax que existe con dato
+        de precio. No universal — requiere los constituyentes.</p>
+        <div class="out">✗ En BTC/Oro/Bonos: indefinido → usar proxies (on-chain, COT) o desactivar el eje</div>
+      </div>
+      <div class="fam"><div class="k">Eje 5 · Posición de ciclo</div>
+        <h5>¿Dónde en el ciclo?</h5>
+        <div class="pick">✓ Drawdown desde ATH (percentil expanding)</div>
+        <p>Semi-ortogonal a extensión; distingue "caro cerca de máximos" de "barato tras un −40%". Barato,
+        universal e intuitivo.</p>
+        <div class="out">✗ Estocástico 52s (ρ≈0.9 con drawdown) · ✗ Williams %R (≈ lo mismo)</div>
+      </div>
+      <div class="fam"><div class="k">Transversal · Inestabilidad</div>
+        <h5>¿Régimen estable o whipsaw?</h5>
+        <div class="pick">✓ Nº de cruces de SMA200 en 120 días</div>
+        <p>Genuinamente ortogonal: no mide nivel ni dirección, sino <em>choppiness</em>. Alto = mercado lateral/transición;
+        bajo = régimen definido. Poco usado, alta información nueva.</p>
+        <div class="out">Alimenta al detector de régimen, no necesariamente al Score.</div>
+      </div>
+    </div>
+
+    <p>Seis tarjetas, pero fíjate en el patrón: <strong>de las nueve familias originales, la mitad de los indicadores
+    "clásicos" se caen por redundancia.</strong> Eso no es empobrecer el modelo — es quitarle el doble conteo que le
+    daba una robustez falsa.</p>
+  </section>
+
+  <!-- 3 -->
+  <section>
+    <div class="h"><h2><span class="num">03</span> · SMA200</h2>
+      <h3>El árbol de derivadas, podado por información</h3></div>
+    <p>La SMA200 es un pilar legítimo, pero sus doce derivadas <em>no</em> son doce señales: casi todas son la misma
+    información derivada o desfasada. Clasificadas por eje y por correlación con sus hermanas:</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Métrica derivada</th><th>Eje que mide</th><th>Redundancia</th><th class="mono">Veredicto</th></tr></thead>
+      <tbody>
+        <tr><td>Distancia % a SMA200</td><td>Extensión</td><td>Base, pero sin normalizar por vol</td><td><span class="tag amber">Mejorar</span></td></tr>
+        <tr><td><strong>Distancia / ATR</strong> (o /vol)</td><td>Extensión</td><td>—</td><td><span class="tag keep">Mantener</span></td></tr>
+        <tr><td>Z-score expanding vs SMA200</td><td>Extensión</td><td>≡ distancia normalizada</td><td><span class="tag amber">Elegir una</span></td></tr>
+        <tr><td><strong>Pendiente SMA200</strong> (normalizada)</td><td>Tendencia</td><td>—</td><td><span class="tag keep">Mantener</span></td></tr>
+        <tr><td>Aceleración (2ª derivada)</td><td>Tendencia</td><td>Derivar dos veces amplifica ruido</td><td><span class="tag red">Descartar*</span></td></tr>
+        <tr><td>Ángulo de la SMA200</td><td>Tendencia</td><td>= pendiente reescalada</td><td><span class="tag red">Redundante</span></td></tr>
+        <tr><td>ROC / velocidad de la SMA200</td><td>Tendencia</td><td>≈ pendiente</td><td><span class="tag red">Redundante</span></td></tr>
+        <tr><td>Separación SMA50−SMA200</td><td>Tendencia</td><td>ρ≈0.8 con pendiente</td><td><span class="tag red">Redundante</span></td></tr>
+        <tr><td>Días sobre SMA200</td><td>Tendencia/persistencia</td><td>Autocorrelado; ≈ signo de pendiente</td><td><span class="tag red">Baja info</span></td></tr>
+        <tr><td>Persistencia</td><td>Tendencia</td><td>≈ días sobre</td><td><span class="tag red">Redundante</span></td></tr>
+        <tr><td><strong>Nº de cruces en 120d</strong></td><td>Inestabilidad</td><td>Ortogonal a nivel y dirección</td><td><span class="tag keep">Mantener</span></td></tr>
+        <tr><td>Distancia a la banda ± en unidades SMA200</td><td>Extensión×Vol</td><td>≈ distancia/ATR</td><td><span class="tag red">Redundante</span></td></tr>
+      </tbody>
+    </table></div>
+    <p>De doce derivadas, <strong>tres</strong> sobreviven al filtro de ortogonalidad: <strong>distancia/ATR</strong>
+    (extensión), <strong>pendiente normalizada</strong> (tendencia) y <strong>cruces en 120d</strong> (inestabilidad).
+    Las otras nueve son la misma señal con distinto disfraz. <span class="num">*La aceleración solo entra si se
+    calcula sobre una SMA muy suavizada; en crudo es ruido puro.</span></p>
+  </section>
+
+  <!-- 4 -->
+  <section>
+    <div class="h"><h2><span class="num">04</span> · Score 0–100</h2>
+      <h3>Normalizar bien importa más que elegir el indicador</h3></div>
+    <h4>Normalización — qué método y por qué</h4>
+    <div class="scroll"><table>
+      <thead><tr><th>Método</th><th>Robusto a outliers</th><th class="mono">Sin lookahead</th><th>Interpretable</th><th>Nota</th></tr></thead>
+      <tbody>
+        <tr><td>Min–max</td><td><span class="tag red">No</span></td><td>Si es expanding</td><td>Media</td><td>Un outlier aplasta toda la escala.</td></tr>
+        <tr><td>Z-score in-sample</td><td>No</td><td><span class="tag red">No (lookahead)</span></td><td>Alta</td><td>Usa el futuro. Descartar en producción.</td></tr>
+        <tr><td>Z-score robusto (mediana/MAD)</td><td><span class="tag keep">Sí</span></td><td>Si es expanding/rolling</td><td>Alta</td><td>Buena alternativa si querés conservar magnitud.</td></tr>
+        <tr><td><strong>Percentil de ventana expanding</strong></td><td><span class="tag keep">Sí</span></td><td><span class="tag keep">Sí</span></td><td><span class="tag keep">Máxima</span></td><td>Bounded 0–100, sin supuesto distribucional.</td></tr>
+        <tr><td>Winsorización (1/99)</td><td>—</td><td>—</td><td>—</td><td>Pre-paso, no método: recorta colas antes de rankear.</td></tr>
+      </tbody>
+    </table></div>
+    <p><strong>Recomendado:</strong> <strong>percentil de ventana expanding</strong> (anclada al inicio, con burn-in
+    mínimo de ~2–3 años) sobre inputs <strong>winsorizados</strong>. Es bounded, sin supuesto de normalidad, robusto,
+    y su lectura es exactamente lo que el usuario quiere: <em>"estás en el percentil X de tu propia historia"</em>.
+    Robust-z (MAD) es la alternativa si necesitás preservar cuán extremo es el extremo.</p>
+
+    <h4>Agregación — cómo no contar dos veces</h4>
+    <p>El doble conteo <em>no</em> se arregla en la suma: se arregla en el diseño. Con familias ortogonales y
+    <strong>un indicador por familia</strong>, cada punto del Score entra una sola vez. Luego:</p>
+    <ul class="tight">
+      <li><strong>Jerárquico:</strong> normaliza indicador → colapsa a nivel familia → combina familias.</li>
+      <li><strong>Equal-weight entre familias decorrelacionadas.</strong> No es pereza: con bloques ortogonales,
+      1/N <em>bate a los pesos optimizados fuera de muestra</em> (DeMiguel, Garlappi &amp; Uppal, 2009). Pesos ajustados =
+      sobreajuste que caduca.</li>
+      <li><strong>Risk-parity opcional:</strong> igualar la <em>contribución de varianza</em> de cada familia para que
+      ninguna domine el Score solo por ser más volátil. Es el único "peso" que yo justificaría estadísticamente.</li>
+      <li><strong>PCA / whitening:</strong> Score = proyección sobre PC1. Elegante, pero los loadings rotan en el tiempo
+      y pierde interpretabilidad → lo dejo como diagnóstico, no como motor.</li>
+    </ul>
+    <div class="callout">
+      <p><strong>Mejor método, en una línea:</strong> percentil expanding + winsorización por indicador →
+      un indicador por eje ortogonal → equal-weight (o risk-parity) entre ejes. Cero pesos ajustados a mano,
+      cero lookahead, cero doble conteo.</p>
+    </div>
+  </section>
+
+  <!-- 5 -->
+  <section>
+    <div class="h"><h2><span class="num">05</span> · Régimen</h2>
+      <h3>El régimen es multidimensional — un Score 1-D no lo puede etiquetar</h3></div>
+    <p>El error de fondo de "umbrales sobre el Score": comprime a una línea algo que vive en un espacio. "Barato +
+    pánico + cayendo" y "barato + calma + recuperando" tienen el <em>mismo</em> Score y son regímenes opuestos. La
+    máquina de estados opera sobre <strong>tres ejes</strong> — Nivel (Score), Tendencia (signo y fuerza), Volatilidad
+    (régimen) — y los regímenes son <em>regiones</em> en ese espacio, no bandas.</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Régimen</th><th class="mono">Nivel</th><th class="mono">Tendencia</th><th class="mono">Vol</th><th>Condición extra</th></tr></thead>
+      <tbody>
+        <tr><td>Pánico</td><td class="mono">bajo</td><td class="mono">↓ fuerte</td><td class="mono">spike</td><td>Vol en percentil &gt;95, confirmada.</td></tr>
+        <tr><td>Capitulación</td><td class="mono">muy bajo</td><td class="mono">↓ desacelerando</td><td class="mono">alta</td><td>Drawdown extremo + vol girando.</td></tr>
+        <tr><td>Recuperación</td><td class="mono">bajo→medio</td><td class="mono">↑ girando</td><td class="mono">cayendo</td><td>Pendiente cruza a positiva; vol baja.</td></tr>
+        <tr><td>Alcista sano</td><td class="mono">medio-alto</td><td class="mono">↑ estable</td><td class="mono">baja</td><td>Extensión no extrema; breadth amplio.</td></tr>
+        <tr><td>Sobrecalentamiento</td><td class="mono">alto</td><td class="mono">↑</td><td class="mono">subiendo</td><td>Extensión &gt;2σ; empieza a subir vol.</td></tr>
+        <tr><td>Clímax</td><td class="mono">extremo</td><td class="mono">↑ parabólico</td><td class="mono">spike</td><td>Extensión extrema + vol spike + volumen clímax.</td></tr>
+        <tr><td>Distribución</td><td class="mono">alto</td><td class="mono">→ aplanando</td><td class="mono">subiendo</td><td>Divergencia breadth-precio (índices).</td></tr>
+        <tr><td>Corrección</td><td class="mono">alto→medio</td><td class="mono">↓ moderada</td><td class="mono">media</td><td>Cae desde alto sin spike de vol.</td></tr>
+        <tr><td>Lateral</td><td class="mono">medio</td><td class="mono">≈0</td><td class="mono">baja</td><td>Cruces SMA200 altos (choppiness).</td></tr>
+      </tbody>
+    </table></div>
+
+    <h4>Cómo hacerlo robusto (no simples umbrales)</h4>
+    <ul class="tight">
+      <li><strong>Histéresis + dwell mínimo:</strong> banda muerta en cada frontera y N días mínimos en un estado
+      antes de poder salir. Mata el parpadeo (ya lo aplicamos en el score de zonas).</li>
+      <li><strong>Confirmación:</strong> las transiciones a estados de shock (Pánico, Clímax) exigen <em>spike de vol
+      confirmado</em> K días, no un solo cierre.</li>
+      <li><strong>Transiciones restringidas:</strong> no todo estado va a todo estado. De Alcista sano no se salta a
+      Pánico sin pasar por Distribución/Corrección — salvo shock exógeno de volatilidad, que es la única arista que
+      rompe el ciclo.</li>
+      <li><strong>Capa probabilística (HMM):</strong> un HMM gaussiano de estados fijos sobre los 3 ejes da el
+      <em>posterior</em> de régimen (suavizado Viterbi) — más principista que reglas. Advertencia: fijar el nº de
+      estados por interpretabilidad, no por AIC ciego, y validar walk-forward; los HMM rotan y sobreajustan si los
+      dejás libres. Recomiendo <strong>FSM robusta como motor + HMM como segunda opinión / medida de confianza</strong>.</li>
+    </ul>
+
+    <pre class="mermaid">
+stateDiagram-v2
+    direction LR
+    [*] --> Lateral
+    Capitulacion --> Recuperacion
+    Recuperacion --> AlcistaSano
+    AlcistaSano --> Sobrecalentamiento
+    Sobrecalentamiento --> Climax
+    Sobrecalentamiento --> Distribucion
+    Climax --> Distribucion
+    Distribucion --> Correccion
+    Correccion --> Capitulacion
+    Correccion --> Lateral
+    Recuperacion --> Correccion
+    AlcistaSano --> Lateral
+    Lateral --> AlcistaSano
+    Lateral --> Correccion
+    Distribucion --> AlcistaSano
+    Capitulacion --> Panico : shock vol
+    Climax --> Panico : shock vol
+    Panico --> Capitulacion
+    Panico --> Recuperacion
+</pre>
+    <p style="font-size:13px;color:var(--faint);font-family:var(--mono);">Ciclo principal en línea sólida; Pánico es la
+    rama de shock, entra/sale solo por volatilidad confirmada.</p>
+  </section>
+
+  <!-- 6 -->
+  <section>
+    <div class="h"><h2><span class="num">06</span> · Probabilidades históricas</h2>
+      <h3>Agrupar situaciones análogas — con la estadística honesta</h3></div>
+    <p>Dos vías para "situaciones similares", y conviene mostrar ambas:</p>
+    <ul class="tight">
+      <li><strong>Condicionar por régimen</strong> (etiqueta de la §5): interpretable — "desde Distribución, históricamente…".</li>
+      <li><strong>k-NN en el espacio de features normalizado con distancia de Mahalanobis:</strong> más granular y
+      respeta la correlación entre ejes. Los k días más parecidos a hoy, no solo los del mismo cajón.</li>
+    </ul>
+    <p>Para cada grupo, el dashboard calcula: percentil actual, frecuencia histórica del estado, tiempo medio de
+    permanencia y su <em>distribución</em> (curva de supervivencia), retorno forward a 1s/1m/3m/6m/12m (mediana +
+    banda percentil), drawdown forward medio y máximo, y vol forward.</p>
+    <div class="callout warn">
+      <h4>Sin estas cuatro advertencias, los números mienten</h4>
+      <p><strong>Solapamiento.</strong> Los retornos forward se solapan → autocorrelan e <em>inflan la significancia</em>.
+      Los IC se calculan con <strong>block / stationary bootstrap</strong>, no con la fórmula iid.</p>
+      <p><strong>N pequeño.</strong> Clímax y Pánico tienen poquísimos análogos. Reporta <strong>N + intervalo de
+      confianza</strong> siempre; nunca un punto. Un régimen con N=6 se marca como baja confianza, explícito.</p>
+      <p><strong>No estacionariedad.</strong> El mercado de 1970 no es el de 2020. Ponderar por recencia o desglosar por
+      época; no fundir 50 años como si fueran homogéneos.</p>
+      <p><strong>Multiplicidad.</strong> Muchos horizontes × muchos regímenes = muchos tests. No sobre-interpretar un
+      p-valor aislado.</p>
+    </div>
+    <p>Regla de presentación: <strong>una distribución (fan chart), no un número</strong>. Siempre con su IC y su N a la vista.</p>
+  </section>
+
+  <!-- 7 -->
+  <section>
+    <div class="h"><h2><span class="num">07</span> · Visualización</h2>
+      <h3>Entendible en menos de 10 segundos</h3></div>
+    <div class="grid">
+      <div class="fam"><div class="k">Arriba · lo esencial</div><h5>Score + Régimen + dirección</h5>
+        <p>Gauge grande 0–100, etiqueta de régimen con color semántico, y una flecha de tendencia. Es lo único que
+        se lee en 2 segundos.</p></div>
+      <div class="fam"><div class="k">El mapa</div><h5>Plano de fase 2-D</h5>
+        <p>Eje X = nivel/valuación, eje Y = régimen de vol. Un punto = hoy, con estela de los últimos N días. El
+        "dónde estamos" de un vistazo — mejor que cualquier tabla.</p></div>
+      <div class="fam"><div class="k">El porqué</div><h5>Contribución por familia</h5>
+        <p>Barras peso × valor (ya construido). Añade un <strong>heatmap de redundancia</strong>: si dos indicadores
+        activos correlacionan alto, avísalo — transparencia sobre el doble conteo.</p></div>
+      <div class="fam"><div class="k">La incertidumbre</div><h5>Medidor de confianza</h5>
+        <p>Función de (nº de análogos, acuerdo entre familias, completitud de datos). Bajo si pocos análogos o si los
+        ejes se contradicen. La honestidad del modelo, visible.</p></div>
+      <div class="fam"><div class="k">El futuro condicional</div><h5>Fan chart de escenarios</h5>
+        <p>Distribución de retornos forward desde los análogos, con bandas percentil. Nunca una flecha de precio: una
+        <em>distribución</em>.</p></div>
+      <div class="fam"><div class="k">El contexto</div><h5>Ribbon histórico + calor</h5>
+        <p>Timeline coloreada por régimen y una tira de "calor del mercado". Sitúa el hoy dentro de la historia.</p></div>
+    </div>
+    <p><strong>Principios:</strong> jerarquía estricta (Score+régimen dominan; detalle debajo), color semántico
+    (verde/ámbar/rojo) separado del color de acento, estado codificado en <em>forma y color</em> (no solo número), y
+    nada que parpadee — la histéresis también es UX.</p>
+  </section>
+
+  <!-- 8 -->
+  <section>
+    <div class="h"><h2><span class="num">08</span> · Anti-sobreajuste</h2>
+      <h3>La disciplina que hace que dure décadas</h3></div>
+    <ul class="tight">
+      <li><strong>Parámetros fijos y redondos</strong> (200, no 187). Un parámetro "óptimo" ajustado es una promesa de
+      caducidad.</li>
+      <li><strong>Normalización expanding</strong> con burn-in declarado. Nunca in-sample.</li>
+      <li><strong>Pocos pesos, equal-weight / risk-parity.</strong> Cero optimización de pesos sobre retornos.</li>
+      <li><strong>Validación walk-forward</strong> de las etiquetas de régimen; estabilidad de loadings si usás PCA.</li>
+      <li><strong>Test de sensibilidad:</strong> si el régimen cambia al pasar SMA200→SMA210, el modelo es frágil. Si
+      no cambia, es robusto. Este test vale más que cualquier backtest de retorno.</li>
+      <li><strong>Robustez cross-asset:</strong> el <em>mismo</em> pipeline, sin re-tunear, debe dar lecturas sensatas en
+      SP500 y en BTC. Si necesita parámetros distintos por activo, está sobreajustado.</li>
+    </ul>
+  </section>
+
+  <!-- 9 -->
+  <section>
+    <div class="h"><h2><span class="num">09</span> · Puente</h2>
+      <h3>Cómo evoluciona tu <code>market-zones</code> actual hacia esto</h3></div>
+    <div class="scroll"><table>
+      <thead><tr><th class="mono">Acción</th><th>Qué</th><th>Por qué</th></tr></thead>
+      <tbody>
+        <tr><td class="mono"><span class="tag keep">Mantener</span></td><td>Estructura de familias, panel de contribución, convicción, tuner</td><td>Ya es el esqueleto correcto e interpretable.</td></tr>
+        <tr><td class="mono"><span class="tag red">Arreglar</span></td><td>Normalización in-sample z → <strong>percentil expanding</strong></td><td>Es el fix de lookahead #1. Hoy el score usa el futuro.</td></tr>
+        <tr><td class="mono"><span class="tag keep">Añadir</span></td><td>Eje Tendencia (pendiente SMA200) + 2º/3er eje para el régimen 2-D</td><td>Un score 1-D no puede etiquetar régimen.</td></tr>
+        <tr><td class="mono"><span class="tag keep">Añadir</span></td><td>Capa de analogías + probabilidades condicionales (§6) con IC</td><td>Es la pregunta "qué pasó históricamente desde aquí".</td></tr>
+        <tr><td class="mono"><span class="tag keep">Añadir</span></td><td>Medidor de confianza + flag de redundancia</td><td>Honestidad del modelo, visible.</td></tr>
+        <tr><td class="mono"><span class="tag amber">Podar</span></td><td>Stretch, Drawdown y TrendDev correlacionan entre sí</td><td>Considerá colapsarlos a 1–2 ejes; hoy pesan como 3 pero informan como ~1.5.</td></tr>
+      </tbody>
+    </table></div>
+    <p>El resumen de todo el documento cabe en una frase: <strong>menos indicadores, más ortogonales, normalizados sin
+    mirar el futuro, agregados sin pesos ajustados, y un régimen que vive en un espacio, no en una línea.</strong></p>
+  </section>
+
+  <div class="foot">
+    Nota de arquitectura · Market Regime Model · para el proyecto market-zones · sin recomendación de inversión.
+  </div>
+
+</div>

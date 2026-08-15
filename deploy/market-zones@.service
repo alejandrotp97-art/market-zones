@@ -1,0 +1,57 @@
+# One instance per person. %i is the account name (ana, bea, alex...).
+#
+# Isolation is by FILE and PROCESS: each instance opens its own cartera.db and
+# nothing else. There is no `user_id` column and no per-request filtering, so
+# there is no filter to forget — the classic way one portfolio leaks into
+# another's screen. A process simply cannot name a file it was not given.
+#
+# The port and the portfolio path come from the per-person environment file,
+# because a systemd template cannot derive a port from %i:
+#   ~/etc/carteras/ana.env
+#     MZ_PORT=8782
+#     CARTERA_DB=%h/var/carteras/ana.db
+#
+# Install (per person):
+#   cp deploy/market-zones@.service ~/.config/systemd/user/
+#   mkdir -p ~/etc/carteras ~/var/carteras && chmod 700 ~/var/carteras
+#   $EDITOR ~/etc/carteras/ana.env
+#   systemctl --user daemon-reload && systemctl --user enable --now market-zones@ana
+#
+# The original instance keeps its own unit (market-zones.service) and its own
+# port: with both variables unset it behaves exactly as it always has.
+
+[Unit]
+Description=market-zones — cartera de %i (instancia propia, base propia)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/bots/market-zones
+Environment=PYTHONUNBUFFERED=1
+# Reutiliza el venv de btc-poly (trae flask+pandas+numpy) SIN modificarlo: ese
+# venv lo comparten ~60 servicios, varios de trading real. waitress vive en
+# ./vendor, instalada con --target.
+Environment=PYTHONPATH=%h/bots/market-zones/vendor
+# MZ_PORT y CARTERA_DB — uno por persona, nunca compartidos.
+EnvironmentFile=%h/etc/carteras/%i.env
+ExecStart=/home/alex/bots/btc-poly/.venv/bin/python %h/bots/market-zones/dashboard.py
+Restart=always
+RestartSec=10
+
+# El proceso ya solo lee su propia base; esto le quita además el resto del
+# disco, para que un fallo en el importador de CSV no pueda alcanzar los bots.
+ReadWritePaths=%h/var/carteras
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+NoNewPrivileges=true
+
+MemoryHigh=200M
+MemoryMax=300M
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=cartera-%i
+
+[Install]
+WantedBy=default.target

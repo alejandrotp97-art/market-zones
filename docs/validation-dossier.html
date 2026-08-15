@@ -1,0 +1,384 @@
+<title>Dossier de Validación y Especificación Técnica — Market Regime Model</title>
+<style>
+  :root{
+    --paper:#f6f5f2; --ink:#12161c; --muted:#5d6470; --faint:#8a8f99;
+    --line:#ddd9d0; --card:#fffefb; --accent:#2f8a7e; --accent-soft:#2f8a7e22;
+    --keep:#2e9e5b; --red:#c9564e; --amber:#c08a1e;
+    --keep-bg:#2e9e5b18; --red-bg:#c9564e18; --amber-bg:#c08a1e18;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+    --sans:"Helvetica Neue",Arial,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  }
+  @media (prefers-color-scheme:dark){:root{
+    --paper:#0d1014; --ink:#e6e8ec; --muted:#9aa1ad; --faint:#6b7280;
+    --line:#232a33; --card:#12171d; --accent:#48b6a4; --accent-soft:#48b6a422;
+    --keep:#49b673; --red:#dd6b62; --amber:#d6a53c;
+    --keep-bg:#49b67320; --red-bg:#dd6b6220; --amber-bg:#d6a53c20;}}
+  :root[data-theme="light"]{
+    --paper:#f6f5f2; --ink:#12161c; --muted:#5d6470; --faint:#8a8f99;
+    --line:#ddd9d0; --card:#fffefb; --accent:#2f8a7e; --accent-soft:#2f8a7e22;
+    --keep:#2e9e5b; --red:#c9564e; --amber:#c08a1e;
+    --keep-bg:#2e9e5b18; --red-bg:#c9564e18; --amber-bg:#c08a1e18;}
+  :root[data-theme="dark"]{
+    --paper:#0d1014; --ink:#e6e8ec; --muted:#9aa1ad; --faint:#6b7280;
+    --line:#232a33; --card:#12171d; --accent:#48b6a4; --accent-soft:#48b6a422;
+    --keep:#49b673; --red:#dd6b62; --amber:#d6a53c;
+    --keep-bg:#49b67320; --red-bg:#dd6b6220; --amber-bg:#d6a53c20;}
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);
+    line-height:1.62;font-size:16px;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1060px;margin:0 auto;padding:56px 28px 96px;}
+  .eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--accent);font-weight:600;}
+  h1{font-size:clamp(28px,4.4vw,44px);line-height:1.08;margin:.35em 0 .3em;letter-spacing:-.02em;
+    font-weight:750;text-wrap:balance;}
+  .lede{font-size:19px;color:var(--muted);max-width:66ch;text-wrap:pretty;}
+  .meta{font-family:var(--mono);font-size:12px;color:var(--faint);margin-top:22px;
+    display:flex;gap:20px;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:16px;}
+  h2{font-size:13px;font-family:var(--mono);letter-spacing:.06em;text-transform:uppercase;
+    color:var(--accent);margin:0 0 6px;font-weight:600;}
+  section{margin-top:64px;}
+  section > .h{border-top:2px solid var(--ink);padding-top:14px;margin-bottom:22px;}
+  section > .h h3{font-size:clamp(22px,3vw,30px);margin:.15em 0 0;letter-spacing:-.01em;line-height:1.12;font-weight:720;}
+  .num{font-family:var(--mono);color:var(--faint);font-size:13px;}
+  h4{font-size:17px;margin:30px 0 8px;letter-spacing:-.01em;}
+  p{max-width:72ch;text-wrap:pretty;}
+  strong{font-weight:680;}
+  code{font-family:var(--mono);font-size:.85em;background:var(--accent-soft);padding:1px 5px;border-radius:4px;}
+  .scroll{overflow-x:auto;margin:20px 0;border:1px solid var(--line);border-radius:10px;background:var(--card);}
+  table{border-collapse:collapse;width:100%;font-size:13px;min-width:640px;}
+  th,td{text-align:left;padding:10px 13px;border-bottom:1px solid var(--line);vertical-align:top;}
+  thead th{font-family:var(--mono);font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;
+    color:var(--muted);font-weight:600;background:color-mix(in srgb,var(--ink) 4%,transparent);}
+  tbody tr:last-child td{border-bottom:none;}
+  td.mono,th.mono,table.data td,table.data th{font-family:var(--mono);}
+  table.data td:not(:first-child){text-align:right;font-variant-numeric:tabular-nums;}
+  .tag{font-family:var(--mono);font-size:10px;letter-spacing:.03em;font-weight:700;text-transform:uppercase;
+    padding:2px 6px;border-radius:5px;white-space:nowrap;display:inline-block;}
+  .keep{color:var(--keep);background:var(--keep-bg);} .red{color:var(--red);background:var(--red-bg);}
+  .amber{color:var(--amber);background:var(--amber-bg);}
+  .callout{border:1px solid var(--line);border-left:3px solid var(--accent);background:var(--card);
+    border-radius:0 10px 10px 0;padding:18px 22px;margin:22px 0;}
+  .callout.warn{border-left-color:var(--red);}
+  .callout h4{margin:0 0 6px;font-size:15px;} .callout p{margin:.4em 0;font-size:14.5px;color:var(--muted);max-width:76ch;}
+  ul.tight{max-width:74ch;padding-left:20px;} ul.tight li{margin:5px 0;}
+  .spec{border:1px solid var(--line);border-radius:12px;background:var(--card);padding:0;margin:18px 0;overflow:hidden;}
+  .spec > .top{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;padding:14px 20px;border-bottom:1px solid var(--line);
+    background:color-mix(in srgb,var(--ink) 3%,transparent);}
+  .spec .name{font-family:var(--mono);font-size:16px;font-weight:700;}
+  .spec .role{font-size:12.5px;color:var(--muted);}
+  .spec dl{display:grid;grid-template-columns:150px 1fr;gap:0;margin:0;}
+  .spec dt{font-family:var(--mono);font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--faint);
+    padding:9px 20px;border-bottom:1px solid var(--line);}
+  .spec dd{margin:0;padding:9px 20px;border-bottom:1px solid var(--line);font-size:14px;}
+  .spec dd:last-of-type,.spec dt:last-of-type{border-bottom:none;}
+  .formula{font-family:var(--mono);font-size:13px;background:var(--accent-soft);padding:3px 7px;border-radius:5px;display:inline-block;}
+  .foot{margin-top:72px;border-top:1px solid var(--line);padding-top:20px;font-size:13px;color:var(--faint);font-family:var(--mono);}
+  .axis{font-family:var(--mono);font-size:12px;color:var(--accent);font-weight:600;}
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Market Regime Model · Dossier de validación · Fases 1–4</div>
+    <h1>La evidencia decide qué indicadores viven</h1>
+    <p class="lede">Análisis empírico de redundancia e información sobre un panel de 8 activos y ~25 años.
+    Correlación, VIF, Mutual Information e Information Gain deciden la clasificación; PCA y selección greedy
+    determinan el conjunto mínimo; el protocolo y la especificación cierran el ciclo.</p>
+    <div class="meta">
+      <span>Panel · SPY · QQQ · Russell · DAX · Nikkei · Oro · TLT · BTC</span>
+      <span>~5.900 obs/activo · estimadores no lineales (MI binned, 10 quantile-bins)</span>
+    </div>
+  </header>
+
+  <!-- FASE 1 -->
+  <section>
+    <div class="h"><h2><span class="num">FASE 1</span> · Redundancia e información</h2>
+      <h3>Cada indicador, medido — no discutido</h3></div>
+    <p><strong>Método.</strong> Para 11 candidatos, por activo y luego promediado: correlación de Spearman
+    (redundancia lineal-monótona), <strong>VIF</strong> y redundancia funcional <code>R²=1−1/VIF</code> (multicolinealidad),
+    <strong>Mutual Information</strong> binned entre pares (redundancia no lineal) y <strong>MI / Information Gain</strong>
+    de cada indicador contra el <em>retorno futuro</em> y la <em>volatilidad futura</em> a 20 días, normalizada por la
+    entropía del objetivo (fracción de información del futuro que explica). <code>info = MI→ret + MI→vol</code>.</p>
+
+    <h4>Resultado por indicador <span class="num">(media del panel)</span></h4>
+    <div class="scroll"><table class="data">
+      <thead><tr><th>Indicador</th><th>VIF</th><th>redFunc R²</th><th>máx|r|</th><th>MI otros</th><th>MI→ret</th><th>MI→vol</th><th>info</th><th style="text-align:left">Clase máquina</th></tr></thead>
+      <tbody>
+        <tr><td>rvol</td><td>19.1</td><td>0.95</td><td>0.89</td><td>0.341</td><td>0.026</td><td>0.114</td><td><strong>0.140</strong></td><td><span class="tag keep">Imprescindible</span></td></tr>
+        <tr><td>mayer</td><td>45.0</td><td>0.98</td><td>0.96</td><td>0.638</td><td>0.023</td><td>0.091</td><td><strong>0.114</strong></td><td><span class="tag keep">Imprescindible</span></td></tr>
+        <tr><td>dd</td><td>2.1</td><td>0.51</td><td>0.66</td><td>0.420</td><td>0.027</td><td>0.067</td><td>0.094</td><td><span class="tag keep">Imprescindible</span></td></tr>
+        <tr><td>roc60</td><td>7.6</td><td>0.87</td><td>0.76</td><td>0.396</td><td>0.018</td><td>0.067</td><td>0.086</td><td><span class="tag keep">Imprescindible</span></td></tr>
+        <tr><td>slope200</td><td>5.7</td><td>0.82</td><td>0.79</td><td>0.421</td><td>0.023</td><td>0.055</td><td>0.077</td><td><span class="tag amber">Útil</span></td></tr>
+        <tr><td>trend_dev</td><td>10.3</td><td>0.90</td><td>0.71</td><td>0.255</td><td>0.017</td><td>0.047</td><td>0.063</td><td><span class="tag amber">Útil</span></td></tr>
+        <tr><td>rsi14</td><td>6.6</td><td>0.85</td><td>0.71</td><td>0.251</td><td>0.014</td><td>0.028</td><td>0.042</td><td><span class="tag amber">Útil</span></td></tr>
+        <tr><td>crosses</td><td><strong>1.2</strong></td><td><strong>0.19</strong></td><td><strong>0.36</strong></td><td>0.198</td><td>0.011</td><td>0.030</td><td>0.042</td><td><span class="tag amber">Útil</span></td></tr>
+        <tr><td>semivol</td><td>22.7</td><td>0.96</td><td>0.89</td><td>0.362</td><td>0.026</td><td>0.099</td><td>0.124</td><td><span class="tag red">Redundante</span></td></tr>
+        <tr><td>sma50_200</td><td>34.5</td><td>0.97</td><td>0.87</td><td>0.452</td><td>0.022</td><td>0.077</td><td>0.099</td><td><span class="tag red">Redundante</span></td></tr>
+        <tr><td>ext_atr</td><td>15.8</td><td>0.94</td><td>0.96</td><td>0.625</td><td>0.024</td><td>0.062</td><td>0.086</td><td><span class="tag red">Redundante</span></td></tr>
+      </tbody>
+    </table></div>
+    <p style="font-size:13px;color:var(--faint)">MI e info en bits normalizados (fracción de la entropía del objetivo). "MI otros" = MI media con el resto de indicadores.</p>
+
+    <div class="callout">
+      <h4>Tres hechos que saltan del dato, no del prejuicio</h4>
+      <p><strong>1 · La volatilidad es el indicador más informativo</strong> (<code>info 0.140</code>), y casi todo viene de
+      <code>MI→vol 0.114</code>: la volatilidad futura es predecible (clustering), el retorno futuro casi no
+      (<code>MI→ret</code> ≈ 0.01–0.03 para <em>todos</em> — los mercados son casi eficientes en dirección).</p>
+      <p><strong>2 · La extensión es un solo eje con cuatro nombres.</strong> <code>mayer</code>, <code>ext_atr</code>
+      y <code>sma50_200</code> correlacionan 0.87–0.96 (VIF 16–45). No son tres señales: son una.</p>
+      <p><strong>3 · <code>crosses</code> es el único genuinamente ortogonal</strong> (VIF <strong>1.2</strong>, redFunc
+      <strong>0.19</strong>, máx|r| <strong>0.36</strong>) — pero con baja info predictiva. No describe el <em>futuro</em>:
+      describe el <em>tipo de régimen</em> (lateral vs tendencial). Sirve al clasificador de estados, no al Score.</p>
+    </div>
+
+    <h4>Clasificación final <span class="num">(reconciliada: máquina + greedy + robustez)</span></h4>
+    <p>La etiqueta de la máquina es per-indicador; para la decisión final se cruza con la redundancia conjunta
+    (FASE 2) y un único criterio de diseño (robustez cross-régimen). Veredicto:</p>
+    <div class="scroll"><table>
+      <thead><tr><th class="mono">Clase</th><th>Indicadores</th><th>Justificación estadística</th></tr></thead>
+      <tbody>
+        <tr><td><span class="tag keep">Imprescindible</span></td><td class="mono">rvol · ext_atr* · dd</td><td>Los 3 ejes independientes dominantes (81% de la varianza, PC1–3). rvol lidera en info; dd es el menos redundante de los informativos (VIF 2.1).</td></tr>
+        <tr><td><span class="tag amber">Útil</span></td><td class="mono">trend_dev · crosses</td><td>trend_dev = eje momentum (+7% varianza, marginal). crosses = eje inestabilidad, único pero baja info → solo para la FSM de régimen.</td></tr>
+        <tr><td><span class="tag red">Redundante</span></td><td class="mono">mayer · slope200 · roc60 · rsi14</td><td>Absorbidos por extensión + momentum (|r| 0.71–0.96 con lo retenido). Válidos como representantes alternativos, no como adiciones.</td></tr>
+        <tr><td><span class="tag red">Eliminar</span></td><td class="mono">semivol · sma50_200</td><td>Duplicados estrictamente dominados: semivol ρ0.89 con rvol e info menor; sma50_200 ρ0.87 con mayer e info menor. No aportan ni eje ni información.</td></tr>
+      </tbody>
+    </table></div>
+    <p style="font-size:13px;color:var(--faint)">* <code>ext_atr</code> vs <code>mayer</code>: el dato prefiere marginalmente a mayer (info 0.114 vs 0.086, ρ 0.96),
+    pero <code>ext_atr</code> normaliza por ATR y es más comparable entre regímenes de volatilidad. Empate de información → lo desempata
+    la estabilidad cross-década (FASE 3). Es la única decisión que dejo abierta a una prueba.</p>
+  </section>
+
+  <!-- FASE 2 -->
+  <section>
+    <div class="h"><h2><span class="num">FASE 2</span> · Conjunto mínimo</h2>
+      <h3>Cinco variables describen el régimen — y dos métodos independientes lo confirman</h3></div>
+    <p>¿Cuál es el conjunto mínimo que describe el régimen? Dos vías, sin ponerse de acuerdo entre ellas, dan lo mismo:</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Método</th><th>Resultado</th><th>Detalle</th></tr></thead>
+      <tbody>
+        <tr><td>PCA sobre la matriz de correlación</td><td class="mono"><strong>5</strong> componentes → 90%</td><td>Varianza acumulada: 0.50 · 0.68 · 0.81 · 0.89 · 0.93 · …</td></tr>
+        <tr><td>Selección greedy (máx info, freno |r|&lt;0.70)</td><td class="mono"><strong>5</strong> indicadores</td><td>rvol → mayer → dd → trend_dev → crosses, y se detiene sola.</td></tr>
+      </tbody>
+    </table></div>
+    <p><strong>Conjunto mínimo empírico:</strong> <code>{ rvol, extensión, dd, trend_dev, crosses }</code> — uno por eje:
+    <span class="axis">Volatilidad · Extensión · Ciclo · Momentum · Inestabilidad</span>. Absorbidos por redundancia:
+    <code>ext_atr/slope200/sma50_200/rsi14/roc60/semivol</code> (según el representante elegido).</p>
+
+    <div class="callout">
+      <h4>El coste-beneficio de cada indicador añadido</h4>
+      <p>La varianza explicada por tamaño de conjunto: <strong>3 → 81%</strong>, <strong>4 → 89%</strong>,
+      <strong>5 → 93%</strong>. Los dos últimos ejes rinden decrecientemente: momentum (<code>trend_dev</code>, +7%) está
+      medio entangled con extensión; inestabilidad (<code>crosses</code>, +4.5%) casi no predice retorno/vol.</p>
+      <p><strong>Arquitectura recomendada:</strong> un <strong>Score de 3–4 entradas</strong>
+      (<code>rvol</code>, <code>ext_atr</code>, <code>dd</code> [+ <code>trend_dev</code>]) — los ejes con información
+      sobre el futuro — más <strong><code>crosses</code> como entrada exclusiva de la máquina de régimen</strong> (define
+      lateral/transición, no mueve el Score). Menos de eso pierde un eje; más de eso es doble conteo.</p>
+    </div>
+    <p><strong>Hallazgo incómodo pero honesto:</strong> la "tendencia" de largo plazo (<code>slope200</code>) NO sobrevive como
+    eje propio — correlaciona 0.75–0.79 con la extensión. Un mercado que sube está a la vez <em>extendido</em> y <em>en
+    tendencia</em>: empíricamente es el mismo estado. Los bits independientes están en volatilidad, posición de ciclo,
+    momentum de corto e inestabilidad, no en "trend" como categoría separada.</p>
+  </section>
+
+  <!-- FASE 3 -->
+  <section>
+    <div class="h"><h2><span class="num">FASE 3</span> · Protocolo de validación</h2>
+      <h3>Qué prueba tiene que pasar un indicador para quedarse</h3></div>
+    <div class="scroll"><table>
+      <thead><tr><th>Régimen de prueba</th><th>Qué valida</th><th>Cómo</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Walk-forward</strong></td><td>Que la info no sea in-sample</td><td>Normalización y etiquetas solo con datos ≤ t; medir info incremental en (t, t+h] nunca vista.</td></tr>
+        <tr><td><strong>Rolling</strong></td><td>Estabilidad temporal del rol</td><td>Ventanas móviles de 5 años; el loading / la correlación con el objetivo no debe cambiar de signo.</td></tr>
+        <tr><td><strong>Cross-asset</strong></td><td>Universalidad</td><td>El mismo pipeline sin re-tunear en los 8 activos; el indicador debe cumplir en ≥ 6 de 8.</td></tr>
+        <tr><td><strong>Cross-década</strong></td><td>No-estacionariedad</td><td>Partir la historia en décadas; VIF e info deben mantenerse; sin colapsos ni saltos de estructura.</td></tr>
+        <tr><td><strong>Stress</strong></td><td>Sensatez en extremos</td><td>Ventanas de crisis, lateral, alcista y bajista (tabla abajo): las etiquetas de régimen deben ser correctas a ojo experto.</td></tr>
+      </tbody>
+    </table></div>
+
+    <h4>Ventanas de stress obligatorias</h4>
+    <div class="scroll"><table>
+      <thead><tr><th>Tipo</th><th>Ventanas</th><th>Régimen esperado</th></tr></thead>
+      <tbody>
+        <tr><td>Crisis</td><td class="mono">2000–02 · 2008 · 2020-03 · 2022</td><td>Corrección → Capitulación → Pánico → Recuperación</td></tr>
+        <tr><td>Lateral</td><td class="mono">2011 · 2015–16 · 2004–05</td><td>Lateral (crosses alto), sin falsos alcistas/bajistas</td></tr>
+        <tr><td>Alcista</td><td class="mono">2013 · 2017 · 2019 · 2023–24</td><td>Alcista sano → Sobrecalentamiento sin Pánico espurio</td></tr>
+        <tr><td>Bajista</td><td class="mono">2008 · 2022 · BTC 2018 · 2014-oro</td><td>Distribución → Corrección → Capitulación</td></tr>
+      </tbody>
+    </table></div>
+
+    <h4>Criterios de permanencia — un indicador se queda solo si pasa TODO</h4>
+    <ul class="tight">
+      <li><strong>Info incremental &gt; 0:</strong> MI condicionada al conjunto ya retenido debe superar un umbral
+      (aporta bits que el resto no da). Si su info desaparece al condicionar → fuera.</li>
+      <li><strong>No-redundancia:</strong> VIF &lt; 5 y máx|r| &lt; 0.70 contra el conjunto retenido, <em>estable en todas las décadas</em>.</li>
+      <li><strong>Estabilidad de signo:</strong> la relación con el objetivo (rank-corr) no cambia de signo entre folds ni décadas.</li>
+      <li><strong>Generalidad:</strong> cumple en ≥ 6 de 8 activos.</li>
+      <li><strong>Insensibilidad a parámetros:</strong> perturbar su parámetro (p.ej. 200→180/220) cambia su rank-corr &lt; ε. Si es frágil, es sobreajuste.</li>
+      <li><strong>Excepción declarada:</strong> un indicador de baja info pero eje único (como <code>crosses</code>) se queda solo
+      para el clasificador de régimen, nunca para el Score, y debe declararse como tal.</li>
+    </ul>
+    <div class="callout warn">
+      <p><strong>Sobre las probabilidades históricas:</strong> los objetivos forward se solapan → los IC se calculan con
+      <em>stationary/block bootstrap</em>, no con la fórmula iid. Cualquier estadística condicional se reporta con N y con
+      su intervalo; un régimen con N pequeño (Clímax, Pánico) se marca de baja confianza, siempre.</p>
+    </div>
+
+    <h4>Resultados de la ejecución <span class="num">— los dos empates, resueltos por dato</span></h4>
+    <p><strong>1 · Estabilidad cross-era</strong> (info por bloques de 5 años × 8 activos; el valor absoluto sube por el
+    sesgo al alza de MI en muestras pequeñas — solo importa el ranking relativo y el CV):</p>
+    <div class="scroll"><table class="data">
+      <thead><tr><th>Indicador</th><th>info media</th><th>std</th><th>CV</th><th style="text-align:left">Nota</th></tr></thead>
+      <tbody>
+        <tr><td><strong>mayer</strong></td><td>0.222</td><td>0.087</td><td><strong>0.39</strong></td><td>más info y CV más bajo que ext_atr</td></tr>
+        <tr><td>slope200</td><td>0.216</td><td>0.089</td><td>0.41</td><td>alto standalone, pero redundante (FASE 1)</td></tr>
+        <tr><td>rvol</td><td>0.215</td><td>0.086</td><td>0.40</td><td>—</td></tr>
+        <tr><td>dd</td><td>0.200</td><td>0.080</td><td>0.40</td><td>—</td></tr>
+        <tr><td>ext_atr</td><td>0.200</td><td>0.081</td><td>0.41</td><td>pierde el desempate</td></tr>
+        <tr><td>crosses</td><td>0.162</td><td>0.061</td><td>0.37</td><td>el MÁS estable, pero baja info → FSM</td></tr>
+        <tr><td>trend_dev</td><td>0.155</td><td>0.064</td><td>0.41</td><td>—</td></tr>
+      </tbody>
+    </table></div>
+    <p><strong>2 · Info incremental sobre la base <code>{rvol, ext_atr, dd}</code></strong> (MI del candidato con el
+    <em>residuo</em> del objetivo tras quitar la base; ~0 = no aporta):</p>
+    <div class="scroll"><table class="data">
+      <thead><tr><th>Candidato</th><th>MI→ret | base</th><th>MI→vol | base</th><th>suma</th><th style="text-align:left">Lectura</th></tr></thead>
+      <tbody>
+        <tr><td>mayer</td><td>0.0099</td><td>0.0157</td><td>0.0257</td><td>≈ ext_atr, aporta lo poco que no comparten</td></tr>
+        <tr><td>roc60</td><td>0.0084</td><td>0.0122</td><td>0.0206</td><td>mejor representante momentum que trend_dev</td></tr>
+        <tr><td>slope200</td><td>0.0058</td><td>0.0126</td><td>0.0184</td><td>—</td></tr>
+        <tr><td>rsi14</td><td>0.0048</td><td>0.0116</td><td>0.0164</td><td>—</td></tr>
+        <tr><td><strong>trend_dev</strong></td><td>0.0057</td><td>0.0084</td><td><strong>0.0141</strong></td><td>bajo — NO es el mejor del eje momentum</td></tr>
+        <tr><td>crosses</td><td>0.0030</td><td>0.0049</td><td>0.0079</td><td>el que menos aporta al Score → FSM</td></tr>
+      </tbody>
+    </table></div>
+    <p><strong>3 · Sensibilidad a parámetros</strong> (rank-corr vs base): ext_atr/mayer <code>0.995</code>, trend_dev
+    <code>0.98</code>, rvol <code>0.96</code>, crosses <code>0.88–0.95</code> (el más sensible, aceptable para un flag de
+    régimen). Todos robustos; ninguno frágil.</p>
+
+    <div class="callout">
+      <h4>Veredicto revisado tras FASE 3 — el dato revoca dos de mis propuestas</h4>
+      <p><strong>ext_atr → MAYER.</strong> Mi prior de "ext_atr por robustez" no se sostiene: <code>mayer</code> tiene
+      más info (0.222 vs 0.200), CV igual o menor, y —clave— al no dividir por ATR queda <em>menos entangled con el eje
+      de volatilidad</em> (ρ −0.24 con rvol vs −0.37 de ext_atr), que ya es una entrada aparte. Extensión = <code>mayer</code>.</p>
+      <p><strong>trend_dev → degradado.</strong> Su info incremental sobre la base es solo <code>0.014</code>, por debajo de
+      roc60/slope200/rsi14. El eje momentum entero aporta ~2% de la información del objetivo. <strong>El Score núcleo es de
+      3 entradas: <code>{ rvol, mayer, dd }</code></strong> (81% de la estructura). Una 4ª entrada de momentum es opcional
+      y, si se incluye, <code>slope200</code> rinde algo más que trend_dev.</p>
+      <p><strong>crosses → confirmado como FSM-only.</strong> Info incremental 0.008 (la menor) y el más sensible a
+      parámetros → nunca al Score; sí al clasificador de régimen (lateral/transición).</p>
+    </div>
+  </section>
+
+  <!-- FASE 4 -->
+  <section>
+    <div class="h"><h2><span class="num">FASE 4</span> · Especificación técnica</h2>
+      <h3>Implementable sin decidir nada más</h3></div>
+    <p>Tras FASE 3 la arquitectura definitiva es: <strong>Score núcleo de 3 entradas <code>{ rvol, mayer, dd }</code></strong>,
+    más <strong><code>crosses</code> exclusivo de la máquina de régimen</strong>, y <code>trend_dev</code> como
+    <strong>4ª entrada opcional</strong> (momentum, valor marginal). Normalización única para todos: <strong>percentil de
+    ventana expanding</strong> (burn-in mínimo 504 sesiones ≈ 2 años; winsorización 1/99 del input crudo antes de rankear)
+    → salida <code>0–100</code>. Ningún z-score in-sample. Todos O(n) en una pasada. Las fichas conservan
+    <code>ext_atr</code> como alternativa documentada del eje Extensión, pero el primario es <code>mayer</code>.</p>
+
+    <div class="spec">
+      <div class="top"><span class="name">rvol</span><span class="role">Eje Volatilidad · entrada de Score · <span class="tag keep">imprescindible</span></span></div>
+      <dl>
+        <dt>Definición</dt><dd><span class="formula">σ = std(Δln P, 20) · √252</span>. Alternativa eficiente: Yang-Zhang con OHLC.</dd>
+        <dt>Parámetros</dt><dd>ventana = 20 · anualización = 252. Fijos.</dd>
+        <dt>Normalización</dt><dd>percentil expanding, <strong>invertido</strong> (vol alta = pánico = lado barato del Score).</dd>
+        <dt>Rango</dt><dd>crudo [0, ∞) · normalizado [0, 100].</dd>
+        <dt>Interpretación</dt><dd>régimen de varianza; alto = estrés/miedo.</dd>
+        <dt>Coste</dt><dd>O(n), trivial.</dd>
+        <dt>Robustez</dt><dd>alta; MI→vol 0.114 (el más informativo). Yang-Zhang baja la varianza del estimador.</dd>
+        <dt>Limitaciones</dt><dd>ventana de 20 rezaga; un spike aislado infla; describe régimen, no hace timing.</dd>
+      </dl>
+    </div>
+
+    <div class="spec">
+      <div class="top"><span class="name">mayer</span><span class="role">Eje Extensión · entrada de Score · <span class="tag keep">imprescindible (primario, FASE 3)</span></span></div>
+      <dl>
+        <dt>Definición</dt><dd><span class="formula">P / SMA200</span> (Mayer Multiple).</dd>
+        <dt>Parámetros</dt><dd>SMA = 200. Fijo.</dd>
+        <dt>Normalización</dt><dd>percentil expanding → 0–100 (alto = caro/extendido).</dd>
+        <dt>Rango</dt><dd>crudo (0, ∞) · normalizado [0, 100].</dd>
+        <dt>Interpretación</dt><dd>cuánto cotiza el precio por encima/debajo de su media larga.</dd>
+        <dt>Coste</dt><dd>O(n).</dd>
+        <dt>Robustez</dt><dd>ganador del desempate: más info (0.222 vs 0.200), CV menor, y menos acoplado al eje volatilidad (ρ −0.24 con rvol vs −0.37 de ext_atr). Rank-corr 0.995 ante SMA ±20.</dd>
+        <dt>Limitaciones</dt><dd>no vol-normalizado (por diseño, para no duplicar el eje rvol); 200 sesiones de burn-in.</dd>
+      </dl>
+    </div>
+
+    <div class="spec">
+      <div class="top"><span class="name">ext_atr</span><span class="role">Eje Extensión · alternativa documentada · <span class="tag amber">alternativa</span></span></div>
+      <dl>
+        <dt>Definición</dt><dd><span class="formula">(P − SMA200) / ATR14</span>. ATR = RMA(TR, 14) de Wilder.</dd>
+        <dt>Parámetros</dt><dd>SMA = 200 · ATR = 14. Fijos y redondos.</dd>
+        <dt>Normalización</dt><dd>percentil expanding → 0–100 (alto = caro/extendido).</dd>
+        <dt>Rango</dt><dd>crudo (−∞, ∞) en unidades de ATR · normalizado [0, 100].</dd>
+        <dt>Interpretación</dt><dd>cuán estirado está el precio vs su media larga, medido en volatilidad.</dd>
+        <dt>Coste</dt><dd>O(n).</dd>
+        <dt>Robustez</dt><dd>la normalización por ATR lo hace comparable entre regímenes y activos (razón para preferirlo a mayer crudo).</dd>
+        <dt>Limitaciones</dt><dd>requiere 200 sesiones de burn-in; la SMA200 rezaga; ρ 0.96 con mayer (elegir uno, no ambos).</dd>
+      </dl>
+    </div>
+
+    <div class="spec">
+      <div class="top"><span class="name">dd</span><span class="role">Eje Ciclo · entrada de Score · <span class="tag keep">imprescindible</span></span></div>
+      <dl>
+        <dt>Definición</dt><dd><span class="formula">P / máx_acumulado(P) − 1</span> (drawdown desde máximo histórico).</dd>
+        <dt>Parámetros</dt><dd>máximo expanding (verdadero ATH) o rolling 5 años — <em>única elección a fijar en FASE 3</em>.</dd>
+        <dt>Normalización</dt><dd>percentil expanding → 0–100 (drawdown profundo = bajo).</dd>
+        <dt>Rango</dt><dd>crudo (−1, 0] · normalizado [0, 100].</dd>
+        <dt>Interpretación</dt><dd>posición dentro del ciclo de caída; distingue "caro en máximos" de "barato tras −40%".</dd>
+        <dt>Coste</dt><dd>O(n).</dd>
+        <dt>Robustez</dt><dd>alta; el más independiente de los informativos (VIF 2.1, redFunc 0.51).</dd>
+        <dt>Limitaciones</dt><dd>el ATH expanding nunca resetea → en históricos muy largos un máximo rolling puede ser más informativo.</dd>
+      </dl>
+    </div>
+
+    <div class="spec">
+      <div class="top"><span class="name">trend_dev</span><span class="role">Eje Momentum · 4ª entrada OPCIONAL · <span class="tag amber">degradado (FASE 3: incr. 0.014)</span></span></div>
+      <dl>
+        <dt>Definición</dt><dd>residuo de OLS <span class="formula">ln P ~ a + b·t</span> sobre ventana rolling de 200, evaluado en el último punto.</dd>
+        <dt>Parámetros</dt><dd>ventana = 200.</dd>
+        <dt>Normalización</dt><dd>percentil expanding → 0–100.</dd>
+        <dt>Rango</dt><dd>crudo (−∞, ∞) en log · normalizado [0, 100].</dd>
+        <dt>Interpretación</dt><dd>desviación respecto a la tendencia log reciente (momentum de corto-medio).</dd>
+        <dt>Coste</dt><dd>O(n) vectorizado (regresión rolling en forma cerrada).</dd>
+        <dt>Robustez</dt><dd>media; representa el eje momentum (ρ 0.71 con rsi14, 0.70 con roc60).</dd>
+        <dt>Limitaciones</dt><dd>eje entangled con extensión; el +7% de varianza es marginal — descartable si se prefiere un Score de 3 entradas.</dd>
+      </dl>
+    </div>
+
+    <div class="spec">
+      <div class="top"><span class="name">crosses</span><span class="role">Eje Inestabilidad · entrada de la FSM (NO del Score) · <span class="tag amber">útil</span></span></div>
+      <dl>
+        <dt>Definición</dt><dd>nº de cambios de signo de <span class="formula">P − SMA200</span> en las últimas 120 sesiones.</dd>
+        <dt>Parámetros</dt><dd>SMA = 200 · ventana = 120.</dd>
+        <dt>Normalización</dt><dd>percentil expanding → 0–100 (o conteo crudo).</dd>
+        <dt>Rango</dt><dd>crudo [0, ~30] · normalizado [0, 100].</dd>
+        <dt>Interpretación</dt><dd>choppiness; alto = lateral/whipsaw, bajo = régimen definido.</dd>
+        <dt>Coste</dt><dd>O(n).</dd>
+        <dt>Robustez</dt><dd>máxima ortogonalidad (VIF 1.2). Insensible a parámetros.</dd>
+        <dt>Limitaciones</dt><dd>baja info predictiva (0.042) → <strong>no entra al Score</strong>; alimenta la detección de estado Lateral/transición.</dd>
+      </dl>
+    </div>
+
+    <h4>Descartados — con su motivo empírico</h4>
+    <div class="scroll"><table>
+      <thead><tr><th>Indicador</th><th class="mono">Motivo</th><th>Absorbido por</th></tr></thead>
+      <tbody>
+        <tr><td>mayer</td><td><span class="tag red">Redundante</span></td><td>ext_atr (ρ 0.96) — representante alternativo del eje Extensión.</td></tr>
+        <tr><td>sma50_200</td><td><span class="tag red">Eliminar</span></td><td>mayer/ext_atr (ρ 0.87), info menor.</td></tr>
+        <tr><td>slope200</td><td><span class="tag red">Redundante</span></td><td>Extensión (ρ 0.75–0.79); trend ≠ eje propio.</td></tr>
+        <tr><td>roc60</td><td><span class="tag red">Redundante</span></td><td>Extensión + momentum (ρ 0.74–0.76).</td></tr>
+        <tr><td>rsi14</td><td><span class="tag red">Redundante</span></td><td>trend_dev (ρ 0.71) — mismo eje momentum, menos info.</td></tr>
+        <tr><td>semivol</td><td><span class="tag red">Eliminar</span></td><td>rvol (ρ 0.89), info menor — no hay eje "downside" separado.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <div class="foot">
+    Dossier de validación · Market Regime Model · panel 8 activos / ~25 años · sin recomendación de inversión.
+    Reproducible: <code>analysis/fase1_redundancy.py</code>.
+  </div>
+</div>

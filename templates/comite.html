@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Comité de Inversión</title>
+  <link rel="stylesheet" href="{{ asset('regime.css') }}">
+  <link rel="stylesheet" href="{{ asset('comite.css') }}">
+</head>
+<body>
+  <div class="wrap">
+    <nav class="topnav no-print">
+      <a href="/">Zonas de Mercado</a>
+      <a href="/regime">Régimen de Mercado</a>
+      <a href="/screener">Screener</a>
+      <a href="/comite" class="on">Comité</a>
+      <a href="/cartera">Cartera</a>
+      <a href="/swing" target="_blank" rel="noopener">Swing BTC ↗</a>
+      <a href="/abraham/panorama.html" target="_blank" rel="noopener">Proyecto Abraham ↗</a>
+    </nav>
+
+    <header class="top">
+      <div class="titles">
+        <h1>Comité de Inversión</h1>
+        <div class="sub">Decisión de asignación sobre <span id="n-assets">—</span> activos ·
+          construido reutilizando el motor de régimen · <span id="gen-ts">—</span></div>
+      </div>
+      <div class="controls no-print">
+        <span id="prog" class="legend"></span>
+        <div class="export-bar">
+          <button data-exp="csv">CSV</button>
+          <button data-exp="json">JSON</button>
+          <button data-exp="exec">PDF ejecutivo</button>
+          <button data-exp="tech">PDF técnico</button>
+          <button data-exp="audit">Informe auditoría</button>
+        </div>
+      </div>
+    </header>
+
+    <!-- P4-3 · Resumen ejecutivo (se lee en < 2 min) -->
+    <section class="card exec" id="exec-sec">
+      <div class="card-h"><span>Resumen ejecutivo del comité</span>
+        <span class="legend">lectura &lt; 2 min <button class="why" data-why="exec">¿Por qué?</button></span></div>
+      <div id="exec"></div>
+    </section>
+
+    <!-- P4-1 · Motor de asignación -->
+    <section class="card alloc-sec" id="alloc-sec">
+      <div class="card-h"><span>Asignación de capital sugerida</span>
+        <span class="legend">heurística transparente · no optimizada <button class="why" data-why="alloc">¿Por qué?</button></span></div>
+      <div id="alloc"></div>
+    </section>
+
+    <!-- P4-2 salud + P4-4 radar -->
+    <section class="two">
+      <div class="card">
+        <div class="card-h"><span>Salud de la cartera</span>
+          <span id="health-rating" class="legend"></span></div>
+        <div id="health"></div>
+      </div>
+      <div class="card">
+        <div class="card-h"><span>Calidad de la decisión</span>
+          <span class="legend">no es rentabilidad <button class="why" data-why="radar">¿Por qué?</button></span></div>
+        <div class="radar-host"><canvas id="radar"></canvas></div>
+        <div id="radar-legend" class="radar-legend"></div>
+      </div>
+    </section>
+
+    <!-- P4-6 · Stress test -->
+    <section class="card no-print" id="stress-sec">
+      <div class="card-h"><span>Stress test · ¿y si la señal se degrada?</span>
+        <span class="legend">simulación sobre métricas derivadas <button class="why" data-why="stress">¿Por qué?</button></span></div>
+      <div id="stress"></div>
+    </section>
+
+    <!-- P4-5 · Timeline de decisiones -->
+    <section class="card" id="timeline-sec">
+      <div class="card-h"><span>Evolución del proceso de decisión</span>
+        <span class="legend"><select id="tl-sym" class="mini-sel"></select>
+          <button class="why" data-why="timeline">¿Por qué?</button></span></div>
+      <div class="timeline-host"><canvas id="timeline"></canvas></div>
+      <div id="tl-note" class="mut small"></div>
+    </section>
+
+    <!-- P4-8 · Auditoría -->
+    <section class="card tech-only" id="audit-sec">
+      <div class="card-h"><span>Registro de auditoría</span>
+        <span class="legend">exportable · nada oculto</span></div>
+      <div class="scroll"><table id="audit-tbl" class="au-tbl"></table></div>
+      <div id="audit-lims" class="au-lims"></div>
+    </section>
+
+    <p class="mut small no-print" style="margin-top:18px">
+      El motor cuantitativo (Score causal, FSM de régimen, analogías condicionales) permanece intacto.
+      Todo lo anterior son <b>métricas derivadas de presentación</b> calculadas sobre el payload de <code>/api/regime</code>.
+    </p>
+
+    <div id="status" class="status no-print" hidden></div>
+  </div>
+
+  <div id="why-pop" class="why-pop no-print" hidden></div>
+
+  {# See screener.html: `{{ }}` inside <script> HTML-escapes, which the script
+     parser never decodes. `tojson` is the correct escaper for this context. #}
+  <script>window.__TICKERS__ = {{ curated|tojson }};</script>
+  <script src="{{ asset('comite.js') }}"></script>
+</body>
+</html>

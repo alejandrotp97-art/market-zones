@@ -1,0 +1,26 @@
+# Instalación:  pip install -r requirements.txt
+#
+# Motor de puntuación (matemática pura, sin red):
+numpy>=1.24
+pandas>=2.0
+
+# El panel web. El motor no depende de Flask: se puede usar desde la línea de
+# comandos (cli.py) sin levantar ningún servidor.
+flask>=3.0
+
+# Servidor de producción. Sin él, dashboard.py cae al servidor de desarrollo de
+# Flask, que abre un hilo por conexión sin límite: aceptable en local, no cuando
+# hay un proxy delante reenviando peticiones de desconocidos.
+waitress>=3.0
+
+# Usado por research/ (validación estadística), no por el panel.
+scipy>=1.10
+
+# Sólo para los informes en PNG de analysis/. El panel no lo importa.
+matplotlib>=3.7
+
+# El adaptador de datos usa únicamente la librería estándar (urllib), así que no
+# hacen falta `requests` ni `yfinance`. La normal acumulada sale de math.erf.
+
+# Desarrollo
+pytest>=8.0

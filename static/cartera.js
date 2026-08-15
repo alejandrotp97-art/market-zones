@@ -1,0 +1,451 @@
+/* Mi Cartera — libro de movimientos + posiciones valoradas.
+   Persistencia server-side (SQLite); importación CSV/Excel en el backend. */
+(() => {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const POS = "#3fae6b", NEG = "#cf5b3a";
+  // ── modo discreto ────────────────────────────────────────────────────────
+  // El ojo tapa los importes en pantalla y nada más: no toca la base de datos,
+  // no deja de pedir precios, no cambia un solo número. Se enmascara AQUÍ, en
+  // los formateadores por los que pasa todo importe, en vez de ir tapando cada
+  // hueco de la plantilla — así lo que se añada mañana nace ya cubierto.
+  // La bandera vive en el <body> para que el módulo del mapa, que es otro
+  // fichero con su propio ámbito, lea exactamente la misma verdad.
+  const MASK = "•••";
+  const hidden = () => document.body.classList.contains("amounts-hidden");
+  const fmt = (x, d) => Number(x).toLocaleString("es-ES", { minimumFractionDigits: d, maximumFractionDigits: d });
+  const money = (x, d = 2) => (x == null ? "—" : hidden() ? MASK : fmt(x, d));
+  const eur = (x, d = 2) => (x == null ? "—" : money(x, d) + " €");
+  const nat = (x, ccy, d = 2) => (x == null ? "—" : money(x, d) + (ccy ? " " + ccy : ""));
+  // Las participaciones se tapan igual que el dinero: los precios son públicos,
+  // así que cantidad × precio reconstruye el patrimonio que acabas de esconder.
+  const qty = (x) => (x == null ? "—" : hidden() ? MASK
+    : Number(x).toLocaleString("es-ES", { maximumFractionDigits: 6 }));
+  const signed = (x, suf = "") => x == null ? "—" :
+    `<span style="color:${x >= 0 ? POS : NEG};font-weight:600">${x >= 0 ? "+" : ""}${money(x)}${suf}</span>`;
+  const status = (t) => { const s = $("status"); if (!t) { s.hidden = true; return; } s.textContent = t; s.hidden = false; };
+  const cssv = (v) => getComputedStyle(document.body).getPropertyValue(v).trim();
+  // Eje Y: en modo discreto se queda SIN etiquetas, no con "•••" repetido seis
+  // veces. Las líneas de rejilla siguen ahí, así que la forma de la curva —que
+  // no es un importe— se lee igual.
+  const kfmt = (v) => hidden() ? ""
+    : Math.abs(v) >= 1000 ? (v / 1000).toLocaleString("es-ES", { maximumFractionDigits: 1 }) + "k"
+      : Number(v).toLocaleString("es-ES", { maximumFractionDigits: 0 });
+  // Every state-changing call carries this header. It is not CORS-safelisted,
+  // so a cross-site fetch() trying to forge one triggers a preflight the server
+  // never answers, and an HTML form cannot set headers at all.
+  const CSRF = { "X-Market-Zones": "1" };
+  const send = (url, opts = {}) =>
+    fetch(url, { ...opts, headers: { ...(opts.headers || {}), ...CSRF } });
+
+  // Every field below reaches the DOM from a CSV the user uploaded, so it is
+  // untrusted markup until escaped. Quotes included: `kind` lands inside an
+  // attribute-adjacent template, and a stray `<` from a broker export ("Compra
+  // < 100 uds") is enough to eat the rest of the table.
+  const esc = (s) => String(s == null ? "" : s).replace(/[<>&"']/g, (c) =>
+    ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;", "'": "&#39;" }[c]));
+  // ETC va aparte del resto: es el tipo del oro de la cartera y sin entrada
+  // propia caía al gris genérico, indistinguible de "tipo desconocido".
+  const KINDCOL = { ETF: "#4a90d9", ETC: "#b0873f", Fondo: "#8a63d2", "Acción": "#3fae6b", "Índice": "#d99a2b", Cripto: "#e0952b", Divisa: "#7c828e", Futuro: "#7c828e" };
+  const kbadge = (k) => k ? `<span class="kbadge" style="background:${KINDCOL[k] || "#7c828e"}">${esc(k)}</span>` : "";
+
+  // Celda "Activo", compartida por posiciones y movimientos: el NOMBRE arriba
+  // en negrita con su etiqueta, el ISIN/ticker debajo. Sin nombre, el ticker
+  // pasa arriba en vez de dejar un titular vacío con subtítulo.
+  const assetCell = (ticker, name, kind, extra = "") => name
+    ? `<span class="a-name">${esc(name)}</span> ${kbadge(kind)}${extra}<div class="a-sym">${esc(ticker)}</div>`
+    : `<span class="a-name a-mono">${esc(ticker)}</span> ${kbadge(kind)}${extra}`;
+  let CH = null, sel = null, P = null;
+
+  async function load() {
+    status("Cargando…");
+    // The history endpoint does not depend on the positions payload, so both
+    // round trips run at once instead of one after the other.
+    const hist = loadHistory();
+    try { render(await (await fetch("/api/cartera")).json(), false); }
+    catch (e) { status("Error al cargar"); return; }
+    await hist;
+    status("");
+  }
+
+  // `dataChanged` es falso cuando solo repintamos lo mismo con otro aspecto (el
+  // ojo): el mapa no tiene por qué volver a pedir nada para tapar sus cifras.
+  function render(p, reloadHistory = true, dataChanged = true) {
+    P = p;                                  // último payload, para repintar sin pedirlo otra vez
+    const s = p.summary || {};
+    // El mapa de exposición geográfica vive en su propio módulo y se entera por
+    // aquí: un evento en vez de una llamada directa, para que ninguna de las dos
+    // piezas necesite existir para que la otra funcione.
+    document.dispatchEvent(new CustomEvent(dataChanged ? "cartera:changed" : "cartera:display"));
+    $("n-mov").textContent = s.n_movements ?? 0;
+    $("s-inv").textContent = eur(s.invested);
+    $("s-mval").textContent = eur(s.market_value);
+    $("s-unreal").innerHTML = signed(s.unreal, " €");
+    $("s-unrealpct").textContent = s.unreal_pct != null ? (s.unreal_pct >= 0 ? "+" : "") + s.unreal_pct + "%" : "";
+    $("s-real").innerHTML = signed(s.realized, " €");
+    // posiciones
+    const open = (p.positions || []).filter((r) => r.qty > 1e-9);
+    const closed = (p.positions || []).filter((r) => r.qty <= 1e-9 && Math.abs(r.realized) > 1e-9);
+    const ccyNote = (s.currencies && s.currencies.length > 1) ? ` · ${s.currencies.join("/")} → EUR en tiempo real` : "";
+    // The totals cover only what could be valued. Never let the header imply
+    // it covers everything when it does not.
+    const nUnv = (s.unvalued || []).length;
+    const notes = [`${open.length} abiertas`];
+    if (closed.length) notes.push(`${closed.length} cerradas`);
+    if (nUnv) notes.push(`⚠ ${nUnv} sin valorar (${s.unvalued.map((u) => u.ticker + ": " + u.why).join(", ")}) — fuera de los totales`);
+    if ((s.oversold || []).length) notes.push(`⚠ ventas de más en ${s.oversold.map((o) => o.ticker).join(", ")}`);
+    if (s.n_undated) notes.push(`⚠ ${s.n_undated} movimientos sin fecha`);
+    $("pos-legend").textContent = notes.join(" · ") + ccyNote;
+    $("pos-legend").classList.toggle("has-warn", nUnv > 0 || (s.oversold || []).length > 0 || s.n_undated > 0);
+    $("pos-body").innerHTML = open.concat(closed).map((r) => {
+      const cl = r.qty <= 1e-9;
+      return `<tr class="${cl ? "closed" : ""}">
+        <td>${assetCell(r.ticker, r.name, r.kind,
+          (r.why ? ` <span class="warn" title="No puedo expresarla en EUR: ${esc(r.why)}">⚠</span>` : "")
+          + (r.oversold ? ` <span class="warn" title="Hay ${qty(r.oversold)} vendidas de más: falta una compra en los movimientos">⚠ ventas de más</span>` : "")
+          + (cl ? ' <span class="mut small">cerrada</span>' : ""))}</td>
+        <td class="num">${cl ? "—" : qty(r.qty)}</td>
+        <td class="num">${nat(r.avg_cost, r.ccy, 4)}</td>
+        <td class="num">${cl ? "—" : eur(r.invested)}</td>
+        <td class="num">${nat(r.last, r.ccy, 4)}</td>
+        <td class="num">${eur(r.market_value)}</td>
+        <td class="num">${cl ? "—" : signed(r.unreal, " €")}</td>
+        <td class="num">${r.unreal_pct != null ? `<span style="color:${r.unreal_pct >= 0 ? POS : NEG}">${r.unreal_pct >= 0 ? "+" : ""}${r.unreal_pct}%</span>` : "—"}</td>
+        <td class="num">${signed(r.realized, " €")}</td></tr>`;
+    }).join("") || `<tr><td colspan="9" class="mut" style="padding:16px">Sin posiciones todavía. Añade un movimiento o importa un archivo.</td></tr>`;
+    // movimientos
+    $("mov-body").innerHTML = (p.movements || []).map((m) => `
+      <tr>
+        <td>${m.date ? esc(m.date) : "—"}</td><td>${assetCell(m.ticker, m.name, m.kind)}</td>
+        <td><span class="side ${m.side === "buy" ? "buy" : "sell"}">${m.side === "buy" ? "Compra" : "Venta"}</span></td>
+        <td class="num">${qty(m.quantity)}</td><td class="num">${money(m.price, 4)}</td>
+        <td class="num">${money(m.fee)}</td><td class="note">${esc(m.note || "")}</td>
+        <td class="num"><button class="del" data-id="${esc(m.id)}" title="eliminar">✕</button></td>
+      </tr>`).join("") || `<tr><td colspan="8" class="mut" style="padding:16px">Aún no hay movimientos.</td></tr>`;
+    $("mov-body").querySelectorAll(".del").forEach((b) =>
+      b.addEventListener("click", () => del(b.dataset.id)));
+    if (p.import) importMsg(p.import);
+    if (reloadHistory) loadHistory();     // skipped on first load: already in flight
+  }
+
+  // ── evolución de la cartera + benchmark ──────────────────────────────
+  async function loadHistory() {
+    const b = ($("bench").value || "SPY").trim();
+    try { CH = await (await fetch("/api/cartera/history?benchmark=" + encodeURIComponent(b))).json(); }
+    catch (e) { CH = null; }
+    drawChart();
+  }
+
+  const SERIES = () => [
+    { k: "invested", c: cssv("--faint"), dash: [4, 4], lab: "Invertido" },
+    ...(CH && CH.benchmark ? [{ k: "benchmark", c: "#d99a2b", dash: [], lab: CH.benchmark_ticker }] : []),
+    { k: "portfolio", c: cssv("--accent"), dash: [], lab: "Cartera" },
+  ];
+  const lastVal = (a) => { if (!a) return null; for (let i = a.length - 1; i >= 0; i--) if (a[i] != null && isFinite(a[i])) return a[i]; return null; };
+
+  function drawChart() {
+    const cv = $("pchart"); if (!cv) return;
+    const rect = cv.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+    cv.width = rect.width * dpr; cv.height = rect.height * dpr;
+    const ctx = cv.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const W = rect.width, H = rect.height; ctx.clearRect(0, 0, W, H);
+    if (!CH || !CH.dates || CH.dates.length < 2) {
+      ctx.fillStyle = cssv("--muted"); ctx.font = "13px sans-serif"; ctx.textAlign = "center";
+      ctx.fillText("Añade movimientos para ver la evolución de la cartera.", W / 2, H / 2);
+      $("chart-legend").innerHTML = ""; return;
+    }
+    const pad = { l: 58, r: 12, t: 12, b: 22 }, dates = CH.dates, n = dates.length, series = SERIES();
+    let mn = Infinity, mx = -Infinity;
+    series.forEach((s) => (CH[s.k] || []).forEach((v) => { if (v != null && isFinite(v)) { mn = Math.min(mn, v); mx = Math.max(mx, v); } }));
+    if (!isFinite(mn)) { mn = 0; mx = 1; }
+    const pv = (mx - mn) * 0.06 || 1; mn -= pv; mx += pv;
+    const X = (i) => pad.l + i / (n - 1) * (W - pad.l - pad.r);
+    const Y = (v) => pad.t + (1 - (v - mn) / (mx - mn)) * (H - pad.t - pad.b);
+    ctx.strokeStyle = cssv("--border"); ctx.fillStyle = cssv("--faint");
+    ctx.font = "10px ui-monospace,monospace"; ctx.textAlign = "right"; ctx.textBaseline = "middle";
+    for (let g = 0; g <= 4; g++) { const v = mn + (mx - mn) * g / 4, y = Y(v);
+      ctx.globalAlpha = 0.5; ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(W - pad.r, y); ctx.stroke(); ctx.globalAlpha = 1;
+      ctx.fillText(kfmt(v), pad.l - 6, y); }
+    ctx.textAlign = "center"; ctx.textBaseline = "alphabetic"; let ly = null;
+    for (let i = 0; i < n; i++) { const yr = dates[i].slice(0, 4); if (yr !== ly) { ly = yr; if (i > 0) ctx.fillText(yr, X(i), H - 6); } }
+    series.forEach((s) => { const arr = CH[s.k] || []; ctx.strokeStyle = s.c; ctx.lineWidth = s.k === "portfolio" ? 2 : 1.4;
+      ctx.setLineDash(s.dash); ctx.beginPath(); let st = false;
+      for (let i = 0; i < n; i++) { const v = arr[i]; if (v == null || !isFinite(v)) continue; const x = X(i), y = Y(v);
+        if (!st) { ctx.moveTo(x, y); st = true; } else ctx.lineTo(x, y); } ctx.stroke(); ctx.setLineDash([]); });
+    CH._geo = { X, Y, pad, W, H, n, series };
+    chartLegend();
+  }
+
+  function chartLegend() {
+    const pvv = lastVal(CH.portfolio), bv = lastVal(CH.benchmark), iv = lastVal(CH.invested);
+    const dot = (c) => `<i style="background:${c}"></i>`;
+    const parts = [`<span>${dot(cssv("--accent"))}Cartera <b>${eur(pvv)}</b></span>`];
+    if (bv != null) parts.push(`<span>${dot("#d99a2b")}${CH.benchmark_ticker} <b>${eur(bv)}</b></span>`);
+    parts.push(`<span>${dot(cssv("--faint"))}Invertido <b>${eur(iv)}</b></span>`);
+    if (pvv != null && bv != null) { const d = pvv - bv, pct = bv ? d / bv * 100 : 0;
+      parts.push(`<span class="out">vs ${CH.benchmark_ticker}: <b style="color:${d >= 0 ? POS : NEG}">${d >= 0 ? "+" : ""}${eur(d)} (${d >= 0 ? "+" : ""}${pct.toFixed(1)}%)</b></span>`); }
+    // Cuando faltan series, la gráfica representa MENOS cartera que la tabla de
+    // posiciones. Decirlo es obligatorio: si no, el hueco se lee como pérdida.
+    if (CH.excluded && CH.excluded.length) {
+      parts.push(`<span class="warn" title="Yahoo no publica serie diaria para estos instrumentos: quedan fuera de la gráfica (valor Y coste), no de tus posiciones">`
+        + `⚠ sin histórico: <b>${esc(CH.excluded.join(", "))}</b></span>`);
+    }
+    // Una serie prestada es legítima pero no es la del propio instrumento:
+    // quien mira la gráfica tiene derecho a saber de dónde sale cada línea.
+    if (CH.proxied && CH.proxied.length) {
+      const via = CH.proxied.map((p) => `${esc(p.ticker)} vía ${esc(p.via)}`).join(", ");
+      const dev = Math.max(...CH.proxied.map((p) => p.dev || 0));
+      parts.push(`<span class="via" title="Estas posiciones no tienen serie diaria propia. Se usa la del mismo instrumento en otra plaza, en la misma divisa (desvío máx. ${(dev * 100).toFixed(2)}%). La valoración de hoy sigue siendo la del instrumento real.">`
+        + `↪ histórico: <b>${via}</b></span>`);
+    }
+    $("chart-legend").innerHTML = parts.join("");
+  }
+
+  const cv = $("pchart"), tip = $("ptip");
+  cv.addEventListener("mousemove", (e) => {
+    if (!CH || !CH._geo) return; const g = CH._geo, r = cv.getBoundingClientRect();
+    let i = Math.round((e.clientX - r.left - g.pad.l) / (g.W - g.pad.l - g.pad.r) * (g.n - 1));
+    i = Math.max(0, Math.min(g.n - 1, i));
+    drawChart(); const ctx = cv.getContext("2d"), px = g.X(i);
+    ctx.strokeStyle = cssv("--border"); ctx.beginPath(); ctx.moveTo(px, g.pad.t); ctx.lineTo(px, g.H - g.pad.b); ctx.stroke();
+    g.series.forEach((s) => { const v = (CH[s.k] || [])[i]; if (v == null || !isFinite(v)) return;
+      ctx.beginPath(); ctx.arc(px, g.Y(v), 3, 0, 7); ctx.fillStyle = s.c; ctx.fill(); });
+    const rows = g.series.map((s) => { const v = (CH[s.k] || [])[i]; return v == null ? "" : `<div class="tr"><span>${s.lab}</span><b>${eur(v)}</b></div>`; }).join("");
+    tip.innerHTML = `<div class="td">${CH.dates[i]}</div>${rows}`; tip.hidden = false;
+    tip.style.left = Math.min(cv.parentElement.clientWidth - 165, Math.max(0, px + 10)) + "px"; tip.style.top = "10px";
+  });
+  cv.addEventListener("mouseleave", () => { tip.hidden = true; drawChart(); });
+  // ── ojo: ocultar los importes ────────────────────────────────────────────
+  const eyeBtn = $("eye");
+  function applyHidden(on, repaint) {
+    document.body.classList.toggle("amounts-hidden", on);
+    const lbl = on ? "Mostrar importes" : "Ocultar importes";
+    eyeBtn.setAttribute("aria-pressed", on ? "true" : "false");
+    eyeBtn.title = lbl;
+    eyeBtn.querySelector(".eye-lbl").textContent = lbl;
+    if (!repaint) return;
+    if (P) render(P, false, false);         // mismos datos, otro aspecto
+    drawChart();
+  }
+  eyeBtn.addEventListener("click", () => {
+    const on = !hidden();
+    // Es una preferencia de pantalla y se queda en la pantalla: localStorage, no
+    // el servidor. Y si el navegador la deniega (modo privado), el ojo funciona
+    // igual durante la sesión en vez de romperse.
+    try { localStorage.setItem("cartera-hide", on ? "1" : "0"); } catch (e) { /* sin persistencia */ }
+    applyHidden(on, true);
+  });
+  // Se recupera ANTES del primer render: nada de pintar los importes y taparlos
+  // un instante después, que es justo lo que se quería evitar.
+  applyHidden((() => { try { return localStorage.getItem("cartera-hide") === "1"; } catch (e) { return false; } })(), false);
+
+  // ── "comparar con": buscador con desplegable ─────────────────────────────
+  // Los presets son el punto de partida, no el límite: cualquier cotización de
+  // Yahoo sirve de referencia. Escribir el símbolo a pelo y pulsar Enter ya
+  // funcionaba, pero obligaba a saberlo de memoria — un datalist solo ofrece sus
+  // seis opciones fijas y calla ante todo lo demás. El desplegable lo dice.
+  const BENCH_PRESETS = [
+    { symbol: "SPY", name: "S&P 500", kind: "ETF" },
+    { symbol: "QQQ", name: "Nasdaq 100", kind: "ETF" },
+    { symbol: "URTH", name: "MSCI World", kind: "ETF" },
+    { symbol: "^GDAXI", name: "DAX", kind: "Índice" },
+    { symbol: "GLD", name: "Oro", kind: "ETF" },
+    { symbol: "^STOXX50E", name: "EuroStoxx 50", kind: "Índice" },
+  ];
+  const bTk = $("bench"), bRes = $("bench-results"), bWrap = $("bench-wrap");
+  let benchT = null, bItems = [], bOn = -1;
+
+  const benchPresets = (q) => {
+    const n = q.toLowerCase();
+    return BENCH_PRESETS.filter((p) => !n || p.symbol.toLowerCase().includes(n)
+      || p.name.toLowerCase().includes(n));
+  };
+
+  function benchShow(items, note) {
+    bItems = items; bOn = -1;
+    bRes.innerHTML = items.length
+      // Sin etiqueta va una celda vacía, no ninguna: la fila es una rejilla de
+      // tres columnas y quitarle la primera desplaza nombre y símbolo.
+      ? items.map((x, i) => `<div class="r-item" data-i="${i}">
+          ${kbadge(x.kind || "") || "<span></span>"}<span class="r-name">${esc(x.name || x.symbol)}</span>
+          <span class="r-sym">${esc(x.symbol)}${x.exchange ? " · " + esc(x.exchange) : ""}</span></div>`).join("")
+      : `<div class="r-empty">${esc(note || "Sin resultados. Escribe el símbolo y pulsa Enter.")}</div>`;
+    bRes.hidden = false;
+    // `mousedown` y no `click`: el click llega después del blur, y para entonces
+    // la lista ya se habría cerrado bajo el cursor.
+    bRes.querySelectorAll(".r-item").forEach((el) => el.addEventListener("mousedown", (ev) => {
+      ev.preventDefault(); benchPick(items[+el.dataset.i]);
+    }));
+  }
+
+  function benchPick(x) {
+    if (!x) return;
+    bTk.value = x.symbol; bRes.hidden = true; bOn = -1;
+    loadHistory();
+  }
+
+  function benchMove(d) {
+    const els = [...bRes.querySelectorAll(".r-item")];
+    if (!els.length) return;
+    bOn = bOn < 0 ? (d > 0 ? 0 : els.length - 1) : (bOn + d + els.length) % els.length;
+    els.forEach((el, i) => el.classList.toggle("on", i === bOn));
+    els[bOn].scrollIntoView({ block: "nearest" });
+  }
+
+  // Al entrar se ofrecen TODOS los presets, sin filtrar por lo que ya hay dentro:
+  // el valor actual es lo que ya está pintado, no una búsqueda. Filtrarlo dejaría
+  // la lista con una sola línea — la que ya estás viendo en el gráfico.
+  let bFresh = false;
+  bTk.addEventListener("focus", () => { bFresh = true; benchShow(BENCH_PRESETS); });
+  // Y el texto queda seleccionado, así que escribir lo REEMPLAZA. Sin esto el
+  // clic deja el cursor donde caiga y "SPY" + "tsla" sale "SPtslaY". El
+  // navegador deshace la selección en el mouseup del propio clic, de ahí que se
+  // rehaga ahí y solo la primera vez.
+  bTk.addEventListener("mouseup", (e) => { if (bFresh) { e.preventDefault(); bTk.select(); bFresh = false; } });
+  bTk.addEventListener("blur", () => { bFresh = false; });
+  bTk.addEventListener("input", () => {
+    clearTimeout(benchT);
+    const q = bTk.value.trim();
+    const pre = benchPresets(q);
+    benchShow(pre, q.length < 2 ? "Escribe al menos 2 letras" : "Buscando…");
+    if (q.length < 2) return;
+    benchT = setTimeout(async () => {
+      let r;
+      try { r = await (await fetch("/api/search?q=" + encodeURIComponent(q))).json(); } catch (e) { return; }
+      if (bTk.value.trim() !== q) return;                 // respuesta obsoleta
+      const seen = new Set(pre.map((p) => p.symbol.toUpperCase()));
+      benchShow(pre.concat((r.results || []).filter((x) => !seen.has(x.symbol.toUpperCase()))));
+    }, 260);
+  });
+  bTk.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); benchMove(e.key === "ArrowDown" ? 1 : -1); return; }
+    if (e.key === "Escape") { bRes.hidden = true; return; }
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    // Con una opción marcada manda el desplegable; sin marcar, el texto tal cual
+    // sigue valiendo. Quien ya se sabe el ticker no tiene por qué mirar la lista.
+    if (!bRes.hidden && bOn >= 0) benchPick(bItems[bOn]);
+    else { bRes.hidden = true; loadHistory(); }
+  });
+  // Salir del campo también aplica lo escrito, pero solo si de verdad cambió:
+  // tras un Enter o una selección el gráfico ya es ese, y el blur posterior
+  // repetiría la consulta entera para pintar exactamente lo mismo.
+  bTk.addEventListener("change", () => {
+    bRes.hidden = true;
+    const want = (bTk.value.trim() || "SPY").toUpperCase();
+    if (!CH || String(CH.benchmark_ticker || "").toUpperCase() !== want) loadHistory();
+  });
+  window.addEventListener("resize", drawChart);
+
+  function importMsg(imp) {
+    const el = $("import-msg");
+    let h = `<b style="color:${POS}">✓ ${imp.added} movimientos importados</b> · columnas: ${esc(imp.detected.join(", ")) || "—"}`;
+    if (imp.skipped_duplicates) {
+      // Re-importing the same file is the easy mistake and it doubles every
+      // position. Say what was skipped and how to force it in.
+      const ej = (imp.duplicates || []).map((d) => `${esc(d.date)} ${esc(d.ticker)} ${qty(d.quantity)}@${money(d.price, 4)}`).join("; ");
+      h += `<div class="warn small">⚠ ${imp.skipped_duplicates} filas omitidas por estar ya guardadas${ej ? ": " + ej : ""}`
+        + `${imp.skipped_duplicates > (imp.duplicates || []).length ? " …" : ""}`
+        + `<br>Si son compras reales repetidas, vuelve a importar con <code>?duplicates=allow</code>.</div>`;
+    }
+    if (imp.n_errors) h += `<div class="mut small">${imp.n_errors} filas con problemas: ${esc(imp.errors.join("; "))}</div>`;
+    el.innerHTML = h;
+    setTimeout(() => { el.innerHTML = ""; }, 20000);
+  }
+
+  // ── buscador de instrumentos (ETF / fondo / acción europeos) ──
+  const fTk = $("f-ticker"), fRes = $("f-results"), fPick = $("f-picked");
+  let searchT = null;
+  fTk.addEventListener("input", () => {
+    if (sel && fTk.value.trim() !== sel.symbol) { sel = null; fPick.hidden = true; }
+    clearTimeout(searchT);
+    const q = fTk.value.trim();
+    if (q.length < 2) { fRes.hidden = true; return; }
+    searchT = setTimeout(() => doSearch(q), 260);
+  });
+  async function doSearch(q) {
+    let r;
+    try { r = await (await fetch("/api/search?q=" + encodeURIComponent(q))).json(); } catch (e) { return; }
+    if (fTk.value.trim() !== q) return;                 // stale response
+    const res = r.results || [];
+    if (!res.length) {
+      fRes.innerHTML = `<div class="r-empty">Sin resultados. Puedes escribir el símbolo o ISIN directamente.</div>`;
+      fRes.hidden = false; return;
+    }
+    fRes.innerHTML = res.map((x, i) => `<div class="r-item" data-i="${i}">
+      ${kbadge(x.kind) || "<span></span>"}<span class="r-name">${esc(x.name)}</span>
+      <span class="r-sym">${esc(x.symbol)}${x.exchange ? " · " + esc(x.exchange) : ""}</span></div>`).join("");
+    fRes.hidden = false;
+    fRes.querySelectorAll(".r-item").forEach((el) => el.addEventListener("click", () => pick(res[+el.dataset.i])));
+  }
+  function pick(x) {
+    sel = { symbol: x.symbol, name: x.name, kind: x.kind };
+    fTk.value = x.symbol; fRes.hidden = true;
+    fPick.innerHTML = `${kbadge(x.kind)} <b>${esc(x.name)}</b>`; fPick.hidden = false;
+  }
+  // Un clic fuera cierra cada lista por su cuenta: son dos buscadores distintos
+  // y abrir uno tiene que cerrar el otro, no dejar dos desplegables encendidos.
+  document.addEventListener("click", (e) => {
+    const w = e.target.closest(".search-wrap");
+    if (w !== fTk.closest(".search-wrap")) fRes.hidden = true;
+    if (w !== bWrap) bRes.hidden = true;
+  });
+
+  // alta manual
+  $("add-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const body = { date: $("f-date").value, ticker: fTk.value, side: $("f-side").value,
+      quantity: $("f-qty").value, price: $("f-price").value, fee: $("f-fee").value, note: $("f-note").value };
+    if (sel && sel.symbol === fTk.value.trim()) { body.name = sel.name; body.kind = sel.kind; body.symbol = 1; }
+    status("Guardando…");
+    const r = await send("/api/cartera", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const d = await r.json();
+    if (d.error) { status(""); alert(d.error); return; }
+    ["f-ticker", "f-qty", "f-price", "f-fee", "f-note"].forEach((i) => ($(i).value = ""));
+    sel = null; fPick.hidden = true; fRes.hidden = true;
+    render(d); status("");
+  });
+
+  // importar
+  const fileInput = $("file"), drop = $("drop");
+  $("pick").addEventListener("click", () => fileInput.click());
+  fileInput.addEventListener("change", () => fileInput.files[0] && upload(fileInput.files[0]));
+  ["dragover", "dragenter"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+  ["dragleave", "drop"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
+  drop.addEventListener("drop", (e) => e.dataTransfer.files[0] && upload(e.dataTransfer.files[0]));
+
+  async function upload(file) {
+    status("Importando " + file.name + "…");
+    const fd = new FormData(); fd.append("file", file);
+    const r = await send("/api/cartera/upload", { method: "POST", body: fd });
+    const d = await r.json();
+    status("");
+    if (d.error) { $("import-msg").innerHTML = `<b style="color:${NEG}">✗ ${d.error}</b>` + (d.errors ? `<div class="mut small">${d.errors.join("; ")}</div>` : ""); return; }
+    render(d);
+  }
+
+  async function del(id) {
+    status("Eliminando…");
+    render(await (await send("/api/cartera/" + id, { method: "DELETE" })).json());
+    status("");
+  }
+  $("clear").addEventListener("click", async () => {
+    if (!confirm("¿Borrar TODOS los movimientos? Esto no se puede deshacer.")) return;
+    render(await (await send("/api/cartera/clear", { method: "POST" })).json());
+  });
+
+  // plantilla CSV
+  $("tpl").addEventListener("click", (e) => {
+    e.preventDefault();
+    const csv = "fecha,ticker,tipo,cantidad,precio,comision,nota\n" +
+      "2024-01-15,SPY,compra,10,450.20,1.5,ejemplo\n" +
+      "2024-06-01,SPY,venta,4,510.00,1.5,toma parcial\n";
+    const b = new Blob([csv], { type: "text/csv" }); const u = URL.createObjectURL(b);
+    const a = document.createElement("a"); a.href = u; a.download = "plantilla_cartera.csv"; a.click();
+    setTimeout(() => URL.revokeObjectURL(u), 1000);
+  });
+
+  // fecha por defecto = hoy
+  $("f-date").value = new Date().toISOString().slice(0, 10);
+  load();
+})();

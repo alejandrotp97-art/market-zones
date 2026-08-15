@@ -1,0 +1,20 @@
+[Unit]
+Description=market-zones - refresca los pesos por país de la cartera (look-through, fuente justETF). Solo lectura de cartera.db, sin claves, no toca ningún bot.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/alex/bots/market-zones/analysis
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/alex/bots/btc-poly/.venv/bin/python /home/alex/bots/market-zones/analysis/seed_country_weights.py --quiet
+
+# Un refresco fallido NO es un incidente: los pesos anteriores siguen en el
+# fichero con su fecha honesta y el mapa sigue funcionando. Que el fallo no
+# marque la unidad evita ruido en `--failed` por una web caída un martes.
+SuccessExitStatus=0 2
+TimeoutStartSec=600
+
+MemoryHigh=120M
+MemoryMax=200M
+OOMScoreAdjust=200

@@ -1,0 +1,68 @@
+# Un único punto de entrada — :8780 — con una cuenta por persona.
+#
+# El proxy es lo que une las dos herramientas: autentica, y manda a cada
+# persona a SU PROPIA instancia de market-zones, que a su vez ya trae dentro
+# las páginas de zonas y consulta a zonas-v2 (:8775, compartida) para /swing.
+# Una URL, un login, ambas herramientas, cartera propia.
+#
+# El aislamiento NO lo hace este fichero: lo hace el hecho de que cada backend
+# es un proceso distinto con un cartera.db distinto. Este fichero solo decide
+# a cuál de ellos te deja entrar. Aunque el mapeo estuviera mal, nadie podría
+# leer la base de otro: su proceso no la tiene abierta.
+#
+# Contraseñas — genera el hash, NUNCA pongas la contraseña en claro aquí:
+#   caddy hash-password
+#
+# Arrancar:  caddy run --config deploy/Caddyfile
+#
+# Si ya hay OTRO Caddy en la máquina (el del sistema, como root), este bloque
+# global es obligatorio: los dos pelearían por el endpoint de admin en :2019 y
+# el segundo muere con "address already in use".
+{
+	admin off
+}
+
+:8780 {
+	# ── Quién entra ──────────────────────────────────────────────────────
+	# `basicauth`, sin guion bajo: el nombre `basic_auth` llegó en Caddy 2.8 y
+	# aquí corre 2.6.2, donde el adaptador lo rechaza con "unrecognized
+	# directive" y el servicio no arranca.
+	basicauth {
+		# usuario   hash bcrypt (salida de `caddy hash-password`)
+		alex       HASH_DE_caddy_hash-password
+		ana        HASH_DE_caddy_hash-password
+		bea        HASH_DE_caddy_hash-password
+	}
+
+	# ── A qué instancia va cada uno ──────────────────────────────────────
+	# Sin credencial válida basicauth ya respondió 401 y no se llega aquí.
+	# `default` apunta a un puerto donde no escucha nadie: si algún día se
+	# añade una cuenta y se olvida su fila, la petición FALLA — no cae en la
+	# cartera de otro. Fallar cerrado, nunca en la de al lado.
+	map {http.auth.user.id} {backend} {
+		alex     127.0.0.1:8771
+		ana      127.0.0.1:8782
+		bea      127.0.0.1:8783
+		default  127.0.0.1:9
+	}
+
+	reverse_proxy {backend}
+
+	log {
+		output file /home/alex/var/log/carteras-access.log
+	}
+}
+
+# ── Con dominio propio (recomendado en cuanto salga de tu red) ─────────────
+# Sustituye el bloque `:8780` por este y Caddy gestiona el certificado solo.
+# Sin HTTPS, la contraseña de basic_auth viaja en claro por la red.
+#
+# cartera.tudominio.com {
+# 	basic_auth { ... igual que arriba ... }
+# 	map {http.auth.user.id} {backend} { ... igual que arriba ... }
+# 	reverse_proxy {backend}
+# }
+#
+# Y cada instancia necesita saber bajo qué nombre se sirve, o Werkzeug
+# responde 400 a todo y el guardia CSRF rechaza toda escritura:
+#   PUBLIC_HOST=cartera.tudominio.com   (en ~/etc/carteras/<persona>.env)

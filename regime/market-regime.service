@@ -1,0 +1,25 @@
+[Unit]
+Description=market-regime - Panel de Régimen de Mercado (Flask :8772). Motor validado, causal (sin lookahead). Solo lectura, sin claves.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/alex/bots/market-zones
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/alex/bots/btc-poly/.venv/bin/python -m regime.dashboard
+Restart=always
+RestartSec=10
+
+MemoryHigh=250M
+MemoryMax=400M
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=market-regime
+
+[Install]
+WantedBy=default.target
+
+# Instalar:  cp regime/market-regime.service ~/.config/systemd/user/
+#            systemctl --user daemon-reload && systemctl --user enable --now market-regime
+# Ver:       ssh -L 8772:127.0.0.1:8772 vps  ->  http://localhost:8772

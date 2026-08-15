@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Panel de Zonas de Mercado</title>
+  <link rel="stylesheet" href="{{ asset('style.css') }}">
+</head>
+<body>
+  <div class="wrap">
+    <nav class="topnav">
+      <a href="/" class="on">Zonas de Mercado</a>
+      <a href="/regime">Régimen de Mercado</a>
+      <a href="/screener">Screener</a>
+      <a href="/comite">Comité</a>
+      <a href="/cartera">Cartera</a>
+      <a href="/swing" target="_blank" rel="noopener">Swing BTC ↗</a>
+      <a href="/abraham/panorama.html" target="_blank" rel="noopener">Proyecto Abraham ↗</a>
+    </nav>
+    <div class="lookahead-warn">⚠ <b>Solo análisis histórico (lookahead).</b> Este panel normaliza con z-score in-sample: usa
+      el futuro para juzgar el pasado. <b>No utilizable en tiempo real</b> — para señal operativa causal, usá la pestaña «Régimen».</div>
+    <header class="top">
+      <div class="titles">
+        <h1>Panel de Zonas de Mercado</h1>
+        <div class="sub">Datos hasta <span id="asof">—</span></div>
+      </div>
+      <div class="controls">
+        <label class="lbl">Activo</label>
+        <select id="asset">
+          {% for sym, name in curated %}
+          <option value="{{ sym }}" {% if sym == default %}selected{% endif %}>{{ name }}</option>
+          {% endfor %}
+        </select>
+        <input id="ticker" type="text" placeholder="otro ticker…" autocomplete="off">
+        <button id="load">Cargar</button>
+        <div class="ranges" id="ranges">
+          <button data-range="all" class="active">Todo</button>
+          <button data-range="30">30A</button>
+          <button data-range="10">10A</button>
+          <button data-range="4">4A</button>
+          <button data-range="2">2A</button>
+          <button data-range="1">1A</button>
+        </div>
+      </div>
+    </header>
+
+    <div class="tuner" id="tuner">
+      <span class="tuner-title">Ajustes</span>
+      <label>Peso volatilidad <output id="vw-out">0.10</output>
+        <input id="vw" type="range" min="0" max="0.30" step="0.01" value="0.10"></label>
+      <label>Umbral clímax alto <output id="hi-out">70</output>
+        <input id="hi" type="range" min="50" max="90" step="1" value="70"></label>
+      <label>Umbral medio <output id="mid-out">45</output>
+        <input id="mid" type="range" min="20" max="65" step="1" value="45"></label>
+      <button id="tuner-reset" class="ghost">Reset</button>
+    </div>
+
+    <section class="chart-card">
+      <div class="legend">
+        <span class="leg-score">Score</span>
+        <span class="leg-price">Precio (log)</span>
+      </div>
+      <div class="chart-host">
+        <canvas id="chart"></canvas>
+        <div id="tip" class="tip" hidden></div>
+        <div id="status" class="status" hidden></div>
+      </div>
+    </section>
+
+    <footer class="verdict-card">
+      <h2>Qué dice el índice</h2>
+      <div class="verdict-row">
+        <span id="zone-dot" class="dot"></span>
+        <span id="zone-name" class="zone-name">—</span>
+        <span id="conviction" class="chip" hidden></span>
+      </div>
+      <p id="verdict" class="verdict-text">—</p>
+      <div id="compo" class="compo"></div>
+    </footer>
+  </div>
+
+  <script src="{{ asset('app.js') }}"></script>
+</body>
+</html>

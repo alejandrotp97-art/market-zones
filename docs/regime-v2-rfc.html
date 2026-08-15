@@ -1,0 +1,247 @@
+<style>
+  :root{
+    --bg:#f6f5f2;--pn:#fffdf9;--tx:#1c1b18;--mut:#6b6862;--fa:#a8a49a;--bd:#e4e0d6;
+    --ac:#b26b2e;--ac2:#7a5a2a;--rm:#b23a2e;--ok:#3f8f5e;
+    --serif:Georgia,"Times New Roman",serif;--sans:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    --mono:ui-monospace,Menlo,Consolas,monospace;
+  }
+  @media(prefers-color-scheme:dark){:root{
+    --bg:#141310;--pn:#1b1a15;--tx:#eae7df;--mut:#9a968c;--fa:#5f5c53;--bd:#2c2a23;
+    --ac:#d9a05a;--ac2:#c98f45;--rm:#d1704f;--ok:#5bb37e;}}
+  :root[data-theme="dark"]{
+    --bg:#141310;--pn:#1b1a15;--tx:#eae7df;--mut:#9a968c;--fa:#5f5c53;--bd:#2c2a23;
+    --ac:#d9a05a;--ac2:#c98f45;--rm:#d1704f;--ok:#5bb37e;}
+  :root[data-theme="light"]{
+    --bg:#f6f5f2;--pn:#fffdf9;--tx:#1c1b18;--mut:#6b6862;--fa:#a8a49a;--bd:#e4e0d6;
+    --ac:#b26b2e;--ac2:#7a5a2a;--rm:#b23a2e;--ok:#3f8f5e;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.68 var(--serif);}
+  .doc{max-width:860px;margin:0 auto;padding:46px 26px 90px;}
+  .rfc-tag{font:600 11px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ac);}
+  h1{font-size:31px;line-height:1.18;margin:12px 0 8px;letter-spacing:-.015em;text-wrap:balance;}
+  .lede{font:19px/1.5 var(--serif);color:var(--mut);font-style:italic;margin:6px 0 16px;}
+  .meta{font:13px/1.7 var(--sans);color:var(--mut);border-top:1px solid var(--bd);border-bottom:1px solid var(--bd);padding:12px 0;margin-bottom:12px;}
+  .meta b{color:var(--tx);font-weight:600;}
+  .hd{border-bottom:3px double var(--tx);padding-bottom:16px;margin-bottom:6px;}
+  h2{font:600 13px/1.3 var(--sans);letter-spacing:.06em;text-transform:uppercase;color:var(--ac2);
+     margin:40px 0 4px;padding-bottom:6px;border-bottom:1px solid var(--bd);}
+  h2 .n{color:var(--fa);margin-right:8px;}
+  h3{font:600 17px/1.35 var(--serif);margin:26px 0 6px;color:var(--tx);}
+  h3 .p6{font:600 10px/1 var(--mono);color:var(--ac);border:1px solid var(--ac);border-radius:4px;padding:2px 5px;margin-right:8px;vertical-align:2px;text-transform:uppercase;letter-spacing:.05em;}
+  p{margin:11px 0;}ul,ol{margin:11px 0;padding-left:22px;}li{margin:6px 0;}
+  code{font:13px var(--mono);background:color-mix(in srgb,var(--tx) 8%,transparent);padding:1px 5px;border-radius:4px;}
+  em{color:var(--mut);}b{color:var(--tx);}
+  .callout{background:var(--pn);border:1px solid var(--bd);border-left:3px solid var(--ac);border-radius:8px;padding:4px 20px;margin:18px 0;}
+  .callout.kill{border-left-color:var(--rm);}
+  .callout .k{font:600 11px/1 var(--sans);letter-spacing:.06em;text-transform:uppercase;color:var(--ac);margin:14px 0 0;}
+  .callout.kill .k{color:var(--rm);}
+  table{width:100%;border-collapse:collapse;font:13px/1.45 var(--sans);margin:14px 0;display:block;overflow-x:auto;}
+  th{font:600 10.5px/1.2 var(--sans);text-transform:uppercase;letter-spacing:.04em;color:var(--mut);text-align:left;
+     padding:8px 10px;border-bottom:1.5px solid var(--bd);white-space:nowrap;vertical-align:bottom;}
+  td{padding:8px 10px;border-bottom:1px solid var(--bd);vertical-align:top;}
+  td.n,th.n{text-align:right;font-variant-numeric:tabular-nums;font-family:var(--mono);}
+  tr:last-child td{border-bottom:none;}
+  .pri{font:600 10px/1 var(--mono);padding:2px 6px;border-radius:4px;white-space:nowrap;}
+  .pri.hi{background:color-mix(in srgb,var(--ok) 22%,transparent);color:var(--ok);}
+  .pri.md{background:color-mix(in srgb,var(--ac) 22%,transparent);color:var(--ac2);}
+  .pri.lo{background:color-mix(in srgb,var(--fa) 30%,transparent);color:var(--mut);}
+  .shift{display:flex;gap:14px;align-items:stretch;margin:18px 0;flex-wrap:wrap;}
+  .shift .box{flex:1;min-width:230px;background:var(--pn);border:1px solid var(--bd);border-radius:10px;padding:14px 16px;}
+  .shift .box.to{border-color:var(--ac);}
+  .shift .lab{font:600 10px/1 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--fa);margin-bottom:8px;}
+  .shift .box.to .lab{color:var(--ac);}
+  .shift .arrow{align-self:center;color:var(--ac);font-size:22px;}
+  .shift ul{margin:0;padding-left:18px;font-size:13.5px;color:var(--mut);}
+  .shift .box.to ul{color:var(--tx);}
+  .mut{color:var(--mut);}.small{font-size:13px;}
+  .foot{margin-top:44px;padding-top:16px;border-top:1px solid var(--bd);font:12px/1.6 var(--sans);color:var(--fa);}
+  @media(max-width:560px){.shift .arrow{transform:rotate(90deg);}}
+</style>
+
+<article class="doc">
+<header class="hd">
+  <div class="rfc-tag">RFC · REGIME-V2 · borrador para revisión</div>
+  <h1>Rediseño científico del motor: de predictor de retornos a estimador de ventaja relativa</h1>
+  <p class="lede">P5 no encontró un fallo; encontró el dominio de utilidad. Este documento reorienta el motor hacia él.</p>
+  <div class="meta">
+    <b>Autor:</b> Investigación cuantitativa · <b>Fuente de verdad:</b> Informe de validación P5 (24 activos, walk-forward causal estricto) ·
+    <b>Estado:</b> diseño, sin implementar · <b>Alcance:</b> motor cuantitativo, no dashboard.
+  </div>
+</header>
+
+<h2><span class="n">1</span>Resumen ejecutivo</h2>
+<p>La validación P5 demostró, con evidencia reproducible y fuera de muestra, que el motor <b>no predice
+retornos</b>: correlación predicción–observación ≈ 0, hit rate ≈ 50%, <em>skill</em> negativo frente al baseline,
+Sharpe por debajo de buy&amp;hold y cobertura del 75–84% frente al 95% nominal. Sin embargo, encontró
+<b>una señal genuina</b>: 25 de 115 evidencias sobreviven al control de falsos positivos (Benjamini–Hochberg),
+esperándose ~6 por azar, y están <b>concentradas en horizontes largos (12m/24m)</b> y en estructura
+<b>transversal</b> entre activos.</p>
+<p>La conclusión es direccional y barata de asumir: <b>dejar de optimizar el retorno puntual</b> —un objetivo que
+los datos no respaldan— y <b>reorientar el motor a estimar ventaja relativa</b> (qué activos están mejor
+posicionados que otros, ahora, a horizonte largo) con <b>incertidumbre calibrada</b>. Esto ataca de raíz cada
+debilidad de P5 y explota lo único que resultó real.</p>
+<div class="shift">
+  <div class="box"><div class="lab">Motor v1 (actual)</div>
+    <ul><li>Objetivo: mediana del retorno forward por activo</li><li>Salida: «Esperado» + exceso puntual</li>
+    <li>Uso implícito: timing / nivel absoluto</li><li>Incertidumbre: bootstrap de la mediana</li></ul></div>
+  <div class="arrow">→</div>
+  <div class="box to"><div class="lab">Motor v2 (propuesto)</div>
+    <ul><li>Objetivo: <b>rango transversal</b> de ventaja + <b>P(batir baseline)</b></li>
+    <li>Salida: distribución condicional completa → ranking + probabilidad calibrada</li>
+    <li>Uso: contexto de régimen + screening relativo</li><li>Incertidumbre: <b>conformal</b> (cobertura garantizada)</li></ul></div>
+</div>
+<p><b>Recomendación de una línea:</b> pivotar el objetivo estadístico a ranking relativo + probabilidad calibrada,
+recortar el alcance a horizontes largos, arreglar la cobertura con predicción conforme, y <b>eliminar</b> el
+pronóstico de retorno puntual y las afirmaciones de market-timing. Empezar por la Fase 1 (barata, alto impacto,
+bajo riesgo de sobreajuste). No añadir nada al producto hasta que un experimento gane <em>fuera de muestra</em> y
+entre épocas sobre la métrica nueva.</p>
+
+<h2><span class="n">2</span>Diagnóstico</h2>
+<p>Los hechos de P5 son el punto de partida no negociable.</p>
+<table>
+  <thead><tr><th>Evidencia (P5)</th><th class="n">3m</th><th class="n">6m</th><th class="n">12m</th><th>Lectura</th></tr></thead>
+  <tbody>
+  <tr><td>Corr. exceso pred–obs</td><td class="n">−0.02</td><td class="n">−0.03</td><td class="n">+0.06</td><td>sin señal de punto/dirección</td></tr>
+  <tr><td>Hit rate</td><td class="n">50%</td><td class="n">50%</td><td class="n">50%</td><td>moneda</td></tr>
+  <tr><td>Skill vs baseline</td><td class="n">−0.055</td><td class="n">−0.089</td><td class="n">−0.093</td><td>peor que predecir el baseline</td></tr>
+  <tr><td>Cobertura IC95</td><td class="n">84%</td><td class="n">80%</td><td class="n">75%</td><td>intervalos sobreconfiados</td></tr>
+  <tr><td>Sharpe modelo / buy&amp;hold</td><td class="n">0.08/0.30</td><td class="n">0.02/0.34</td><td class="n">0.09/0.29</td><td>el timing destruye valor</td></tr>
+  <tr><td>Pendiente calibración</td><td class="n">0.26</td><td class="n">0.13</td><td class="n">0.12</td><td>predicciones casi planas</td></tr>
+  </tbody>
+</table>
+<p>Y dos hechos que reorientan, no condenan: la precisión es <b>peor en Pánico (MAE 0.26) y Capitulación (0.24)</b>
+—regímenes raros— y <b>mejor en Distribución/Sobrecalentamiento (0.06–0.10)</b>; y la <b>estructura transversal
+sobrevive a FDR</b>, sobre todo a 12–24m. El motor tiene información sobre <em>ordenación relativa a horizonte
+largo</em>, no sobre <em>nivel de retorno</em>.</p>
+
+<h3><span class="p6">P6-2</span>Espacio de estados: ¿grueso o fino?</h3>
+<p>Ambos, y en el peor sitio. El régimen es una <b>partición dura</b>: colapsa la posición continua dentro del
+estado (dos días «Alcista sano» muy distintos comparten análogos) → <b>pierde información</b>. Y a la vez es
+<b>demasiado fino para los estados raros</b>: Pánico/Capitulación tienen pocos episodios → conjuntos de análogos
+minúsculos → exactamente los peores MAE y la peor cobertura. La discretización es la causa mecánica del fallo en
+crisis.</p>
+<p><em>Alternativas (a diseñar, no implementar):</em> (a) condicionamiento <b>blando/continuo</b> por kernel en el
+espacio de ejes en vez de pooling por etiqueta dura; (b) <b>pooling parcial / shrinkage</b> (Bayes empírico) que
+haga que un estado raro tome fuerza prestada de un súper-estado «risk-off»; (c) revisar si el eje
+<b>inestabilidad</b> separa resultados forward o sólo añade ruido (P5: su elasticidad sobre la puntuación ≈ 0).</p>
+
+<h3><span class="p6">P6-3</span>Analog Search</h3>
+<table>
+  <thead><tr><th>Componente</th><th>v1 actual</th><th>Debilidad</th><th>Propuesta (diseño)</th></tr></thead>
+  <tbody>
+  <tr><td>Distancia</td><td>Euclídea, 4 ejes 0–100</td><td>asume ejes equi-relevantes e independientes</td><td>Mahalanobis / pesos supervisados por información forward</td></tr>
+  <tr><td>Normalización</td><td>percentil expandido (causal)</td><td>no pondera recencia; trata 2003 = 2024</td><td>kernel de decaimiento temporal sobre análogos</td></tr>
+  <tr><td>Ponderación</td><td>corte duro top-k</td><td>varianza alta, frágil en estados raros</td><td>ponderación por kernel (suave, decae con distancia)</td></tr>
+  <tr><td>Selección</td><td>k=250 fijo o etiqueta</td><td>pocos vecinos en crisis</td><td>k adaptativo / ancho de banda; más vecinos donde escasean</td></tr>
+  <tr><td>Agregación</td><td>mediana → punto</td><td>tira la forma de la distribución</td><td>CDF empírica ponderada → probabilidad + cuantiles</td></tr>
+  </tbody>
+</table>
+
+<h3><span class="p6">P6-5</span>¿Por qué la cobertura es baja?</h3>
+<p>Porque el bootstrap por bloques mide <b>sólo la varianza muestral de la mediana</b> dentro del conjunto de
+análogos. No captura: (1) que las ventanas forward <b>solapan</b> → la N efectiva es mucho menor que la N con la
+que se computa el intervalo; (2) la <b>incertidumbre estructural</b> —que el régimen puede no repetirse igual—;
+(3) la incertidumbre de <b>asignación</b> del propio estado. El intervalo es estrecho porque ignora todo lo que
+no sea ruido de muestreo. Por eso la cobertura real (75–84%) queda muy por debajo del 95%.</p>
+<div class="callout"><p class="k">Arreglo recomendado</p>
+<p><b>Predicción conforme</b> sobre los residuos del walk-forward (que P5 ya calcula): recalibra los intervalos
+para garantizar cobertura marginal ≈ 95% <em>por construcción</em>, sin re-derivar la maquinaria de punto. Es un
+envoltorio, barato, y ataca directamente un defecto probado. Complementar inflando por N efectivo (N/h) e,
+idealmente, integrando incertidumbre de modelo por ensemble de definiciones de estado.</p></div>
+
+<h2><span class="n">3</span>Hipótesis: replantear el objetivo</h2>
+<h3><span class="p6">P6-1</span>¿Qué debería optimizar el modelo?</h3>
+<table>
+  <thead><tr><th>Objetivo candidato</th><th>¿Lo respalda P5?</th><th>Veredicto</th></tr></thead>
+  <tbody>
+  <tr><td>Retorno absoluto</td><td>No — dominado por beta/deriva, impredecible aquí</td><td>Descartar</td></tr>
+  <tr><td>Exceso puntual (actual)</td><td>No — corr≈0, skill&lt;0; la magnitud es ruido</td><td>Descartar como salida principal</td></tr>
+  <tr><td><b>Ranking relativo transversal</b></td><td><b>Sí — es lo que sobrevive a FDR (12–24m)</b></td><td><b>Objetivo primario</b></td></tr>
+  <tr><td><b>P(batir el baseline)</b></td><td>Compatible — probabilidad calibrable y auditable</td><td><b>Objetivo secundario</b></td></tr>
+  <tr><td>Clasificación binaria</td><td>Parcial — pierde matiz; es la prob. umbralizada</td><td>Subsumido por la probabilidad</td></tr>
+  <tr><td>Percentil futuro</td><td>Parcial — útil como insumo, sigue siendo per-activo</td><td>Insumo, no salida</td></tr>
+  <tr><td>Utilidad económica</td><td>Sí como <em>evaluación</em>; alta varianza como <em>entrenamiento</em></td><td>Métrica de validación, no target</td></tr>
+  </tbody>
+</table>
+<p><b>Justificación.</b> El ranking es <b>robusto a la magnitud</b> —justo el ruido que mató al pronóstico puntual—
+y es la forma matemática de «screening relativo», el único uso que P5 avala. La probabilidad de batir el baseline
+restaura una incertidumbre <b>calibrable</b> (se mide y se fuerza a cumplir), atacando el problema de cobertura de
+frente. La utilidad económica (Sharpe de una cartera ordenada por rango) es el juez final, no el objetivo de ajuste.</p>
+
+<h3><span class="p6">P6-4</span>Variable objetivo más robusta</h3>
+<p>Salida canónica = <b>distribución condicional completa</b> (CDF empírica ponderada), de la que se derivan de
+forma coherente: (a) el <b>rango transversal</b> de ventaja entre activos y (b) <b>P(exceso &gt; 0)</b> calibrada.
+La mediana/​media puntual dejan de ser producto. Motivo: el rango y la probabilidad son estadísticos de orden,
+insensibles a los outliers de retorno que degradaron el MAE; y la distribución completa es lo máximo que preserva
+información sin comprometerse a un punto que los datos no sostienen.</p>
+
+<h2><span class="n">4</span><span class="p6" style="vertical-align:1px">P6-6</span> Experimentos propuestos</h2>
+<p>Batería A/B sobre el arnés de walk-forward causal de P5 (ya construido). Protocolo OOS bloqueado y anidado
+—toda selección/ajuste ocurre dentro del walk-forward— para no reintroducir data-snooping.</p>
+<table>
+  <thead><tr><th>ID</th><th>Hipótesis</th><th>Métrica · criterio de éxito</th><th>Coste</th><th>Riesgo</th><th>Prior.</th></tr></thead>
+  <tbody>
+  <tr><td>E1</td><td>El ranking transversal predice el orden forward mejor que el exceso puntual</td><td>Rank-IC (Spearman) OOS &gt; 0.03, positivo y estable entre épocas</td><td class="n">Bajo</td><td>Bajo</td><td><span class="pri hi">Alta</span></td></tr>
+  <tr><td>E2</td><td>P(batir baseline) es calibrable</td><td>Brier &lt; tasa base; pendiente de fiabilidad ∈ [0.8,1.2]</td><td class="n">Bajo</td><td>Bajo</td><td><span class="pri hi">Alta</span></td></tr>
+  <tr><td>E3</td><td>La predicción conforme corrige la cobertura</td><td>Cobertura OOS 93–97% sin anchos absurdos</td><td class="n">Bajo</td><td>Bajo</td><td><span class="pri hi">Alta</span></td></tr>
+  <tr><td>E7</td><td>La señal vive sólo en horizontes largos</td><td>% de evidencia que sobrevive a FDR por horizonte; confirmar 12–24m ≫ 1–3m</td><td class="n">Bajo</td><td>Bajo</td><td><span class="pri hi">Alta</span></td></tr>
+  <tr><td>E8</td><td>Una cartera ordenada por rango bate al equal-weight</td><td>Sharpe OOS top-vs-bottom quantil, neto de costes, &gt; 0 y significativo</td><td class="n">Medio</td><td>Medio</td><td><span class="pri hi">Alta</span></td></tr>
+  <tr><td>E4</td><td>Análogos por kernel/k-adaptativo mejoran los estados raros</td><td>MAE y cobertura en Pánico/Capitulación ↓ ≥15%, sin degradar el resto</td><td class="n">Medio</td><td>Medio</td><td><span class="pri md">Media</span></td></tr>
+  <tr><td>E6</td><td>El shrinkage hacia súper-estado estabiliza crisis</td><td>Cobertura en estados raros → nominal; sin pérdida global</td><td class="n">Medio</td><td>Bajo</td><td><span class="pri md">Media</span></td></tr>
+  <tr><td>E5</td><td>Una distancia aprendida (Mahalanobis/pesos) sube el rank-IC</td><td>Rank-IC ↑ vs Euclídea, se sostiene OOS y entre épocas</td><td class="n">Medio</td><td>Alto</td><td><span class="pri md">Media</span></td></tr>
+  <tr><td>E9</td><td>El eje «inestabilidad» no aporta</td><td>Información mutua eje↔rango forward ≈ 0 → eliminarlo</td><td class="n">Bajo</td><td>Bajo</td><td><span class="pri lo">Baja</span></td></tr>
+  </tbody>
+</table>
+
+<h2><span class="n">5</span>Riesgos</h2>
+<ul>
+<li><b>Data-snooping en los componentes supervisados</b> (E5, distancia aprendida): el mayor riesgo. Mitigación:
+todo ajuste dentro del walk-forward anidado; validar en activos fuera del universo de diseño.</li>
+<li><b>Sobreajuste al pasado reciente</b> por el kernel temporal (E4): controlar con validación entre épocas.</li>
+<li><b>Rank-IC bajo pero real</b>: aunque E1 gane, el edge puede ser demasiado pequeño para superar costes de
+transacción (E8 es el filtro económico que lo decide).</li>
+<li><b>No estacionariedad</b>: ningún rediseño la elimina; el conforme cubre en media pero no ante rupturas.</li>
+<li><b>Universo con sesgo de supervivencia</b>: el ranking hereda el sesgo; documentarlo, no ocultarlo.</li>
+</ul>
+
+<h2><span class="n">6</span><span class="p6" style="vertical-align:1px">P6-7</span> Roadmap</h2>
+<table>
+  <thead><tr><th>Fase</th><th>Contenido</th><th>Impacto</th><th>Esfuerzo</th><th>Riesgo</th><th>Depende de</th></tr></thead>
+  <tbody>
+  <tr><td><b>0</b></td><td>Fijar arnés OOS (reusar walk-forward de P5) y métricas rank-IC/Brier/utilidad</td><td>habilitante</td><td class="n">Bajo</td><td>Bajo</td><td>—</td></tr>
+  <tr><td><b>1</b></td><td>E1 ranking · E2 probabilidad · E3 conforme · E7 poda de horizontes · E8 utilidad</td><td class="n">Alto</td><td class="n">Bajo</td><td>Bajo</td><td>Fase 0</td></tr>
+  <tr><td><b>2</b></td><td>E4 análogos kernel · E6 shrinkage estados raros</td><td class="n">Medio</td><td class="n">Medio</td><td>Medio</td><td>Fase 1</td></tr>
+  <tr><td><b>3</b></td><td>E5 distancia aprendida · E9 poda de ejes · rediseño de estados</td><td class="n">Medio</td><td class="n">Alto</td><td>Alto</td><td>Fase 1–2 + disciplina OOS</td></tr>
+  </tbody>
+</table>
+<p>Regla de avance: <b>una fase no pasa a producto</b> hasta que su experimento gane fuera de muestra <em>y</em> se
+mantenga en las cuatro épocas de P5. La Fase 1 concentra casi todo el valor con casi todo el riesgo bajo.</p>
+
+<h2><span class="n">7</span><span class="p6" style="vertical-align:1px">P6-8</span> Recomendación final · qué eliminar</h2>
+<p>Prefiero quitar funcionalidad antes que sostener una métrica que P5 demuestra vacía. Recomendación explícita
+de <b>eliminación</b>, no de ocultación:</p>
+<div class="callout kill">
+<p class="k">Eliminar del motor / de las afirmaciones del producto</p>
+<ul>
+<li><b>El pronóstico de retorno puntual («Esperado», mediana condicional como salida)</b> — corr≈0, skill&lt;0. Muerto.</li>
+<li><b>Los horizontes cortos (1m/3m) como señal</b> — cero supervivientes a FDR ahí; es ruido presentado como dato.</li>
+<li><b>Toda implicación de market-timing / Sharpe táctico</b> — pierde contra buy&amp;hold; retirar la narrativa.</li>
+<li><b>El «IC95» actual tal cual</b> — no gana ese 95%; conformalizarlo o dejar de etiquetarlo así.</li>
+<li><b>El término de N efectivo en Opportunity</b> — elasticidad ≈ 0, es decorativo; que muerda o que se vaya.</li>
+</ul>
+</div>
+<div class="callout">
+<p class="k">Conservar y evolucionar</p>
+<p>El <b>Score causal</b> y el <b>contexto de régimen</b> como marco descriptivo; la <b>estructura transversal a
+horizonte largo</b> convertida en ranking; y la <b>transparencia/auditoría</b> de P5, que es el activo diferencial
+frente a cualquier caja negra.</p>
+</div>
+<p><b>Recomendación.</b> Aprobar el pivote de objetivo (v1 predictor de retorno → v2 estimador de ventaja relativa
+con incertidumbre conforme). Ejecutar Fase 0+1 como prueba de concepto sobre el arnés existente. Decidir la
+continuidad del motor por <b>una sola pregunta</b>: <em>¿el rank-IC out-of-sample es positivo y estable, y la
+cartera ordenada por rango bate al equal-weight neta de costes?</em> Si la respuesta es no, la conclusión honesta
+de P5 se mantiene y el sistema queda como herramienta de <b>contexto y transparencia</b>, sin pretensión predictiva.</p>
+
+<div class="foot">RFC de diseño — sin código, sin cambios en el motor. El motor v1 permanece intacto; este documento sólo
+propone. Fundamentado íntegramente en el informe de validación P5 (reproducible en <code>validation/results.json</code>).</div>
+</article>

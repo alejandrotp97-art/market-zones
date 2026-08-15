@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Screener de Régimen</title>
+  <link rel="stylesheet" href="{{ asset('regime.css') }}">
+  <link rel="stylesheet" href="{{ asset('screener.css') }}">
+</head>
+<body>
+  <div class="wrap">
+    <nav class="topnav">
+      <a href="/">Zonas de Mercado</a>
+      <a href="/regime">Régimen de Mercado</a>
+      <a href="/screener" class="on">Screener</a>
+      <a href="/comite">Comité</a>
+      <a href="/cartera">Cartera</a>
+      <a href="/swing" target="_blank" rel="noopener">Swing BTC ↗</a>
+      <a href="/abraham/panorama.html" target="_blank" rel="noopener">Proyecto Abraham ↗</a>
+    </nav>
+    <header class="top">
+      <div class="titles">
+        <h1>Screener de Régimen</h1>
+        <div class="sub">Estado estructural de <span id="n-assets">—</span> activos · <b>exceso a 6m</b> sobre el mercado ·
+          click en cabecera para ordenar</div>
+      </div>
+      <div class="controls"><span id="prog" class="legend"></span></div>
+    </header>
+    <section class="card">
+      <div class="scroll"><table id="scr" class="scr">
+        <thead><tr>
+          <th data-k="name">Activo</th>
+          <th data-k="opportunity" class="num">Oportunidad</th>
+          <th data-k="regime">Régimen</th>
+          <th data-k="score" class="num">Score</th>
+          <th data-k="excess" class="num">Exceso 6m</th>
+          <th data-k="confidence">Confianza</th>
+          <th data-k="robustness" class="num">Robustez</th>
+          <th data-k="evidence">Evidencia</th>
+          <th data-k="n_eff" class="num">N ef.</th>
+        </tr></thead>
+        <tbody id="scr-body"></tbody>
+      </table></div>
+      <p class="mut small" style="padding:0 4px">Ordenado por <b>Oportunidad</b> (exceso ponderado por evidencia y N efectivo — un exceso enorme con N bajo NO sube). ·
+        🟢 evidencia positiva · 🟡 indistinguible de 0 · 🔴 negativa · horizonte 6m. ·
+        <b>Click en dos filas</b> para compararlas.</p>
+    </section>
+    <section id="compare-sec" class="card" hidden>
+      <div class="card-h"><span>Comparación relativa</span><span id="cmp-clear" class="legend" style="cursor:pointer">✕ limpiar</span></div>
+      <div id="compare"></div>
+    </section>
+  </div>
+  {# `{{ }}` inside <script> is the wrong escaper: Jinja HTML-escapes, and the
+     HTML parser does not decode entities in script content — "S&P 500" was
+     reaching the browser as "S&amp;P 500". `tojson` emits JSON escapes
+     (&, <, U+2028), so the value survives intact AND can never close
+     the tag. #}
+  <script>window.__TICKERS__ = {{ curated|tojson }};</script>
+  <script src="{{ asset('screener.js') }}"></script>
+</body>
+</html>

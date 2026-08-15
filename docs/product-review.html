@@ -1,0 +1,247 @@
+<title>Revisión crítica de producto — Market Regime Dashboard</title>
+<style>
+  :root{
+    --paper:#f6f5f2; --ink:#12161c; --muted:#5d6470; --faint:#8a8f99;
+    --line:#ddd9d0; --card:#fffefb; --accent:#b3562e; --accent-soft:#b3562e1e;
+    --keep:#2e9e5b; --red:#c9414a; --amber:#c08a1e;
+    --keep-bg:#2e9e5b18; --red-bg:#c9414a18; --amber-bg:#c08a1e18;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --sans:"Helvetica Neue",Arial,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  }
+  @media (prefers-color-scheme:dark){:root{
+    --paper:#0d1014; --ink:#e6e8ec; --muted:#9aa1ad; --faint:#6b7280;
+    --line:#232a33; --card:#12171d; --accent:#e08c5a; --accent-soft:#e08c5a22;
+    --keep:#49b673; --red:#e0656f; --amber:#d6a53c;
+    --keep-bg:#49b67320; --red-bg:#e0656f22; --amber-bg:#d6a53c20;}}
+  :root[data-theme="light"]{--paper:#f6f5f2;--ink:#12161c;--muted:#5d6470;--faint:#8a8f99;--line:#ddd9d0;--card:#fffefb;--accent:#b3562e;--accent-soft:#b3562e1e;--keep:#2e9e5b;--red:#c9414a;--amber:#c08a1e;--keep-bg:#2e9e5b18;--red-bg:#c9414a18;--amber-bg:#c08a1e18;}
+  :root[data-theme="dark"]{--paper:#0d1014;--ink:#e6e8ec;--muted:#9aa1ad;--faint:#6b7280;--line:#232a33;--card:#12171d;--accent:#e08c5a;--accent-soft:#e08c5a22;--keep:#49b673;--red:#e0656f;--amber:#d6a53c;--keep-bg:#49b67320;--red-bg:#e0656f22;--amber-bg:#d6a53c20;}
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);line-height:1.6;font-size:16px;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1080px;margin:0 auto;padding:56px 28px 96px;}
+  .eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--accent);font-weight:600;}
+  h1{font-size:clamp(28px,4.4vw,44px);line-height:1.08;margin:.35em 0 .3em;letter-spacing:-.02em;font-weight:750;text-wrap:balance;}
+  .lede{font-size:19px;color:var(--muted);max-width:66ch;text-wrap:pretty;}
+  .verdict{display:flex;gap:14px;align-items:baseline;flex-wrap:wrap;margin:22px 0 0;border-top:1px solid var(--line);padding-top:18px;}
+  .verdict .big{font-size:40px;font-weight:750;font-variant-numeric:tabular-nums;letter-spacing:-.02em;color:var(--red);}
+  .verdict .stamp{font-family:var(--mono);font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
+    color:var(--red);border:1.5px solid var(--red);border-radius:6px;padding:5px 10px;}
+  h2{font-size:13px;font-family:var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--accent);margin:0 0 6px;font-weight:600;}
+  section{margin-top:60px;} section>.h{border-top:2px solid var(--ink);padding-top:14px;margin-bottom:20px;}
+  section>.h h3{font-size:clamp(21px,3vw,29px);margin:.15em 0 0;letter-spacing:-.01em;line-height:1.12;font-weight:720;}
+  .num{font-family:var(--mono);color:var(--faint);font-size:13px;}
+  h4{font-size:17px;margin:28px 0 8px;} p{max-width:74ch;text-wrap:pretty;} strong{font-weight:680;}
+  code{font-family:var(--mono);font-size:.85em;background:var(--accent-soft);padding:1px 5px;border-radius:4px;}
+  .scroll{overflow-x:auto;margin:20px 0;border:1px solid var(--line);border-radius:10px;background:var(--card);}
+  table{border-collapse:collapse;width:100%;font-size:13px;min-width:680px;}
+  th,td{text-align:left;padding:10px 13px;border-bottom:1px solid var(--line);vertical-align:top;}
+  thead th{font-family:var(--mono);font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);font-weight:600;background:color-mix(in srgb,var(--ink) 4%,transparent);}
+  tbody tr:last-child td{border-bottom:none;}
+  td.mono,th.mono{font-family:var(--mono);} .sc{font-family:var(--mono);font-weight:700;font-variant-numeric:tabular-nums;text-align:center;}
+  .s-lo{color:var(--red);} .s-mid{color:var(--amber);} .s-hi{color:var(--keep);}
+  .tag{font-family:var(--mono);font-size:10px;letter-spacing:.03em;font-weight:700;text-transform:uppercase;padding:2px 6px;border-radius:5px;white-space:nowrap;display:inline-block;}
+  .P0{color:var(--red);background:var(--red-bg);} .P1{color:var(--amber);background:var(--amber-bg);} .P2{color:var(--muted);background:color-mix(in srgb,var(--muted) 12%,transparent);}
+  .callout{border:1px solid var(--line);border-left:3px solid var(--red);background:var(--card);border-radius:0 10px 10px 0;padding:18px 22px;margin:22px 0;}
+  .callout h4{margin:0 0 6px;font-size:15px;} .callout p{margin:.4em 0;font-size:14.5px;color:var(--muted);max-width:78ch;}
+  ul.tight{max-width:76ch;padding-left:20px;} ul.tight li{margin:6px 0;}
+  .foot{margin-top:70px;border-top:1px solid var(--line);padding-top:20px;font-size:13px;color:var(--faint);font-family:var(--mono);}
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Product Readiness Review · Red team · revisor independiente</div>
+    <h1>¿Está listo para gestionar dinero institucional? Todavía no.</h1>
+    <p class="lede">Auditoría crítica del Market Regime Dashboard. El <em>motor</em> es sólido y causal;
+    la <em>presentación analítica</em> y el <em>medidor de confianza</em> son estadísticamente engañosos, y falta
+    la vista transversal que un fondo necesita. Sin adulaciones.</p>
+    <div class="verdict">
+      <span class="big">4.8/10</span>
+      <span class="stamp">No aprobado — deployment condicionado a los P0</span>
+      <span class="num">nota media ponderada · 11 componentes</span>
+    </div>
+  </header>
+
+  <div class="callout">
+    <h4>Los dos defectos que, por sí solos, bloquean la aprobación</h4>
+    <p><strong>1 · El fan chart vende beta como señal.</strong> Muestra "Alcista sano → +12.1% a 12m". El
+    incondicional de SPY es +10.1% media / +12.3% mediana. El <em>exceso</em> de Alcista es <strong>−0.6%</strong>:
+    este régimen rinde <em>peor</em> que no mirar nada. Y <strong>Capitulación tiene exceso −3.4%</strong> pero se
+    pinta "barato" igual que Pánico (+9.4% de exceso real). El panel no distingue la señal de la trampa. Un PM que
+    actúe sobre el número absoluto está operando la deriva secular, no el régimen.</p>
+    <p><strong>2 · El medidor de confianza miente.</strong> Dice "Alta · 1924 análogos". Con ventanas forward de 252
+    días solapadas, el <strong>N efectivo ≈ 2–7</strong> (496 días de Pánico ÷ 252 ≈ 2 muestras independientes). Dos
+    observaciones no son "confianza alta". La fórmula es <code>log(N)/log(1500)</code> sobre el N crudo — arbitraria y
+    sistemáticamente optimista.</p>
+  </div>
+
+  <!-- FASE 1 -->
+  <section>
+    <div class="h"><h2><span class="num">FASE 1</span> · Auditoría por componente</h2>
+      <h3>Notas — el núcleo aprueba, la capa analítica y de UX no</h3></div>
+    <div class="scroll"><table>
+      <thead><tr><th>Componente</th><th class="sc">0–10</th><th>Justificación (crítica)</th></tr></thead>
+      <tbody>
+        <tr><td>Score / motor causal</td><td class="sc s-hi">7.5</td><td>Causal (no-lookahead probado), set ortogonal validado, normalización expanding. Resta: el percentil pierde la valuación absoluta; equiponderar colapsa 3 dimensiones en un número.</td></tr>
+        <tr><td>Máquina de estados (FSM)</td><td class="sc s-mid">6.0</td><td>v2 calibrada, histéresis, sensata en ventanas de stress. Resta: umbrales fijados a mano, sin matriz de transición, validación macro floja (~55%).</td></tr>
+        <tr><td>Visualización (chart)</td><td class="sc s-lo">5.0</td><td>El "pelotón" de 22 años de score domina la pantalla y entierra el estado actual. Dos lenguajes de color en una vista.</td></tr>
+        <tr><td>Mapa de fases</td><td class="sc s-mid">6.0</td><td>Buen concepto institucional. Resta: proyección 2D <em>con pérdida</em> de un régimen que es 4D (tendencia e inestabilidad desaparecen); ejes cualitativos sin escala.</td></tr>
+        <tr><td>Probabilidades</td><td class="sc s-lo">4.0</td><td>El IC por block-bootstrap está bien. Pero muestra retorno <em>absoluto</em> (esconde el beta) y no expone el N efectivo. Engañoso tal cual está.</td></tr>
+        <tr><td>Timeline / distribución</td><td class="sc s-lo">5.0</td><td>El ribbon es lindo pero no hay distribución cuantificada (% de tiempo por régimen) ni matriz de transición. "Distribución temporal" está sub-entregada.</td></tr>
+        <tr><td>Confianza</td><td class="sc s-lo">2.0</td><td>Fórmula ad-hoc sobre N crudo → sobreestima sistemáticamente. Sin base en ancho de IC ni N efectivo. Una palabra sin drivers. <strong>El peor componente.</strong></td></tr>
+        <tr><td>Explicaciones</td><td class="sc s-lo">4.0</td><td>Delgadas: nombre + tendencia + dwell. Sin racional, sin "qué mirar", sin qué invalidaría la lectura.</td></tr>
+        <tr><td>Escalabilidad</td><td class="sc s-lo">3.0</td><td>Mono-activo. No hay board transversal (la necesidad #1 de un fondo). Percentil O(n²); sin prewarm en el app fusionado.</td></tr>
+        <tr><td>Rendimiento</td><td class="sc s-mid">6.0</td><td>Caché + gzip + single-flight, bien. Resta: cargas en frío ~2s, sin prewarm tras la fusión.</td></tr>
+        <tr><td>Consistencia</td><td class="sc s-lo">4.0</td><td>Dos lenguajes de color; y el panel legado "Zonas" (con z-score in-sample = lookahead) convive como pestaña par — riesgo de gobernanza.</td></tr>
+      </tbody>
+    </table></div>
+    <p><strong>Lectura:</strong> el motor validado es lo bueno. Lo que se le muestra al usuario encima —confianza,
+    probabilidades, jerarquía— es donde el producto suspende. No es un problema de indicadores; es de
+    <em>honestidad estadística en pantalla</em> y de <em>utilidad para decidir</em>.</p>
+  </section>
+
+  <!-- FASE 2 -->
+  <section>
+    <div class="h"><h2><span class="num">FASE 2</span> · Panel por panel</h2>
+      <h3>Qué aporta, qué decisión permite, y qué sobra</h3></div>
+    <div class="scroll"><table>
+      <thead><tr><th>Panel</th><th>Decisión que permite</th><th>Redundancia / ¿mejor viz?</th><th>Veredicto</th></tr></thead>
+      <tbody>
+        <tr><td>Hero: Score + Régimen</td><td>"¿Dónde estamos?" — la única lectura de 2 segundos.</td><td>Score y Nivel son el MISMO número (level = score). Redundante.</td><td><span class="tag P1">Rediseñar jerarquía</span></td></tr>
+        <tr><td>Ejes (4 barras)</td><td>Qué dimensión manda hoy.</td><td>Útil, pero "Nivel" duplica el Score. Quitar Nivel.</td><td><span class="tag P2">Podar</span></td></tr>
+        <tr><td>Confianza</td><td>Cuánto fiarse — pero da falsa seguridad.</td><td>No redundante; mal construida.</td><td><span class="tag P0">Reconstruir</span></td></tr>
+        <tr><td>Historia (chart)</td><td>Contexto de largo plazo.</td><td>Ocupa el 40% de la pantalla para info de "detalle". Debería ser sparkline.</td><td><span class="tag P1">Reducir</span></td></tr>
+        <tr><td>Ribbon de régimen</td><td>Cómo evolucionó el régimen.</td><td>Bien, pero sin la distribución cuantificada al lado pierde valor.</td><td><span class="tag P2">Enriquecer</span></td></tr>
+        <tr><td>Mapa de fases</td><td>Posición en el ciclo de un vistazo.</td><td>Proyección con pérdida (2 de 4 ejes). No es la mejor viz sin codificar tendencia.</td><td><span class="tag P1">Corregir</span></td></tr>
+        <tr><td>Fan chart</td><td>"¿Qué pasó después?" — pero muestra beta, no señal.</td><td>No redundante; engañoso sin baseline incondicional.</td><td><span class="tag P0">Añadir baseline</span></td></tr>
+        <tr><td>Composición (33.3%×3)</td><td>Cómo se arma el score.</td><td>Pesos triviales (todos 33.3%): baja información por pixel.</td><td><span class="tag P2">Comprimir</span></td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <!-- FASE 3 -->
+  <section>
+    <div class="h"><h2><span class="num">FASE 3</span> · La prueba de los 8 segundos</h2>
+      <h3>La jerarquía actual está invertida</h3></div>
+    <p>Hoy lo primero que golpea la vista es un gráfico de 22 años; el <em>estado actual</em> compite en tamaño con el
+    número 0–100 y con una barra de ejes. Un gestor no puede resolver "¿qué hago?" en 8 segundos.</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Debería captarse al instante</th><th>Sobra en los primeros 8s</th><th>Falta</th></tr></thead>
+      <tbody>
+        <tr><td>Régimen actual (grande, con color) + si es accionable</td><td>Los 22 años de score coloreado (es detalle, no titular)</td><td>Exceso vs. incondicional (la señal real)</td></tr>
+        <tr><td>Confianza <em>honesta</em>: N efectivo + ancho de IC</td><td>La composición 33.3%×3 (pesos triviales)</td><td>Contexto transversal (¿qué hacen los otros 23 activos?)</td></tr>
+        <tr><td>Dirección esperada con su incertidumbre</td><td>El número a 0.1 de precisión (falsa)</td><td>Qué viene después (transición / dwell esperado)</td></tr>
+      </tbody>
+    </table></div>
+    <p><strong>Rediseño de jerarquía:</strong> (1) fila superior = REGIMEN grande + una frase honesta con exceso, N
+    efectivo e IC; (2) el chart de 22 años pasa a <em>sparkline</em>; (3) una tira transversal con los 24 activos por
+    régimen; (4) el detalle (fases, fan, composición) debajo del pliegue.</p>
+  </section>
+
+  <!-- FASE 4 -->
+  <section>
+    <div class="h"><h2><span class="num">FASE 4</span> · Principios de terminal institucional</h2>
+      <h3>Qué extraer de Bloomberg / Aladdin / AQR — sin copiar su diseño</h3></div>
+    <ul class="tight">
+      <li><strong>El dato más accionable, el más grande y arriba-izquierda.</strong> Bloomberg jerarquiza por relevancia de decisión, no por vistosidad. Aquí el titular debería ser el régimen, no un chart.</li>
+      <li><strong>La incertidumbre viaja pegada al estimador.</strong> AQR/Two Sigma nunca muestran un punto sin su N y su banda. Un número sin IC al lado es, para ellos, un error de producto.</li>
+      <li><strong>Marco relativo, no absoluto.</strong> Un gestor piensa en <em>exceso</em> sobre un benchmark, no en retorno bruto. "+12%" no dice nada; "+9% sobre la media histórica" sí.</li>
+      <li><strong>Small multiples / heatmap para lo transversal.</strong> El risk board de Aladdin resuelve "dónde está el riesgo" en toda la cartera de un vistazo. Un dashboard mono-activo no escala a un fondo.</li>
+      <li><strong>Color semántico, consistente y accesible.</strong> Un solo lenguaje de color en toda la pantalla, apto para daltonismo (una mesa de trading tiene ~8% de hombres con déficit rojo-verde).</li>
+      <li><strong>Densidad con disciplina (Tufte).</strong> Máxima información por pixel, cero chartjunk. El chart-pelotón y la composición trivial violan esto.</li>
+      <li><strong>Frescura y calidad del dato siempre visibles.</strong> Fuente, última barra, gaps. Hoy solo hay una fecha.</li>
+    </ul>
+  </section>
+
+  <!-- FASE 5 -->
+  <section>
+    <div class="h"><h2><span class="num">FASE 5</span> · Crítica de diseño</h2>
+      <h3>Colores, tamaños, densidad, etiquetas</h3></div>
+    <div class="scroll"><table>
+      <thead><tr><th>Elemento</th><th>Problema</th><th>Alternativa justificada</th></tr></thead>
+      <tbody>
+        <tr><td>Color</td><td>Verde-rojo NO es apto para daltónicos; y hay DOS lenguajes (gradiente del score vs. paleta del régimen). "Capitulación" es verde en la línea y naranja en el ribbon: se contradicen.</td><td>Un único mapa semántico, secuencial + apto daltonismo (ej. viridis/azul-ámbar). El régimen codificado por color + forma, no solo color.</td></tr>
+        <tr><td>Tamaños</td><td>Jerarquía plana: chart gigante, estado actual pequeño.</td><td>Régimen y confianza dominan; historia → sparkline.</td></tr>
+        <tr><td>Densidad</td><td>Chart sobre-denso (5.596 puntos); composición sub-densa (3 barras iguales).</td><td>Sparkline + banda de régimen; composición comprimida a una línea.</td></tr>
+        <tr><td>Contraste</td><td>Aceptable en ambos temas; el gris de los ejes cualitativos es muy tenue.</td><td>Subir contraste de etiquetas de eje; añadir escala numérica.</td></tr>
+        <tr><td>Etiquetas</td><td>Ejes del mapa de fases cualitativos ("barato/caro") sin números; "Confianza: Alta" sin driver.</td><td>Percentiles numéricos en los ejes; confianza con "N efectivo=7 · IC ±X%".</td></tr>
+        <tr><td>Textos</td><td>Explicación del régimen anémica.</td><td>Frase estructurada: estado + exceso + qué lo confirmaría/invalidaría.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <!-- FASE 6 -->
+  <section>
+    <div class="h"><h2><span class="num">FASE 6</span> · Auditoría cuantitativa</h2>
+      <h3>Dónde se induce falsa precisión</h3></div>
+    <ul class="tight">
+      <li><strong>Retornos forward absolutos = beta disfrazado de señal.</strong> Probado: Alcista +12% = −0.6% de exceso; Capitulación exceso −3.4%. <span class="tag P0">P0</span> Mostrar siempre el <em>exceso sobre el incondicional</em> (y ese incondicional como banda de referencia).</li>
+      <li><strong>N crudo ≠ N efectivo.</strong> Con solape de 252d, N_efec ≈ N/252 ≈ 2–7. La confianza y los IC deben calcularse y mostrarse sobre el N efectivo, por horizonte. <span class="tag P0">P0</span></li>
+      <li><strong>Score a 0.1 de precisión</strong> (61.9) sugiere una exactitud que el percentil no tiene. Mostrar en bandas o redondeado, con su ruido.</li>
+      <li><strong>Mapa de fases 2D</strong> insinúa que el régimen queda determinado por 2 ejes; son 4. Dos puntos iguales pueden ser Recuperación o Corrección. Codificar tendencia.</li>
+      <li><strong>Sin estabilidad temporal.</strong> Toda estadística condicional debería venir con su lectura por décadas (¿el comportamiento del régimen es estacionario?). Hoy se funden 25 años como homogéneos.</li>
+    </ul>
+    <div class="callout">
+      <h4>Regla de producto no negociable</h4>
+      <p>Ningún estimador puntual en pantalla sin, al lado: <strong>N efectivo · intervalo de confianza · exceso sobre
+      baseline</strong>. Es la línea que separa una herramienta institucional de un gráfico bonito.</p>
+    </div>
+  </section>
+
+  <!-- FASE 7 -->
+  <section>
+    <div class="h"><h2><span class="num">FASE 7</span> · Mejoras que cumplen las 3 condiciones</h2>
+      <h3>Valor claro · respaldo estadístico/UX · sin complejidad gratuita</h3></div>
+    <div class="scroll"><table>
+      <thead><tr><th>Mejora</th><th class="sc">Impacto</th><th class="sc">Dificultad</th><th class="sc">Prio</th><th>Justificación</th></tr></thead>
+      <tbody>
+        <tr><td>Exceso vs. incondicional en el fan chart (+ banda baseline)</td><td class="sc">9</td><td class="sc">3</td><td class="sc"><span class="tag P0">P0</span></td><td>Separa edge de beta. Sin esto el panel engaña.</td></tr>
+        <tr><td>Confianza sobre N efectivo + ancho de IC, por horizonte</td><td class="sc">8</td><td class="sc">4</td><td class="sc"><span class="tag P0">P0</span></td><td>Corrige el solape de retornos. Honestidad estadística.</td></tr>
+        <tr><td>Board transversal (24 activos × régimen, heatmap)</td><td class="sc">9</td><td class="sc">5</td><td class="sc"><span class="tag P1">P1</span></td><td>La vista que un fondo usa primero. Convierte mono-activo en herramienta de cartera.</td></tr>
+        <tr><td>Matriz de transición + dwell/supervivencia esperados</td><td class="sc">7</td><td class="sc">4</td><td class="sc"><span class="tag P1">P1</span></td><td>Convierte "distribución temporal" en decisión: qué viene y cuánto dura.</td></tr>
+        <tr><td>Rediseño de jerarquía para 8s (régimen grande, chart→sparkline)</td><td class="sc">8</td><td class="sc">4</td><td class="sc"><span class="tag P1">P1</span></td><td>Principio de terminal: lo accionable, primero y grande.</td></tr>
+        <tr><td>Un solo color semántico, apto daltonismo</td><td class="sc">6</td><td class="sc">3</td><td class="sc"><span class="tag P1">P1</span></td><td>Elimina la contradicción de color y el riesgo de mala lectura.</td></tr>
+        <tr><td>Distribución de régimen cuantificada (% tiempo, dwell medio)</td><td class="sc">5</td><td class="sc">2</td><td class="sc"><span class="tag P2">P2</span></td><td>Completa el timeline con poco esfuerzo.</td></tr>
+        <tr><td>Etiquetar/deprecar el panel legado "Zonas" (lookahead)</td><td class="sc">6</td><td class="sc">2</td><td class="sc"><span class="tag P2">P2</span></td><td>Gobernanza: no convivir con una vista estadísticamente inválida sin aviso.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <!-- FASE 8 -->
+  <section>
+    <div class="h"><h2><span class="num">FASE 8</span> · Roadmap priorizado</h2>
+      <h3>En qué orden</h3></div>
+    <h4>Quick wins (&lt; 2 h)</h4>
+    <ul class="tight">
+      <li>Mostrar <strong>N efectivo</strong> junto a cada estimador (N/252 por horizonte).</li>
+      <li><strong>Exceso sobre incondicional</strong> como número junto a cada retorno del fan (ya computable).</li>
+      <li>Distribución de régimen cuantificada (% de tiempo, dwell medio) al lado del ribbon.</li>
+      <li>Etiqueta de aviso en el panel "Zonas" (lookahead / descriptivo, no operable).</li>
+      <li>Quitar "Nivel" de los ejes (duplica el Score); redondear el score a banda.</li>
+      <li>Activar prewarm en el app fusionado.</li>
+    </ul>
+    <h4>Mejoras importantes</h4>
+    <ul class="tight">
+      <li><strong>Reconstruir la confianza</strong> sobre N efectivo + ancho de IC (no <code>log N</code>).</li>
+      <li><strong>Baseline incondicional</strong> como banda gris en el fan chart; fan en modo "exceso".</li>
+      <li><strong>Rediseño de jerarquía 8s</strong>: régimen grande + frase honesta; chart → sparkline.</li>
+      <li>Color único semántico y apto daltonismo; régimen por color + forma.</li>
+      <li><strong>Matriz de transición</strong> + supervivencia del régimen.</li>
+    </ul>
+    <h4>Cambios arquitectónicos</h4>
+    <ul class="tight">
+      <li><strong>Board transversal</strong> multi-activo (heatmap 24 × régimen/score) — la pieza que lo vuelve institucional.</li>
+      <li>Pipeline de <strong>precómputo</strong> del universo (evitar O(n²) en caliente; refresco programado).</li>
+      <li>Superficie de <strong>estabilidad cross-década</strong> de las estadísticas condicionales.</li>
+    </ul>
+    <h4>Opcionales</h4>
+    <ul class="tight">
+      <li>Contexto de valuación absoluta (complemento al percentil).</li>
+      <li>Flags de calidad/frescura del dato por activo.</li>
+      <li>Alertas al cambio de régimen.</li>
+    </ul>
+  </section>
+
+  <div class="foot">
+    Product Readiness Review · revisor independiente · veredicto: NO APROBADO en estado actual, aprobable tras los P0.
+    · Sin recomendación de inversión.
+  </div>
+</div>

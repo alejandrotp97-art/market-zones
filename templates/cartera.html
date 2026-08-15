@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mi Cartera</title>
+  <link rel="stylesheet" href="{{ asset('regime.css') }}">
+  <link rel="stylesheet" href="{{ asset('cartera.css') }}">
+  <link rel="stylesheet" href="{{ asset('cartera-map.css') }}">
+</head>
+<body>
+  <div class="wrap">
+    <nav class="topnav">
+      <a href="/">Zonas de Mercado</a>
+      <a href="/regime">Régimen de Mercado</a>
+      <a href="/screener">Screener</a>
+      <a href="/comite">Comité</a>
+      <a href="/cartera" class="on">Cartera</a>
+      <a href="/swing" target="_blank" rel="noopener">Swing BTC ↗</a>
+      <a href="/abraham/panorama.html" target="_blank" rel="noopener">Proyecto Abraham ↗</a>
+    </nav>
+
+    <header class="top">
+      <div class="titles">
+        <h1>Mi Cartera</h1>
+        <div class="sub">Libro de movimientos · <span id="n-mov">—</span> operaciones ·
+          valores en <b>EUR</b> · precios y tipo de cambio en tiempo real (Yahoo)</div>
+      </div>
+      <button id="eye" class="eye" type="button" aria-pressed="false" title="Ocultar importes">
+        <svg class="on" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3.2"/>
+        </svg>
+        <svg class="off" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M17.9 17.9A10.1 10.1 0 0 1 12 20C5 20 1 12 1 12a18.5 18.5 0 0 1 5.1-5.9m3.8-1.9A9.1 9.1 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.2 3.2m-6.7-1.1a3 3 0 1 1-4.2-4.2"/>
+          <line x1="2" y1="2" x2="22" y2="22"/>
+        </svg>
+        <span class="eye-lbl">Ocultar importes</span>
+      </button>
+    </header>
+
+    <!-- resumen -->
+    <section class="hero cart-hero">
+      <div><div class="lbl">Invertido (abierto)</div><div id="s-inv" class="big">—</div></div>
+      <div><div class="lbl">Valor de mercado</div><div id="s-mval" class="big">—</div></div>
+      <div><div class="lbl">P&L no realizado</div><div id="s-unreal" class="big">—</div><div id="s-unrealpct" class="mut small"></div></div>
+      <div><div class="lbl">P&L realizado</div><div id="s-real" class="big">—</div></div>
+    </section>
+
+    <!-- evolución -->
+    <section class="card chart-card">
+      <div class="card-h"><span>Evolución de la cartera</span>
+        <span class="legend">comparar con
+          <span id="bench-wrap" class="search-wrap">
+            <input id="bench" value="SPY" autocomplete="off" spellcheck="false"
+                   placeholder="ticker o nombre" title="Índice, ETF, fondo o acción — escribe y elige de la lista">
+            <div id="bench-results" class="results" hidden></div>
+          </span>
+        </span></div>
+      <div class="chart-host"><canvas id="pchart"></canvas><div id="ptip" class="tip" hidden></div></div>
+      <div id="chart-legend" class="chart-legend"></div>
+    </section>
+
+    <!-- posiciones -->
+    <section class="card">
+      <div class="card-h"><span>Posiciones actuales</span><span id="pos-legend" class="legend"></span></div>
+      <div class="scroll"><table id="pos" class="tbl">
+        <thead><tr>
+          <th>Activo</th><th class="num">Cantidad</th><th class="num">Coste medio</th>
+          <th class="num">Invertido</th><th class="num">Último</th><th class="num">Valor</th>
+          <th class="num">P&L no real.</th><th class="num">%</th><th class="num">P&L real.</th>
+        </tr></thead><tbody id="pos-body"></tbody>
+      </table></div>
+    </section>
+
+    <!-- exposición geográfica -->
+    <section class="card map-card">
+      <div class="card-h"><span>Exposición geográfica</span>
+        <span class="seg" id="geo-class" role="group" aria-label="Clase de activo">
+          <button type="button" data-clase="all" class="on">Todo</button>
+          <button type="button" data-clase="equity">Renta variable</button>
+          <button type="button" data-clase="bond">Renta fija</button>
+        </span></div>
+      <div class="map-grid">
+        <div class="map-host">
+          <svg id="wmap" role="img" aria-label="Mapa de exposición por país"
+               data-geo="{{ asset('world-110m.json') }}">
+            <defs>
+              <!-- Relieve: SOLO una sombra, y sobre una capa aparte que va DEBAJO
+                   de los países. Un filtro sobre el mapa visible lo rasteriza
+                   entero y se lleva por delante la nitidez de las fronteras; una
+                   luz especular encima, además, no levanta la tierra: la rodea de
+                   un halo que lava los bordes. La sombra se proyecta desde una
+                   silueta gemela e invisible, así que los países siguen siendo
+                   vectores puros y las divisiones se ven igual de limpias. -->
+              <filter id="wrelief" x="-5%" y="-5%" width="110%" height="112%">
+                <feDropShadow dx="0" dy="1.5" stdDeviation="1.1"
+                              flood-color="#000" flood-opacity="0.55"/>
+              </filter>
+            </defs>
+          </svg>
+          <div id="mtip" class="tip" hidden></div>
+          <div id="map-legend" class="map-legend"></div>
+        </div>
+        <div class="map-side">
+          <table id="geo-rank" class="tbl rank-tbl">
+            <thead><tr><th>País</th><th class="num">%</th><th class="num">EUR</th></tr></thead>
+            <tbody id="geo-rank-body"></tbody>
+          </table>
+        </div>
+      </div>
+      <!-- Fuera del panel con scroll a propósito: aquí es donde se dice qué NO
+           está pintado (el resto agregado, el oro, lo no valorado). Esconderlo
+           tras una barra de desplazamiento sería esconder parte de la cartera. -->
+      <div id="geo-notes" class="geo-notes"></div>
+      <p id="geo-src" class="mut small"></p>
+    </section>
+
+    <div class="two">
+      <!-- alta manual -->
+      <section class="card">
+        <div class="card-h"><span>Añadir movimiento</span></div>
+        <form id="add-form" class="add-grid">
+          <label class="wide search-wrap">Instrumento — ticker, ISIN o nombre
+            <input type="text" id="f-ticker" placeholder="SPY · IE00B4L5Y983 · MSCI World · Baelo…" autocomplete="off" required>
+            <div id="f-results" class="results" hidden></div>
+            <div id="f-picked" class="picked" hidden></div>
+          </label>
+          <label>Tipo<select id="f-side"><option value="buy">Compra</option><option value="sell">Venta</option></select></label>
+          <label>Fecha<input type="date" id="f-date"></label>
+          <label>Cantidad<input type="number" id="f-qty" step="any" placeholder="10" required></label>
+          <label>Precio<input type="number" id="f-price" step="any" placeholder="450.20" required></label>
+          <label>Comisión<input type="number" id="f-fee" step="any" placeholder="0"></label>
+          <label class="wide">Nota<input type="text" id="f-note" placeholder="opcional"></label>
+          <button type="submit" class="primary">Añadir</button>
+        </form>
+      </section>
+
+      <!-- importar -->
+      <section class="card">
+        <div class="card-h"><span>Importar CSV / Excel</span>
+          <a id="tpl" class="legend" href="#" style="cursor:pointer">↓ plantilla CSV</a></div>
+        <div id="drop" class="drop">
+          <input type="file" id="file" accept=".csv,.xlsx,.xls" hidden>
+          <div class="drop-in">Arrastra un archivo aquí o <button type="button" id="pick" class="link">elígelo</button>
+            <div class="mut small">CSV o Excel. Detecto columnas: <b>fecha, ticker, tipo, cantidad, precio, comisión, nota</b>
+              (en español o inglés). El tipo puede ser compra/venta o cantidad con signo.</div></div>
+        </div>
+        <div id="import-msg" class="import-msg"></div>
+      </section>
+    </div>
+
+    <!-- movimientos -->
+    <section class="card">
+      <div class="card-h"><span>Movimientos</span>
+        <button id="clear" class="danger-link">vaciar todo</button></div>
+      <div class="scroll"><table id="mov" class="tbl">
+        <thead><tr>
+          <th>Fecha</th><th>Activo</th><th>Tipo</th><th class="num">Cantidad</th>
+          <th class="num">Precio</th><th class="num">Comisión</th><th>Nota</th><th></th>
+        </tr></thead><tbody id="mov-body"></tbody>
+      </table></div>
+    </section>
+
+    <div id="status" class="status" hidden></div>
+  </div>
+  <script src="{{ asset('cartera.js') }}"></script>
+  <script src="{{ asset('cartera-map.js') }}"></script>
+</body>
+</html>

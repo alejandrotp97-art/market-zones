@@ -1,0 +1,100 @@
+/* Cartera — reutiliza los tokens de regime.css (enlazado antes). */
+.cart-hero{grid-template-columns:repeat(4,1fr);}
+.cart-hero .big{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.01em;margin-top:2px;}
+@media(max-width:760px){.cart-hero{grid-template-columns:1fr 1fr;}}
+
+.tbl{width:100%;border-collapse:collapse;font-size:13px;min-width:640px;}
+.tbl th{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);
+  text-align:left;padding:8px 11px;border-bottom:1px solid var(--border);white-space:nowrap;}
+.tbl th.num,.tbl td.num{text-align:right;font-variant-numeric:tabular-nums;font-family:var(--mono);}
+.tbl td{padding:8px 11px;border-bottom:1px solid var(--border);white-space:nowrap;}
+.tbl tbody tr:last-child td{border-bottom:none;}
+.tbl tr:hover td{background:color-mix(in srgb,var(--text) 3%,transparent);}
+.tbl .sym{font-family:var(--mono);font-weight:600;}
+.tbl tr.closed td{color:var(--muted);}
+.tbl .note{max-width:220px;overflow:hidden;text-overflow:ellipsis;color:var(--muted);white-space:nowrap;}
+.side{font-size:11px;font-weight:600;padding:1px 8px;border-radius:5px;}
+.side.buy{color:#3fae6b;background:color-mix(in srgb,#3fae6b 16%,transparent);}
+.side.sell{color:#cf5b3a;background:color-mix(in srgb,#cf5b3a 16%,transparent);}
+.del{background:none;border:none;color:var(--faint);cursor:pointer;font-size:13px;padding:2px 6px;border-radius:5px;}
+.del:hover{color:#cf5b3a;background:color-mix(in srgb,#cf5b3a 14%,transparent);}
+
+/* alta manual */
+.add-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px 14px;align-items:end;}
+.add-grid label{display:flex;flex-direction:column;gap:5px;font-size:11.5px;color:var(--muted);}
+.add-grid input,.add-grid select{width:100%;}
+.add-grid .wide{grid-column:span 2;}
+.add-grid .primary{grid-column:span 1;align-self:end;background:var(--accent);color:#fff;border-color:var(--accent);font-weight:600;padding:8px 12px;}
+.add-grid .primary:hover{filter:brightness(1.08);}
+@media(max-width:620px){.add-grid{grid-template-columns:1fr 1fr;}.add-grid .wide{grid-column:span 2;}}
+
+/* importar */
+.drop{border:1.5px dashed var(--border);border-radius:10px;padding:22px 18px;text-align:center;transition:.15s;background:var(--panel2);}
+.drop.over{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,var(--panel2));}
+.drop-in{color:var(--muted);font-size:13px;}
+.link{background:none;border:none;color:var(--accent);cursor:pointer;text-decoration:underline;font-size:13px;padding:0;}
+.import-msg{margin-top:10px;font-size:12.5px;min-height:18px;}
+
+.danger-link{background:none;border:none;color:var(--faint);cursor:pointer;font-size:12px;}
+.danger-link:hover{color:#cf5b3a;}
+
+/* gráfica de evolución */
+.chart-card .chart-host{height:280px;}
+#pchart{width:100%;height:100%;display:block;cursor:crosshair;}
+/* Ojo: oculta los importes en pantalla. No cambia ni un dato, solo lo que se ve. */
+.eye{display:inline-flex;align-items:center;gap:7px;padding:6px 11px;cursor:pointer;
+  background:var(--panel);color:var(--muted);border:1px solid var(--border);border-radius:9px;
+  font:inherit;font-size:12.5px;font-weight:600;}
+.eye:hover{color:var(--text);border-color:var(--accent);}
+.eye svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.9;
+  stroke-linecap:round;stroke-linejoin:round;}
+.eye .off{display:none;}
+body.amounts-hidden .eye{color:var(--text);border-color:var(--accent);}
+body.amounts-hidden .eye .on{display:none;}
+body.amounts-hidden .eye .off{display:block;}
+@media(max-width:640px){.eye-lbl{display:none;}}
+
+#bench{width:118px;padding:3px 8px;font-size:12px;}
+#bench-wrap{display:inline-block;vertical-align:middle;margin-left:4px;}
+/* El campo vive pegado al borde derecho de la tarjeta: la lista se ancla ahí y
+   crece hacia la izquierda, o los nombres largos se saldrían del panel. */
+#bench-wrap .results{left:auto;right:0;width:290px;}
+.chart-legend{display:flex;flex-wrap:wrap;align-items:center;gap:8px 18px;font-size:12px;color:var(--muted);margin-top:10px;}
+.chart-legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:middle;}
+.chart-legend b{color:var(--text);font-variant-numeric:tabular-nums;}
+.chart-legend .out{margin-left:auto;}
+.chart-legend .warn{color:#cf8b3a;cursor:help;}
+.chart-legend .warn b{color:#cf8b3a;}
+.chart-legend .via{color:var(--muted);cursor:help;}
+.chart-legend .via b{color:var(--muted);font-weight:600;}
+.warn{color:#cf8b3a;cursor:help;}
+.warn code{background:rgba(207,139,58,.14);padding:1px 4px;border-radius:3px;}
+#pos-legend.has-warn{color:#cf8b3a;}
+@media(max-width:620px){.chart-legend .out{margin-left:0;}}
+/* tooltip tiene fondo oscuro fijo → forzar texto claro en ambos temas */
+#ptip{color:#e8eaee;} #ptip .td{color:#9aa0ad;} #ptip b{color:#fff;}
+#ptip .tr{display:flex;justify-content:space-between;gap:16px;margin:2px 0;}
+
+/* badges de tipo de instrumento + nombre legible */
+.kbadge{display:inline-block;font-size:9.5px;font-weight:700;color:#fff;padding:1px 6px;border-radius:5px;vertical-align:middle;letter-spacing:.02em;}
+.nm{color:var(--muted);font-size:11px;margin-top:2px;white-space:normal;max-width:340px;line-height:1.3;}
+/* Celda "Activo": nombre arriba (lo que se lee), identificador debajo (lo que
+   se copia). El ticker mantiene la tipografía monoespaciada para que un ISIN
+   siga siendo cómodo de comparar carácter a carácter. */
+.a-name{font-weight:600;color:var(--text);}
+.a-name.a-mono{font-family:var(--mono);}
+.a-sym{font-family:var(--mono);color:var(--muted);font-size:11px;margin-top:2px;letter-spacing:.01em;}
+
+/* buscador de instrumentos */
+.search-wrap{position:relative;}
+.results{position:absolute;left:0;right:0;top:100%;z-index:30;margin-top:4px;background:var(--panel);
+  border:1px solid var(--border);border-radius:9px;box-shadow:0 10px 30px rgba(0,0,0,.35);max-height:280px;overflow-y:auto;}
+.r-item{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:9px;padding:8px 11px;cursor:pointer;
+  border-bottom:1px solid var(--border);font-size:12.5px;}
+.r-item:last-child{border-bottom:none;}
+.r-item:hover,.r-item.on{background:color-mix(in srgb,var(--accent) 12%,transparent);}
+.r-name{color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.r-sym{font-family:var(--mono);color:var(--muted);font-size:11px;white-space:nowrap;}
+.r-empty{padding:10px 12px;color:var(--muted);font-size:12px;}
+.picked{margin-top:5px;font-size:12px;color:var(--muted);}
+.picked b{color:var(--text);}

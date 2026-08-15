@@ -1,0 +1,14 @@
+[Unit]
+Description=Refresco semanal de los pesos por país de la cartera
+
+[Timer]
+# Semanal, no diario: los pesos de un índice se mueven despacio y pedirle a
+# justETF cinco fichas cada día para ver cambiar decimales es maleducado.
+# Comprar un instrumento NUEVO no espera a este timer — el alta lo resuelve al
+# momento en segundo plano; esto solo evita que la tabla envejezca en silencio.
+OnCalendar=Mon 06:30
+Persistent=true
+RandomizedDelaySec=1800
+
+[Install]
+WantedBy=timers.target

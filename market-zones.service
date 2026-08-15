@@ -1,0 +1,31 @@
+[Unit]
+Description=market-zones - Panel de Zonas de Mercado (Flask dashboard :8771). Solo lectura, sin claves, no toca ningún bot de trading.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/alex/bots/market-zones
+Environment=PYTHONUNBUFFERED=1
+# Reutiliza el venv de btc-poly (trae flask+pandas+numpy) SIN modificarlo: ese
+# venv lo comparten ~60 servicios, varios de trading real. La única dependencia
+# propia (waitress, servidor WSGI) vive en ./vendor, instalada con --target.
+#   Reinstalar:  .../btc-poly/.venv/bin/python -m pip install --target=./vendor waitress
+Environment=PYTHONPATH=/home/alex/bots/market-zones/vendor
+ExecStart=/home/alex/bots/btc-poly/.venv/bin/python /home/alex/bots/market-zones/dashboard.py
+Restart=always
+RestartSec=10
+
+MemoryHigh=200M
+MemoryMax=300M
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=market-zones
+
+[Install]
+WantedBy=default.target
+
+# Instalar:
+#   cp market-zones.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now market-zones
+# Ver:  ssh -L 8771:127.0.0.1:8771 vps   ->  http://127.0.0.1:8771

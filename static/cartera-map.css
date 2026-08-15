@@ -1,0 +1,76 @@
+/* Exposición geográfica — tokens de regime.css (enlazado antes). */
+
+.map-card{margin-bottom:14px;}
+.map-grid{display:grid;grid-template-columns:1fr 300px;gap:16px;align-items:start;}
+@media(max-width:900px){.map-grid{grid-template-columns:1fr;}}
+
+/* toggle de clase de activo */
+.seg{display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;}
+.seg button{background:var(--panel2);border:none;border-radius:0;padding:4px 11px;font-size:11.5px;
+  color:var(--muted);border-right:1px solid var(--border);}
+.seg button:last-child{border-right:none;}
+.seg button:hover{color:var(--text);}
+.seg button.on{background:var(--accent);color:#fff;font-weight:600;}
+
+/* el mapa */
+.map-host{position:relative;}
+#wmap{width:100%;height:auto;display:block;overflow:visible;}
+#wmap path{stroke-width:.4;stroke-linejoin:round;vector-effect:non-scaling-stroke;}
+/* Sin exposición: gris de superficie, NUNCA el escalón más claro de la rampa.
+   Un país en el que no hay nada no puede parecerse a uno con poco. */
+#wmap path.zero{fill:var(--panel2);stroke:var(--border);}
+#wmap path.has{stroke:var(--panel);cursor:pointer;}
+#wmap path.has:hover,#wmap path.has:focus-visible,#wmap path.sel{stroke:var(--text);stroke-width:1.1;outline:none;}
+/* Silueta gemela: mismo dibujo, relleno del color del fondo y fuera del alcance
+   del ratón. No se ve — lo único que aporta es la sombra que proyecta. */
+#wmap .land-shadow{pointer-events:none;}
+#wmap .land-shadow path{fill:var(--panel);stroke:none;}
+/* La intensidad de la sombra sí depende del tema: `flood-opacity` es una
+   propiedad CSS de pleno derecho, así que se ajusta aquí en vez de duplicar el
+   filtro. Sobre fondo claro la mitad de sombra ya sería una mancha. El valor
+   oscuro va como atributo en el SVG, para que un CSS que no cargue no deje una
+   sombra negra a plena opacidad. */
+@media (prefers-color-scheme:light){
+  #wrelief feDropShadow{flood-opacity:.22;}
+}
+
+/* leyenda: barra continua + marcas con los % REALES, para que la compresión
+   de la escala se vea en vez de disimularse */
+.map-legend{display:flex;align-items:flex-start;gap:14px;margin-top:8px;font-size:11px;color:var(--faint);
+  font-family:var(--mono);flex-wrap:wrap;}
+/* La barra y sus marcas se apilan en la MISMA columna: en fila, un `left:50%`
+   se mediría contra el contenedor de marcas y no contra el degradado. */
+.map-legend .scale{display:flex;flex-direction:column;gap:4px;flex:1;min-width:190px;max-width:340px;}
+.map-legend .bar{height:8px;border-radius:5px;width:100%;}
+.map-legend .ticks{position:relative;width:100%;height:13px;}
+.map-legend .ticks span{position:absolute;transform:translateX(-50%);white-space:nowrap;}
+.map-legend .ticks span:first-child{transform:none;}
+.map-legend .ticks span:last-child{transform:translateX(-100%);}
+.map-legend .nozero{padding-top:1px;}
+.map-legend .swatch{display:inline-block;width:11px;height:11px;border-radius:3px;
+  background:var(--panel2);border:1px solid var(--border);vertical-align:-1px;margin-right:5px;}
+
+/* ranking lateral: el mapa no sirve para ordenar, la lista sí */
+.map-side{max-height:420px;overflow-y:auto;}
+.map-side thead th{position:sticky;top:0;background:var(--panel);z-index:1;}
+.rank-tbl{min-width:0;font-size:12.5px;}
+.rank-tbl td{padding:5px 8px;white-space:nowrap;}
+.rank-tbl th{padding:5px 8px;}
+.rank-tbl .sw{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:7px;vertical-align:0;}
+.rank-tbl tr.dim td{color:var(--muted);}
+.rank-tbl tr.sel td{background:color-mix(in srgb,var(--accent) 14%,transparent);}
+
+.geo-notes{margin-top:12px;padding-top:10px;border-top:1px solid var(--border);
+  font-size:11.5px;color:var(--muted);line-height:1.5;}
+.geo-notes:empty{display:none;}
+.geo-notes div{margin-top:4px;}
+.geo-notes div:first-child{margin-top:0;}
+.geo-notes b{color:var(--text);font-variant-numeric:tabular-nums;}
+.geo-notes .flag{color:#cf8b3a;}
+
+#geo-src{line-height:1.5;}
+#geo-src a{color:var(--muted);}
+#mtip{max-width:260px;}
+#mtip{color:#e8eaee;} #mtip .td{color:#9aa0ad;} #mtip b{color:#fff;}
+#mtip .tr{display:flex;justify-content:space-between;gap:16px;margin:2px 0;}
+#mtip .who{color:#9aa0ad;margin-top:5px;padding-top:5px;border-top:1px solid rgba(255,255,255,.14);}

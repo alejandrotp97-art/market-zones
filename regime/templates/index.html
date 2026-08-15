@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Panel de Régimen de Mercado</title>
+  <link rel="stylesheet" href="/static/style.css?v=1">
+</head>
+<body>
+  <div class="wrap">
+    <header class="top">
+      <div class="titles">
+        <h1>Panel de Régimen de Mercado</h1>
+        <div class="sub">Estado estructural · datos hasta <span id="asof">—</span></div>
+      </div>
+      <div class="controls">
+        <select id="asset">
+          {% for sym, name in curated %}
+          <option value="{{ sym }}" {% if sym == default %}selected{% endif %}>{{ name }}</option>
+          {% endfor %}
+        </select>
+        <input id="ticker" type="text" placeholder="otro ticker…" autocomplete="off">
+        <button id="load">Cargar</button>
+      </div>
+    </header>
+
+    <section class="hero">
+      <div class="hero-score">
+        <div class="lbl">Score</div>
+        <div id="score-num" class="score-num">—</div>
+        <div class="gauge"><i id="gauge-fill"></i><span id="gauge-mark"></span></div>
+        <div class="gauge-ends"><span>capitulación</span><span>euforia</span></div>
+      </div>
+      <div class="hero-regime">
+        <div class="lbl">Régimen</div>
+        <div class="regime-row"><span id="regime-dot" class="rdot"></span><span id="regime-name">—</span></div>
+        <div id="regime-meta" class="meta-line">—</div>
+      </div>
+      <div class="hero-axes">
+        <div class="lbl">Ejes (percentil histórico)</div>
+        <div id="axes"></div>
+      </div>
+      <div class="hero-conf">
+        <div class="lbl">Confianza</div>
+        <div id="conf-num" class="conf-num">—</div>
+        <div id="conf-meta" class="meta-line">—</div>
+      </div>
+    </section>
+
+    <section class="card chart-card">
+      <div class="card-h"><span>Historia · precio (log) + score</span><span id="ribbon-legend" class="legend"></span></div>
+      <div class="chart-host"><canvas id="chart"></canvas><div id="tip" class="tip" hidden></div></div>
+      <div class="ribbon-host"><canvas id="ribbon"></canvas></div>
+    </section>
+
+    <section class="two">
+      <div class="card">
+        <div class="card-h"><span>Mapa de fase · nivel × volatilidad</span></div>
+        <div class="phase-host"><canvas id="phase"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-h"><span>Escenarios · retorno posterior desde este régimen</span>
+          <span id="fan-n" class="legend"></span></div>
+        <div class="fan-host"><canvas id="fan"></canvas></div>
+      </div>
+    </section>
+
+    <div id="status" class="status" hidden></div>
+  </div>
+  <script src="/static/app.js?v=1"></script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+{
+ "as_of": null,
+ "note": "Plantilla vacia. Se rellena sola al anadir posiciones a la cartera: el servicio consulta los pesos por pais de cada instrumento y los guarda aqui. Tambien se puede forzar con: python3 analysis/seed_country_weights.py",
+ "instruments": {}
+}

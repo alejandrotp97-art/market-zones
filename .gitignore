@@ -1,0 +1,38 @@
+# ── Nunca, bajo ningún concepto ──────────────────────────────────────────────
+# El libro de movimientos: dinero real, posiciones reales. No sale de la máquina.
+# Se excluye por nombre Y por extensión, porque las bases de SQLite en modo WAL
+# viajan en tres ficheros y publicar sólo uno sigue siendo publicar.
+cartera.db
+*.db
+*.db-wal
+*.db-shm
+
+# La tabla de pesos por país lleva los instrumentos que tiene cada uno como
+# claves, así que también es información de cartera. Se publica la plantilla
+# vacía (.example) y cada instalación construye la suya al añadir posiciones.
+data/country_weights.json
+
+# Credenciales y configuración local
+.env
+*.env
+secrets.*
+
+# ── Artefactos, no fuente ────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# Páginas generadas por snapshot.py (~2 MB cada una) y salida del grafo
+snapshot_*.html
+graphify-out/
+
+# Dependencias instaladas con `pip install --target`: se reinstalan, no se versionan
+vendor/
+.venv/
+venv/
+
+# Sistema operativo / editor
+.DS_Store
+*.swp
+*~
