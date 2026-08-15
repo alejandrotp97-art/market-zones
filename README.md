@@ -7,6 +7,15 @@ re-implementation of the *Panel de Zonas de Mercado* model.
 This repo is **the engine (the brain)**. The dashboard is a separate layer that
 sits on top of it.
 
+> ### 👉 ¿Sólo quieres instalarlo y usarlo?
+>
+> **[Lee la GUÍA paso a paso](GUIA.md)** — escrita para quien no programa: cómo
+> descargarlo, instalarlo, arrancarlo y meter tu cartera. No hace falta saber
+> nada de lo que viene a continuación.
+>
+> El resto de este README describe el modelo y su implementación, y está
+> dirigido a quien vaya a tocar el código.
+
 ## The model
 
 Four components, each oriented the same way (**high = expensive/euphoric,

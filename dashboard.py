@@ -1725,6 +1725,16 @@ def _serve() -> None:
           ident="market-zones")       # no server version in the banner
 
 
-if __name__ == "__main__":
+def main() -> None:
+    # Launched from a terminal, silence is indistinguishable from a crash: the
+    # server blocks on accept() and prints nothing for as long as it works. Say
+    # where the panel is, and how to stop it, before that happens.
+    print(f"market-zones  ->  http://127.0.0.1:{PORT}", flush=True)
+    print("Primera carga lenta: descarga las cotizaciones. Para parar: Ctrl+C",
+          flush=True)
     threading.Thread(target=_prewarm, daemon=True).start()
     _serve()
+
+
+if __name__ == "__main__":
+    main()
