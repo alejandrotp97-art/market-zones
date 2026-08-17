@@ -12,11 +12,23 @@
   const tip = document.getElementById("tip");
   const statusEl = document.getElementById("status");
   const host = document.querySelector(".chart-host");
+  const tgtCard = document.getElementById("target");
+  const tgtStatus = document.getElementById("target-status");
+  const tgtGrid = document.getElementById("target-grid");
+  const tgtChart = document.getElementById("target-chart");
+  const tgtBuy = document.getElementById("tgt-buy");
+  const tgtSell = document.getElementById("tgt-sell");
+  const titleEl = document.querySelector(".titles h1");
+  const assetSel = document.getElementById("asset");
+  // symbol -> curated display name, read off the dropdown options once. A
+  // searched ticker that isn't curated falls back to its own symbol.
+  const NAMES = {};
+  if (assetSel) for (const o of assetSel.options) NAMES[o.value.toUpperCase()] = o.textContent;
 
   const M = { L: 46, R: 54, T: 10, B: 26 };
   const GRID = [0, 20, 40, 60, 80, 100];
 
-  const state = { full: [], view: [], range: "all", asof: "—",
+  const state = { full: [], view: [], range: "all", asof: "—", tf: "daily",
                   volW: 0.10, hi: 70, mid: 45, symbol: null, summary: null, model: null };
   const STATIC = !!window.__STATIC__;
 
@@ -56,7 +68,7 @@
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), 25000);
     try {
-      const url = `/api/zones?symbol=${encodeURIComponent(symbol)}&vol_w=${state.volW}`;
+      const url = `/api/zones?symbol=${encodeURIComponent(symbol)}&vol_w=${state.volW}&tf=${state.tf}`;
       const r = await fetch(url, { signal: ctl.signal });
       const d = await r.json();
       if (my !== reqSeq) return;                 // superseded by a newer load
@@ -69,6 +81,35 @@
     }
   }
 
+  // Reflect the LOADED symbol everywhere the boot value was frozen: the page
+  // title and the dropdown. A searched ticker outside the curated list is kept
+  // in a single reusable "buscado" option so the selector never lies about what
+  // is on screen.
+  function reflectAsset(sym, apiName) {
+    sym = (sym || "").trim();
+    if (!sym) return;
+    const key = sym.toUpperCase();
+    // Curated symbols keep their hand-written name; a searched ticker gets the
+    // full company name from the server (Yahoo), and only then falls back to the
+    // bare symbol.
+    const name = NAMES[key] || (apiName || "").trim() || sym;
+    if (titleEl) titleEl.textContent = name;
+    document.title = name + " · Zonas de Mercado";
+    if (!assetSel) return;
+    let opt = [...assetSel.options].find((o) => o.value.toUpperCase() === key);
+    if (!opt) {
+      opt = assetSel.querySelector("option[data-dyn]");
+      if (!opt) {
+        opt = document.createElement("option");
+        opt.dataset.dyn = "1";
+        assetSel.insertBefore(opt, assetSel.firstChild);
+      }
+      opt.value = sym;
+      opt.textContent = name;
+    }
+    assetSel.value = opt.value;
+  }
+
   function apply(d) {
     setStatus(null);
     state.full = d.series || [];
@@ -76,10 +117,220 @@
     state.summary = d.summary || null;
     state.symbol = d.symbol || state.symbol;
     state.model = d.model || state.model;
+    reflectAsset(state.symbol, d.name);
     document.getElementById("asof").textContent = state.asof;
     updateVerdict(d.summary);
     renderComposition();
     applyRange();
+    if (STATIC) return;
+    loadTarget(state.symbol);   // target follows STATE.tf (weekly re-inverts on W-SUN bars)
+  }
+
+  // ── target price ("precio objetivo por zona") ───────
+  // Its own endpoint: the inversion re-runs the engine dozens of times, so it
+  // must never make the main chart wait. A monotonic token drops stale answers.
+  let tgtSeq = 0;
+  async function loadTarget(symbol) {
+    symbol = (symbol || "").trim();
+    if (!symbol) return;
+    tgtCard.hidden = false;
+    // [hidden] loses to `.target-status{display:flex}` / `.target-grid{display:grid}`
+    // — the same stylesheet-beats-attribute trap as the load pill — so toggle the
+    // inline display directly.
+    tgtGrid.style.display = "none";
+    tgtStatus.style.display = "flex";
+    tgtStatus.className = "target-status";
+    tgtStatus.textContent = "Calculando nivel…";
+    const my = ++tgtSeq;
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 30000);
+    try {
+      const url = `/api/target?symbol=${encodeURIComponent(symbol)}&vol_w=${state.volW}&tf=${state.tf}`;
+      const r = await fetch(url, { signal: ctl.signal });
+      const d = await r.json();
+      if (my !== tgtSeq) return;                 // superseded by a newer load
+      if (d.error) return tgtFail(d.error);
+      if (!d.target) return tgtFail("Histórico insuficiente para calcular un objetivo.");
+      renderTarget(d.target);
+    } catch (e) {
+      if (my === tgtSeq) tgtFail(e.name === "AbortError" ? "El cálculo tardó demasiado, reintentá." : "Error de red.");
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  function tgtFail(msg) {
+    tgtGrid.style.display = "none";
+    tgtStatus.style.display = "flex";
+    tgtStatus.className = "target-status err";
+    tgtStatus.textContent = msg;
+  }
+  function renderTarget(t) {
+    tgtStatus.style.display = "none";
+    tgtGrid.style.display = "grid";
+    tgtChart.innerHTML = svgCurve(t);
+    renderSide(tgtBuy, t.buy, t.ccy, "tgt-buy", t.conf, t.vol);
+    renderSide(tgtSell, t.sell, t.ccy, "tgt-sell", t.conf, t.vol);
+  }
+  function money(ccy, v) {
+    return v == null ? "—" : ccy + Math.round(v).toLocaleString("es");
+  }
+  const mrow = (k, v) => `<div class="m-row"><span>${k}</span><b>${v}</b></div>`;
+  const sPct = (p) => p == null ? ""
+    : (Math.abs(p) < 0.1 ? "≈0 %"
+      : (p >= 0 ? "+" : "−") + Math.abs(p).toFixed(1).replace(".", ",") + " %");
+  function renderSide(el, s, ccy, cls, conf, vol) {
+    const dir = s.u <= 50 ? "COMPRA → Capitulación" : "VENTA → Euforia";
+    const pct = s.pct != null ? sPct(s.pct) + " vs hoy" : "";
+    const m2 = s.m2.price == null ? "ninguna palanca sola llega"
+      : `${money(ccy, s.m2.price)} · ${s.m2.lever}`;
+    const m3 = s.m3 == null ? "sin muestra en zona"
+      : `${money(ccy, s.m3.mid)} <span class="band">[${Math.round(s.m3.lo)}–${Math.round(s.m3.hi)}]</span><i class="n">n=${s.m3.n}</i>`;
+    // Banda: el consenso es la ENTRADA; `band` es el borde típico hacia dentro.
+    const confChip = conf
+      ? `<span class="tgt-conf conf-${conf}">${conf}${vol != null ? ` · vol ${Math.round(vol)}%` : ""}</span>`
+      : "";
+    const bandRow = s.band == null ? ""
+      : `<div class="tgt-band">${s.u <= 50 ? "fondo" : "techo"} típico `
+        + `<b>${money(ccy, s.band)}</b> <span class="tgt-bpct">${sPct(s.band_pct)}</span></div>`;
+    el.className = "tgt " + cls;
+    el.innerHTML =
+      `<div class="tgt-title">${dir} · score ${s.u}${confChip}</div>` +
+      `<div class="tgt-cons">${money(ccy, s.consensus)}<span class="tgt-pct">${pct}</span></div>` +
+      bandRow +
+      `<div class="tgt-methods">${mrow("M1 exacta", money(ccy, s.m1))}${mrow("M2 palanca · diagnóstico", m2)}${mrow("M3 histórico", m3)}</div>`;
+  }
+  function svgCurve(t) {
+    const VBW = 560, VBH = 210, pad = { l: 8, r: 8, t: 22, b: 16 };
+    const c = t.curve || [];
+    if (c.length < 2) return "";
+    const xs = c.map((p) => p[0]);
+    const xmin = Math.min(...xs), xmax = Math.max(...xs);
+    const X = (p) => pad.l + (p - xmin) / (xmax - xmin || 1) * (VBW - pad.l - pad.r);
+    const Y = (v) => (VBH - pad.b) - (v / 100) * (VBH - pad.b - pad.t);
+    // Una sola familia de color por lado. Antes el punto del objetivo era azul /
+    // naranja mientras su franja era verde / roja: dos colores para una misma
+    // cosa, que se leía como si fueran dos anotaciones distintas.
+    const BUY_C = "#2f9e68", SELL_C = "#c0454a";
+    const bands = [[0, 20, "#dbe6f3"], [20, 40, "#e8eef6"], [40, 60, "#f0efec"], [60, 80, "#f4e9dd"], [80, 100, "#f1dcc7"]];
+    let g = `<svg viewBox="0 0 ${VBW} ${VBH}" class="tsvg" font-family="sans-serif">`;
+    for (const [lo, hi, col] of bands)
+      g += `<rect x="0" y="${Y(hi).toFixed(1)}" width="${VBW}" height="${(Y(lo) - Y(hi)).toFixed(1)}" fill="${col}"/>`;
+    // Banda de incertidumbre: franja de precio entre la entrada (consenso) y el
+    // borde típico. Debajo de la curva; se recorta al rango visible del eje.
+    const clampX = (x) => Math.max(pad.l, Math.min(VBW - pad.r, x));
+    const shade = (a, b, col) => {
+      if (a == null || b == null) return "";
+      const x0 = clampX(X(a)), x1 = clampX(X(b)), w = Math.abs(x1 - x0);
+      return w < 0.6 ? "" : `<rect x="${Math.min(x0, x1).toFixed(1)}" y="${pad.t}" `
+        + `width="${w.toFixed(1)}" height="${(VBH - pad.b - pad.t).toFixed(1)}" fill="${col}"/>`;
+    };
+    g += shade(t.buy.band, t.buy.consensus, "rgba(70,201,138,.15)")
+       + shade(t.sell.consensus, t.sell.band, "rgba(229,87,92,.15)");
+    const pts = c.map((p) => `${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(" ");
+    g += `<polyline points="${pts}" fill="none" stroke="#3a4a63" stroke-width="2.2" stroke-linejoin="round"/>`;
+    // Score sobre la curva por interpolación. El consenso es la MEDIANA de M1 y
+    // M3, así que NO cae en el borde de zona — ahí sólo cae M1, que es su raíz
+    // exacta. Sin interpolar, el punto del consenso flotaría fuera de la línea.
+    const scoreAt = (p) => {
+      if (p <= c[0][0]) return c[0][1];
+      const last = c[c.length - 1];
+      if (p >= last[0]) return last[1];
+      for (let i = 1; i < c.length; i++) {
+        if (p <= c[i][0]) {
+          const [x0, y0] = c[i - 1], [x1, y1] = c[i];
+          return x1 === x0 ? y1 : y0 + (p - x0) / (x1 - x0) * (y1 - y0);
+        }
+      }
+      return last[1];
+    };
+    // Ancho REAL del texto: estimarlo por nº de caracteres descuadraba los
+    // rótulos y los sacaba del lienzo. El SVG hereda font-family="sans-serif".
+    const measure = (txt, px, wt) => {
+      const ctx = svgCurve._ctx
+        || (svgCurve._ctx = document.createElement("canvas").getContext("2d"));
+      ctx.font = `${wt} ${px}px sans-serif`;
+      return ctx.measureText(txt).width;
+    };
+    // Línea firme = entrada (consenso). Difuminada = borde típico, no es un tope
+    // duro. Mismo clamp que la sombra: si no, con la banda fuera de rango la
+    // franja se dibujaba y su borde no, dejando una sombra sin cierre.
+    const vline = (price, col, soft) => {
+      if (price == null) return "";
+      const x = clampX(X(price));
+      return `<line x1="${x.toFixed(1)}" y1="${pad.t}" x2="${x.toFixed(1)}" y2="${(VBH - pad.b).toFixed(1)}" `
+        + `stroke="${col}" stroke-width="1.2" `
+        + (soft ? 'stroke-dasharray="3 3" opacity=".5"' : 'opacity=".6"') + "/>";
+    };
+    // Cota acotada: flechas de extremo a extremo de la franja + el rango en
+    // cifras. La franja de compra suele medir <30 px, donde el rótulo no entra:
+    // en ese caso sale al lado con una guía en vez de comerse el dibujo.
+    const caliper = (band, cons, yy, col) => {
+      if (band == null || cons == null) return "";
+      const lo = Math.min(band, cons), hi = Math.max(band, cons);
+      const x0 = clampX(X(lo)), x1 = clampX(X(hi)), w = x1 - x0;
+      if (w < 0.6) return "";
+      const txt = `${money(t.ccy, lo)} – ${money(t.ccy, hi)}`;
+      const tt = measure(txt, 11.5, 700);
+      let s = `<line x1="${x0.toFixed(1)}" y1="${yy}" x2="${x1.toFixed(1)}" y2="${yy}" stroke="${col}" stroke-width="1.2"/>`
+        + `<path d="M${(x0 + 5.5).toFixed(1)} ${yy - 3.4}L${x0.toFixed(1)} ${yy}L${(x0 + 5.5).toFixed(1)} ${yy + 3.4}Z" fill="${col}"/>`
+        + `<path d="M${(x1 - 5.5).toFixed(1)} ${yy - 3.4}L${x1.toFixed(1)} ${yy}L${(x1 - 5.5).toFixed(1)} ${yy + 3.4}Z" fill="${col}"/>`;
+      let tx;
+      if (w > tt + 16) {
+        tx = (x0 + x1) / 2 - tt / 2;
+      } else {
+        tx = Math.min(VBW - 6 - tt, x1 + 9);
+        s += `<line x1="${x1.toFixed(1)}" y1="${yy}" x2="${(tx - 5).toFixed(1)}" y2="${yy}" stroke="${col}" stroke-width="1" opacity=".5"/>`;
+      }
+      tx = Math.max(6, tx);
+      return s + `<rect x="${(tx - 5).toFixed(1)}" y="${yy - 9}" width="${(tt + 10).toFixed(1)}" height="18" rx="4" fill="#f6f6f3" opacity=".93"/>`
+        + `<text x="${tx.toFixed(1)}" y="${(yy + 4).toFixed(1)}" fill="${col}" font-size="11.5" font-weight="700">${txt}</text>`;
+    };
+    const hx = X(t.price), hy = Y(t.score);
+    const hoyBox = [hx - 5, hy - 6, hx + 9 + measure("hoy", 12, 700), hy + 8];
+    // PRINCIPAL: el consenso, que es el titular de la tarjeta. Antes el punto
+    // gordo era M1, o sea el número que NO titula.
+    const primary = (price, col, place) => {
+      if (price == null) return "";
+      const x = X(price), y = Y(scoreAt(price)), txt = money(t.ccy, price);
+      const w = measure(txt, 13.5, 700);
+      // En compra el punto cae abajo a la izquierda pegado a la curva: el único
+      // hueco es arriba-izquierda, y hay que toparlo o se sale del lienzo.
+      const up = place === "upleft";
+      const tx = up ? Math.max(4 + w, x - 8)
+        : Math.max(w / 2 + 4, Math.min(VBW - 4 - w / 2, x));
+      let ty = Math.max(12, Math.min(VBH - 4, y + (up ? -20 : -10)));
+      // "hoy" y el objetivo caen casi encima cuando el precio ya está pegado a
+      // la zona (SPY cotiza a 775 con la venta en 779). Si los rótulos chocan,
+      // el del objetivo sube; en la de compra ya va arriba, así que baja.
+      const x0 = up ? tx - w : tx - w / 2;
+      for (let i = 0; i < 3; i++) {
+        const hit = x0 < hoyBox[2] && x0 + w > hoyBox[0]
+          && ty - 11 < hoyBox[3] && ty + 3 > hoyBox[1];
+        if (!hit) break;
+        ty = Math.max(12, ty - 17);   // siempre hacia arriba: es el lado libre
+      }
+      return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4.6" fill="${col}" stroke="#fff" stroke-width="1.6"/>`
+        + `<text x="${tx.toFixed(1)}" y="${ty.toFixed(1)}" fill="${col}" font-size="13.5" font-weight="700" `
+        + `text-anchor="${up ? "end" : "middle"}">${txt}</text>`;
+    };
+    // SECUNDARIO: M1 baja a anillo hueco sin cifra. El valor exacto sigue en la
+    // tarjeta, así que no se pierde el dato y la zona de compra deja de
+    // amontonar tres números en 40 px.
+    const secondary = (price) => {
+      if (price == null) return "";
+      const x = X(price), y = Y(scoreAt(price));
+      return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.1" fill="#f6f6f3" stroke="#7c8798" stroke-width="1.6"/>`;
+    };
+    g += vline(t.buy.band, BUY_C, true) + vline(t.buy.consensus, BUY_C, false)
+       + vline(t.sell.consensus, SELL_C, false) + vline(t.sell.band, SELL_C, true);
+    g += caliper(t.buy.band, t.buy.consensus, 40, BUY_C)
+       + caliper(t.sell.band, t.sell.consensus, 174, SELL_C);
+    g += secondary(t.buy.m1) + secondary(t.sell.m1);
+    g += primary(t.buy.consensus, BUY_C, "upleft")
+       + primary(t.sell.consensus, SELL_C, "up");
+    g += `<circle cx="${hx.toFixed(1)}" cy="${hy.toFixed(1)}" r="5" fill="#26303f" stroke="#fff" stroke-width="2"/>` +
+      `<text x="${(hx + 9).toFixed(1)}" y="${(hy + 4).toFixed(1)}" fill="#26303f" font-size="12" font-weight="700">hoy</text>`;
+    return g + "</svg>";
   }
 
   // ── score composition ("cómo se arma el score") ─────
@@ -334,8 +585,20 @@
     state.range = b.dataset.range; applyRange();
   });
 
+  // Timeframe toggle: unlike the range filter this changes the SCORE, so it
+  // refetches (weekly bars are scored server-side with weekly-horizon windows).
+  document.getElementById("tf").addEventListener("click", (e) => {
+    const b = e.target.closest("button"); if (!b || STATIC) return;
+    if (b.dataset.tf === state.tf) return;             // already on this timeframe
+    document.querySelectorAll("#tf button").forEach((x) => x.classList.remove("active"));
+    b.classList.add("active");
+    state.tf = b.dataset.tf;
+    load(curSymbol());
+  });
+
   if (STATIC) {
     ["asset", "ticker", "load"].forEach((id) => { const el = document.getElementById(id); if (el) el.disabled = true; });
+    document.querySelectorAll("#tf button").forEach((x) => { x.disabled = true; });
   } else {
     const go = () => {
       const t = document.getElementById("ticker").value.trim();

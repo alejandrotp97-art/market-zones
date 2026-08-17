@@ -41,6 +41,10 @@
           <button data-range="2">2A</button>
           <button data-range="1">1A</button>
         </div>
+        <div class="ranges" id="tf" title="Temporalidad del score: recalcula el índice sobre barras semanales (W-SUN)">
+          <button data-tf="daily" class="active">Diario</button>
+          <button data-tf="weekly">Semanal</button>
+        </div>
       </div>
     </header>
 
@@ -65,6 +69,22 @@
         <div id="tip" class="tip" hidden></div>
         <div id="status" class="status" hidden></div>
       </div>
+    </section>
+
+    <section class="target-card" id="target" hidden>
+      <div class="target-head">
+        <h2>Precio objetivo por zona</h2>
+        <span class="target-sub">Nivel condicional — el precio al que el índice <b>leería</b> esa zona. No es un pronóstico.</span>
+      </div>
+      <div id="target-status" class="target-status">Calculando nivel…</div>
+      <div class="target-grid" id="target-grid" hidden>
+        <div class="target-chart" id="target-chart"></div>
+        <div class="target-sides">
+          <div class="tgt tgt-buy" id="tgt-buy"></div>
+          <div class="tgt tgt-sell" id="tgt-sell"></div>
+        </div>
+      </div>
+      <div class="target-foot">El consenso es la mediana de <b>M1</b> (modelo) y <b>M3</b> (historia); coinciden → nivel fiable, divergen → el régimen se estiró. <b>M2</b> es diagnóstico —nombra la palanca que manda—, no vota. Es un nivel, no un <i>cuándo</i>. La <b>banda</b> (franja sombreada) muestra hasta dónde suele correr el precio hacia dentro de la zona; su ancho sale de la volatilidad del activo y el chip de <b>confianza</b> resume cuánto fiarse.</div>
     </section>
 
     <footer class="verdict-card">

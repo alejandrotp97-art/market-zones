@@ -54,6 +54,46 @@ ZMIN_FULL = 252
 ZMIN_REDUCED = 20
 
 
+@dataclass(frozen=True)
+class Windows:
+    """Bar-count windows so the SAME engine can score a daily OR a weekly series.
+
+    Every field is a number of BARS, not calendar days: on a weekly series a
+    `40` means 40 weeks. `DAILY` reproduces the historical literals exactly, so
+    `analyze(df)` (windows=None) stays byte-identical to before this parameter
+    existed. `WEEKLY` scales each horizon by ~5 trading days per week, so
+    "weekly" means the same CALENDAR span measured on weekly bars.
+    """
+    smooth_span: int        # EMA smoothing span of the score
+    full_min: int           # min bars before the full model is allowed
+    short_min: int          # min bars before the reduced model is allowed
+    zmin_full: int          # causal burn-in for the full model
+    zmin_reduced: int       # causal burn-in for the reduced model
+    stretch_full: int       # Mayer moving-average window, full model
+    stretch_reduced: int    # Mayer moving-average window, reduced model
+    vol_window: int         # realized-volatility lookback
+    rsi_period: int = 14    # Wilder RSI period (bar-count; same across TFs)
+
+
+# Daily = the exact historical literals (built from the module constants so any
+# external importer of them stays in lockstep). analyze(df) resolves to this.
+DAILY = Windows(
+    smooth_span=SMOOTH_SPAN, full_min=FULL_MIN, short_min=SHORT_MIN,
+    zmin_full=ZMIN_FULL, zmin_reduced=ZMIN_REDUCED,
+    stretch_full=200, stretch_reduced=20, vol_window=20, rsi_period=14,
+)
+
+# Weekly = same calendar horizons at ~5 trading days/week: MA200d->40w,
+# vol20d->4w, causal year 252d->52w, reduced warm-up 20d->4w, smooth 7d(~1.4w)->2w.
+# RSI stays 14 bars (a period, not a horizon). The full model needs
+# full_min+zmin_full = 92 weekly bars (~1.8y) before it prints.
+WEEKLY = Windows(
+    smooth_span=2, full_min=40, short_min=6,
+    zmin_full=52, zmin_reduced=4,
+    stretch_full=40, stretch_reduced=4, vol_window=4, rsi_period=14,
+)
+
+
 @dataclass
 class Summary:
     date: pd.Timestamp
@@ -79,7 +119,8 @@ class Summary:
 
 def analyze(df: pd.DataFrame, hysteresis: float = C.HYSTERESIS,
             vol_weight: float = VOL_W_DEFAULT,
-            causal: bool = True) -> tuple[pd.DataFrame, Summary]:
+            causal: bool = True,
+            windows: Optional[Windows] = None) -> tuple[pd.DataFrame, Summary]:
     """Return (enriched frame, latest-row Summary).
 
     `df` must have columns 'date' and 'close' (extra columns are preserved).
@@ -89,20 +130,25 @@ def analyze(df: pd.DataFrame, hysteresis: float = C.HYSTERESIS,
     `causal=True` (default) normalizes every component against [0..t] only, so
     a past point on the chart is what the index actually said that day. Pass
     False to reproduce the legacy in-sample (revisionist) curve.
+
+    `windows` selects the bar-count horizons: `None` -> `DAILY` (byte-identical
+    to before this parameter existed). Pass `WEEKLY` together with a weekly-
+    resampled `df` to score the same asset on weekly bars.
     """
+    w = windows or DAILY
     out = df.reset_index(drop=True).copy()
     close = out["close"].astype(float)
     n = len(close)
 
-    rsi = rsi_wilder(close)
+    rsi = rsi_wilder(close, w.rsi_period)
     nan = pd.Series(np.nan, index=close.index)
     # Causal normalization needs its own burn-in ON TOP of the indicator's
     # window (MA200 + a year of Mayer values before the first z-score). An
     # asset with 200-451 rows genuinely cannot support a causal full model, so
     # it drops to the reduced one instead of printing an all-NaN score.
-    full_min = FULL_MIN + ZMIN_FULL if causal else FULL_MIN
-    short_min = SHORT_MIN + ZMIN_REDUCED if causal else SHORT_MIN
-    zmin = ZMIN_FULL if n >= full_min else ZMIN_REDUCED
+    full_min = w.full_min + w.zmin_full if causal else w.full_min
+    short_min = w.short_min + w.zmin_reduced if causal else w.short_min
+    zmin = w.zmin_full if n >= full_min else w.zmin_reduced
 
     if n < short_min:
         model = "none"
@@ -110,21 +156,21 @@ def analyze(df: pd.DataFrame, hysteresis: float = C.HYSTERESIS,
         score_raw = nan
     elif n < full_min:
         model = "reduced"
-        stretch = stretch_score(close, 20, causal, zmin)
+        stretch = stretch_score(close, w.stretch_reduced, causal, zmin)
         dd = td = vol = nan
         score_raw = W_REDUCED["stretch"] * stretch + W_REDUCED["rsi"] * rsi
     else:
         model = "full"
         W = _full_weights(vol_weight)
-        stretch = stretch_score(close, 200, causal, zmin)
+        stretch = stretch_score(close, w.stretch_full, causal, zmin)
         dd = drawdown_score(close, causal, zmin)
         td = trend_dev_score(close, causal, zmin)
-        vol = volatility_score(close, 20, causal, zmin)
+        vol = volatility_score(close, w.vol_window, causal, zmin)
         score_raw = (W["stretch"] * stretch + W["rsi"] * rsi
                      + W["drawdown"] * dd + W["trend_dev"] * td
                      + W["vol"] * vol)
 
-    score = ema(score_raw, SMOOTH_SPAN)
+    score = ema(score_raw, w.smooth_span)
     zones = C.classify_series(score, hysteresis) if model != "none" else [None] * n
 
     volume = out["volume"] if "volume" in out.columns else None

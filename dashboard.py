@@ -32,8 +32,10 @@ from flask import (Flask, Response, jsonify, redirect, render_template, request,
                    send_from_directory)
 
 import geo
-from zones import BadSymbol, NoHistory, analyze, fetch_daily, safe_symbol
+from zones import (WEEKLY, BadSymbol, NoHistory, analyze, fetch_daily,
+                   safe_symbol, to_weekly)
 from zones.engine import VOL_W_DEFAULT
+from zones.target import compute as _compute_target
 # The regime panel reuses its own builder + cache (import is side-effect-free;
 # its prewarm/run only fire under __main__, which we never trigger here).
 from regime.dashboard import CURATED as REGIME_CURATED
@@ -418,13 +420,19 @@ def _r(x, n: int) -> float | None:
     return None if v is None else round(v, n)
 
 
-def _build(symbol: str, vol_w: float) -> dict:
+def _build(symbol: str, vol_w: float, tf: str = "daily") -> dict:
     df = fetch_daily(symbol, years=YEARS)
     # Continuous futures report rollover-contaminated volume -> drop it so the
     # conviction layer falls back to volatility only for these.
     if symbol.upper().endswith("=F"):
         df = df.drop(columns=["volume"], errors="ignore")
-    frame, s = analyze(df, vol_weight=vol_w)
+    # Weekly re-scores the SAME asset on W-SUN bars with weekly-horizon windows;
+    # daily is untouched (windows=None -> DAILY, byte-identical to before).
+    if tf == "weekly":
+        df = to_weekly(df)
+        frame, s = analyze(df, vol_weight=vol_w, windows=WEEKLY)
+    else:
+        frame, s = analyze(df, vol_weight=vol_w)
 
     # Vectorized: `iterrows()` rebuilds a Series per row and dominated this
     # function (~400 ms of a 470 ms build). Pull columns once as numpy, round
@@ -450,9 +458,11 @@ def _build(symbol: str, vol_w: float) -> dict:
 
     return {
         "symbol": symbol,
+        "name": _instrument_name(symbol),
         "as_of": str(s.date.date()),
         "model": s.model,
         "vol_w": vol_w,
+        "tf": tf,
         # Every point below is normalized against its own past only, so a past
         # date shows what the index said THAT day and never moves afterwards.
         "causal": True,
@@ -476,11 +486,13 @@ def _build(symbol: str, vol_w: float) -> dict:
     }
 
 
-def _get(symbol: str, vol_w: float = VOL_W_DEFAULT, limited: bool = False):
-    """Encoded zones payload. The weight is part of the cache identity."""
+def _get(symbol: str, vol_w: float = VOL_W_DEFAULT, tf: str = "daily",
+         limited: bool = False):
+    """Encoded zones payload. Weight AND timeframe are part of the cache identity
+    so daily and weekly never collide."""
     symbol = symbol.upper().strip()
-    return _encoded(f"zones|{symbol}|{vol_w:.3f}",
-                    lambda: _build(symbol, vol_w), limited)
+    return _encoded(f"zones|{symbol}|{vol_w:.3f}|{tf}",
+                    lambda: _build(symbol, vol_w, tf), limited)
 
 
 def _get_regime(symbol: str, light: bool, limited: bool = False):
@@ -499,19 +511,79 @@ def _get_regime(symbol: str, light: bool, limited: bool = False):
     return _encoded(f"regime|{'L' if light else 'F'}|{symbol}", build, limited)
 
 
+def _build_target(symbol: str, vol_w: float, tf: str = "daily") -> dict:
+    """Target-price block: the price at which the index would READ each extreme
+    zone, three ways. Kept on its own endpoint because the inversion re-runs the
+    engine dozens of times (seconds on a 25-year history) and must never make the
+    main chart wait for it. `target` is null when the history is too short.
+
+    Weekly inverts the SAME engine on W-SUN bars with weekly windows, so the
+    levels match the weekly chart; daily is untouched (windows=None -> DAILY)."""
+    df = fetch_daily(symbol, years=YEARS)
+    if symbol.upper().endswith("=F"):
+        df = df.drop(columns=["volume"], errors="ignore")
+    if tf == "weekly":
+        df = to_weekly(df)
+        target = _compute_target(df, symbol, vol_w, windows=WEEKLY)
+    else:
+        target = _compute_target(df, symbol, vol_w)
+    return {"symbol": symbol, "vol_w": vol_w, "tf": tf, "target": target}
+
+
+def _get_target(symbol: str, vol_w: float = VOL_W_DEFAULT, tf: str = "daily",
+                limited: bool = False):
+    symbol = symbol.upper().strip()
+    return _encoded(f"target|{symbol}|{vol_w:.3f}|{tf}",
+                    lambda: _build_target(symbol, vol_w, tf), limited)
+
+
 @app.route("/")
 def index():
     return render_template("index.html", curated=CURATED, default="NLR")
 
 
+# ── Exchange crypto symbols -> Yahoo ──────────────────────────────────────
+# Binance / Bitget / KuCoin write a pair glued together and quoted in a
+# stablecoin — ETHUSDT, SOL-USDT, BTC/USDC. Yahoo quotes the same coin as
+# BASE-USD (ETH-USD) and 404s on the exchange shape, which is why "ethusdt"
+# returned nothing. Translate the pair to Yahoo's form. A deterministic strip
+# beats Yahoo's own search here: its crypto ranking surfaces impostors first
+# (searching "ondo" returns four tokenized-stock look-alikes before ONDO-USD).
+# USDT is listed before USD so "ETHUSDT" strips the four-letter quote, not "USD".
+_QUOTE_CCYS = ("USDT", "USDC", "FDUSD", "BUSD", "TUSD", "USDD", "DAI", "USD")
+
+
+def _crypto_to_yahoo(symbol: str) -> str:
+    """ETHUSDT / ETH-USDT / ETH/USDT / ETHUSD -> ETH-USD. Left untouched when the
+    symbol is not an exchange crypto pair (stocks, ETFs, forex, ISIN lines)."""
+    s = str(symbol or "").strip().upper()
+    if not s or "=" in s or "." in s:          # forex (EURUSD=X) and ISIN lines
+        return s
+    core = s.replace("/", "-")
+    for suf in ("-PERP", "-SWAP", "-SPOT", "PERP"):   # drop a perpetual/spot marker
+        if core.endswith(suf):
+            core = core[: -len(suf)]
+            break
+    if "-" in core:                            # BASE-QUOTE already split
+        base, _, quote = core.rpartition("-")
+        return f"{base}-USD" if base and quote in _QUOTE_CCYS else s
+    for q in _QUOTE_CCYS:                       # glued form: ETHUSDT
+        if core.endswith(q) and len(core) > len(q):
+            return f"{core[:-len(q)]}-USD"
+    return s
+
+
 @app.route("/api/zones")
 def api_zones():
-    symbol = request.args.get("symbol", "NLR")
+    symbol = _crypto_to_yahoo(request.args.get("symbol", "NLR"))
     try:
         vol_w = float(request.args.get("vol_w", VOL_W_DEFAULT))
     except (TypeError, ValueError):
         vol_w = VOL_W_DEFAULT
     vol_w = max(0.0, min(0.40, vol_w))
+    tf = request.args.get("tf", "daily")
+    if tf not in ("daily", "weekly"):            # unknown -> daily, never trust input
+        tf = "daily"
     # Validate BEFORE the rate limiter. A rejected symbol costs nothing to
     # answer, and every invalid one is a distinct cache key — so charging for
     # it would let garbage input drain the budget that legitimate lookups need.
@@ -520,7 +592,7 @@ def api_zones():
     except BadSymbol as e:
         return jsonify({"error": str(e)}), 400
     try:
-        raw, gz = _get(symbol, vol_w, limited=True)
+        raw, gz = _get(symbol, vol_w, tf, limited=True)
     except TooBusy:
         return _busy()
     except BadSymbol as e:  # not a ticker shape -> the caller's mistake
@@ -529,6 +601,34 @@ def api_zones():
         return jsonify({"error": str(e)}), 422
     except Exception as e:  # bad ticker / Yahoo hiccup -> readable error
         return jsonify({"error": f"No pude cargar '{symbol}': {e}"}), 502
+    return _bytes_response(raw, gz)
+
+
+@app.route("/api/target")
+def api_target():
+    symbol = _crypto_to_yahoo(request.args.get("symbol", "NLR"))
+    try:
+        vol_w = float(request.args.get("vol_w", VOL_W_DEFAULT))
+    except (TypeError, ValueError):
+        vol_w = VOL_W_DEFAULT
+    vol_w = max(0.0, min(0.40, vol_w))
+    tf = request.args.get("tf", "daily")
+    if tf not in ("daily", "weekly"):
+        tf = "daily"
+    try:
+        safe_symbol(symbol)                       # validate before charging
+    except BadSymbol as e:
+        return jsonify({"error": str(e)}), 400
+    try:
+        raw, gz = _get_target(symbol, vol_w, tf, limited=True)
+    except TooBusy:
+        return _busy()
+    except BadSymbol as e:
+        return jsonify({"error": str(e)}), 400
+    except NoHistory as e:
+        return jsonify({"error": str(e)}), 422
+    except Exception as e:
+        return jsonify({"error": f"No pude calcular objetivo de '{symbol}': {e}"}), 502
     return _bytes_response(raw, gz)
 
 
@@ -568,7 +668,7 @@ _HEAVY_KEYS = ("series", "phase")
 
 @app.route("/api/regime")
 def api_regime():
-    symbol = request.args.get("symbol", "SPY")
+    symbol = _crypto_to_yahoo(request.args.get("symbol", "SPY"))
     try:                                 # see api_zones: validate before charging
         safe_symbol(symbol)
     except BadSymbol as e:
@@ -758,6 +858,49 @@ HISTORY_PROXY = {
     "FR0013416716.SG": "GOLD.MI",   # Amundi Physical Gold ETC, Milan, EUR
 }
 PROXY_MAX_DEV = 0.02            # a sibling further than 2% away is not the same line
+
+
+# Full instrument name for the header. Yahoo answers "Tesla, Inc." / "Amazon.com,
+# Inc."; the panel wants the recognizable company ("TESLA" / "AMAZON"), so a short
+# tail of legal-form tokens is dropped and the rest upper-cased. Curated symbols
+# keep their hand-written name client-side, so this only ever labels searched
+# tickers — an over-eager strip on some odd ETF name is cosmetic, never wrong data.
+_name_cache: dict[str, tuple[float, str]] = {}
+_CORP_SUFFIX = {"INC", "INCORPORATED", "CORP", "CORPORATION", "CO", "COMPANY",
+                "LTD", "LIMITED", "PLC", "SA", "NV", "AG", "SE", "LLC", "LP",
+                "HOLDINGS", "HOLDING", "GROUP", "THE",
+                "USD"}   # Yahoo tags crypto names with a quote-ccy suffix: "Ethereum USD"
+
+
+def _clean_company_name(raw: str) -> str:
+    """"Tesla, Inc." -> "TESLA", "Amazon.com, Inc." -> "AMAZON". Falls back to the
+    raw name upper-cased when stripping would empty it (e.g. a pure fund name)."""
+    n = re.sub(r"\.com\b", "", str(raw or "").strip(), flags=re.IGNORECASE)
+    tokens = [t for t in re.split(r"[\s,]+", n) if t]
+    while tokens and tokens[-1].strip(".").upper() in _CORP_SUFFIX:
+        tokens.pop()
+    cleaned = " ".join(tokens).strip(" ,.-")
+    return (cleaned or n).strip().upper()
+
+
+def _instrument_name(symbol: str) -> str:
+    """Cleaned company / instrument name from Yahoo chart meta, or "" if Yahoo did
+    not say. Cached a day — the name of a ticker does not change intraday."""
+    t = symbol.upper().strip()
+    hit = _name_cache.get(t)
+    if hit and time.time() - hit[0] < 86400:
+        return hit[1]
+    try:
+        u = ("https://query1.finance.yahoo.com/v8/finance/chart/"
+             + safe_symbol(t) + "?range=1d&interval=1d")
+        m = json.load(urllib.request.urlopen(
+            urllib.request.Request(u, headers={"User-Agent": "Mozilla/5.0"}), timeout=12)
+        )["chart"]["result"][0]["meta"]
+        name = _clean_company_name(m.get("longName") or m.get("shortName") or "")
+    except Exception:
+        return ""                                  # transient -> do not cache
+    _cache_put(_name_cache, t, (time.time(), name), cap=256)
+    return name
 
 
 def _quote_meta(symbol: str):
