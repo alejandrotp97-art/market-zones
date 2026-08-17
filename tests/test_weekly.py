@@ -229,3 +229,34 @@ def test_target_weekly_inverts_on_weekly_bars():
         assert blk["buy"]["m1"] < price            # to READ capitulación -> lower price
     if blk["sell"]["m1"] is not None:
         assert blk["sell"]["m1"] > price           # to READ euforia -> higher price
+
+
+def test_conviction_windows_come_from_the_preset():
+    """La capa de convicción tiene que escalar con el marco temporal.
+
+    Se quedaba con sus defaults diarios (20 barras de volatilidad, 50 de
+    volumen) hiciera lo que hiciera el preset, así que en semanal el clímax
+    miraba 20 y 50 SEMANAS mientras la pata de volatilidad del score miraba 4.
+    Comparar contra un WEEKLY al que se le fuerzan las ventanas diarias falla si
+    alguien vuelve a desconectar el cableado.
+    """
+    import dataclasses
+    wk = to_weekly(_series(n=1600, seed=7))
+    daily_windows = dataclasses.replace(WEEKLY, vol_window=20, volume_window=50)
+    new, _ = analyze(wk, windows=WEEKLY)
+    old, _ = analyze(wk, windows=daily_windows)
+
+    for col in ("vol_pct", "climax"):
+        a = new[col].to_numpy(float)
+        b = old[col].to_numpy(float)
+        both = np.isfinite(a) & np.isfinite(b)
+        assert both.sum() > 50, f"muestra insuficiente para juzgar '{col}'"
+        assert np.abs(a[both] - b[both]).max() > 1.0, (
+            f"'{col}' no se mueve al cambiar la ventana: el preset no llega "
+            f"a la capa de convicción")
+
+
+def test_daily_conviction_windows_are_the_historical_literals():
+    """DAILY no puede cambiar: sus ventanas son las que había cableadas."""
+    assert (DAILY.vol_window, DAILY.volume_window) == (20, 50)
+    assert (WEEKLY.vol_window, WEEKLY.volume_window) == (4, 10)   # 20/5 y 50/5

@@ -32,7 +32,8 @@ def _volume_usable(volume: Optional[pd.Series]) -> bool:
 
 
 def compute(close: pd.Series, volume: Optional[pd.Series], zones: list,
-            causal: bool = False, rmin: int = Z_MIN_PERIODS) -> dict:
+            causal: bool = False, rmin: int = Z_MIN_PERIODS,
+            vol_w: int = 20, volu_w: int = 50) -> dict:
     """Return per-row conviction columns:
       vol_pct  — percentile of realized volatility (0-100)
       volu_pct — percentile of the volume spike (0-100, NaN if volume unusable)
@@ -41,12 +42,19 @@ def compute(close: pd.Series, volume: Optional[pd.Series], zones: list,
 
     `causal=True` ranks each day only against the days before it, so a past
     "Clímax confirmado" chip reflects what was knowable that day.
+
+    `vol_w`/`volu_w` son CUENTAS DE BARRAS, y deben venir del mismo preset de
+    ventanas que usa el score. Cuando no se pasaban, esta capa se quedaba con
+    20 y 50 barras SIEMPRE: sobre barras semanales eso miraba 20 y 50 semanas
+    mientras la pata de volatilidad del score miraba 4, así que el clímax de un
+    activo en semanal se calibraba a una escala que no era la suya. Los valores
+    por defecto son los diarios, para que un llamante antiguo no cambie.
     """
     close = pd.Series(close, dtype=float)
     rank = (lambda s: expanding_pct_rank(s, rmin)) if causal else pct_rank
-    vol_pct = rank(realized_vol(close))
+    vol_pct = rank(realized_vol(close, vol_w))
     if _volume_usable(volume):
-        volu_pct = rank(volume_spike(volume))
+        volu_pct = rank(volume_spike(volume, volu_w))
     else:
         volu_pct = pd.Series(np.nan, index=close.index)
 

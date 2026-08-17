@@ -73,6 +73,7 @@ class Windows:
     stretch_reduced: int    # Mayer moving-average window, reduced model
     vol_window: int         # realized-volatility lookback
     rsi_period: int = 14    # Wilder RSI period (bar-count; same across TFs)
+    volume_window: int = 50  # volume-spike lookback of the conviction layer
 
 
 # Daily = the exact historical literals (built from the module constants so any
@@ -81,6 +82,7 @@ DAILY = Windows(
     smooth_span=SMOOTH_SPAN, full_min=FULL_MIN, short_min=SHORT_MIN,
     zmin_full=ZMIN_FULL, zmin_reduced=ZMIN_REDUCED,
     stretch_full=200, stretch_reduced=20, vol_window=20, rsi_period=14,
+    volume_window=50,
 )
 
 # Weekly = same calendar horizons at ~5 trading days/week: MA200d->40w,
@@ -91,6 +93,7 @@ WEEKLY = Windows(
     smooth_span=2, full_min=40, short_min=6,
     zmin_full=52, zmin_reduced=4,
     stretch_full=40, stretch_reduced=4, vol_window=4, rsi_period=14,
+    volume_window=10,
 )
 
 
@@ -174,7 +177,10 @@ def analyze(df: pd.DataFrame, hysteresis: float = C.HYSTERESIS,
     zones = C.classify_series(score, hysteresis) if model != "none" else [None] * n
 
     volume = out["volume"] if "volume" in out.columns else None
-    conv = CV.compute(close, volume, zones, causal, zmin)
+    # las ventanas de la capa de convicción también salen del preset: si no,
+    # el clímax semanal se calculaba con lookbacks diarios (20 y 50 barras).
+    conv = CV.compute(close, volume, zones, causal, zmin,
+                      vol_w=w.vol_window, volu_w=w.volume_window)
 
     out["stretch"] = stretch
     out["rsi"] = rsi

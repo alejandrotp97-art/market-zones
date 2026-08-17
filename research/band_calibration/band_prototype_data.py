@@ -10,12 +10,15 @@ con k ajustado para que reproduzca la mediana observada de perforación/superaci
 Primero prueba que vol PREDICE la dispersión (Spearman avg_vol vs mediana obs.).
 """
 import json
+import pathlib
 import sys
 
 import numpy as np
 import pandas as pd
 
-sys.path.insert(0, "/home/alex/bots/market-zones")
+# raíz del repo desde la ubicación del script: clavar una ruta absoluta
+# ataba el estudio a una máquina concreta y no corría en un clon.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 from zones import fetch_daily
 from zones.target import compute as target_compute
 

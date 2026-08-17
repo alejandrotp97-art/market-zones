@@ -12,13 +12,16 @@ cerca de 0 pero colas gordas por cracks idiosincráticos -> NO se calibra)?
 Scorer magro: consenso = mediana(M1, M3), idéntico a zones.target.compute pero sin
 M2 (no vota) ni la curva del gráfico. Se valida contra el compute real abajo.
 """
+import pathlib
 import sys
 import time
 
 import numpy as np
 import pandas as pd
 
-sys.path.insert(0, "/home/alex/bots/market-zones")
+# raíz del repo desde la ubicación del script: clavar una ruta absoluta
+# ataba el estudio a una máquina concreta y no corría en un clon.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 from zones import analyze, fetch_daily
 from zones.engine import DAILY
 
