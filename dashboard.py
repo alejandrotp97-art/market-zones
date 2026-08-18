@@ -46,6 +46,7 @@ from cartera.parsing import norm_col as _norm_col
 from cartera.parsing import norm_date as _norm_date
 from cartera.parsing import norm_side as _norm_side
 from cartera.parsing import num as _num
+from cartera.parsing import side_es as _side_es
 from cartera.parsing import sniff_sep as _sniff_sep
 from cartera.parsing import symbol_isin as _symbol_isin
 from cartera.positions import BASE_CCY
@@ -148,6 +149,11 @@ CURATED = [
 # against the unit's MemoryMax=300M, so the cap was bounding the wrong quantity.
 # Caching the encoding also removes the per-request gzip, which WAS the response
 # time on a cache hit (12-25 ms).
+# Segundos que /api/cartera/zonas dedica a calcular zonas frías antes de
+# devolver lo que lleve y dejar el resto en `pending`. Por debajo del timeout de
+# cliente del panel, para que una cartera grande responda a trozos en vez de
+# agotarse entera.
+ZONES_BUDGET_S = 8.0
 CACHE_MAX = 64                    # entry cap for the small metadata caches
 CACHE_BUDGET = 48 * 1024 * 1024   # bytes held by the payload cache
 _cache: dict[str, tuple[float, bytes, bytes]] = {}    # key -> (ts, raw, gzip)
@@ -532,6 +538,13 @@ def _build(symbol: str, vol_w: float, tf: str = "daily") -> dict:
         zip(ts, close, score, zone, stretch, rsi, dd, td, vol, climax)
     ]
 
+    # De paso, y sin coste: la cartera preguntará por esta misma zona.
+    # Sólo la diaria con el peso por defecto, que es la lectura canónica —
+    # guardar aquí una semanal o una con el peso movido en el tuner haría que
+    # la tabla de posiciones enseñase la zona de OTRO modelo.
+    if tf == "daily" and abs(vol_w - VOL_W_DEFAULT) < 1e-9:
+        _zone_put(symbol, s)
+
     return {
         "symbol": symbol,
         "name": name,
@@ -560,6 +573,34 @@ def _build(symbol: str, vol_w: float, tf: str = "daily") -> dict:
             "volu_pct": _r(s.volu_pct, 0),
         },
     }
+
+
+# Sólo el veredicto de hoy, sin la serie. La cartera necesita la zona de diez
+# instrumentos a la vez y decodificar diez payloads de 25 años para leer una
+# palabra de cada uno cuesta más que volver a calcularla. `_build` la deja aquí
+# de paso, así que un activo que ya se miró en el gráfico sale gratis.
+_zone_cache: dict[str, tuple[float, dict]] = {}
+
+
+def _zone_put(symbol: str, s) -> dict:
+    z = {"zone": s.zone_name, "score": _r(s.score, 2), "dwell": s.dwell,
+         "close": _r(s.close, 2), "model": s.model, "date": str(s.date.date())}
+    _cache_put(_zone_cache, symbol.upper().strip(), (time.time(), z), cap=CACHE_MAX)
+    return z
+
+
+def _zone_of(symbol: str) -> dict:
+    """Zona de HOY para un símbolo. Lanza lo que lance el motor."""
+    sym = symbol.upper().strip()
+    hit = _zone_cache.get(sym)
+    if hit and time.time() - hit[0] < CACHE_TTL:
+        return hit[1]
+    safe_symbol(sym)
+    df = fetch_daily(sym, years=YEARS)
+    if sym.endswith("=F"):
+        df = df.drop(columns=["volume"], errors="ignore")
+    _frame, s = analyze(df)
+    return _zone_put(sym, s)
 
 
 def _get(symbol: str, vol_w: float = VOL_W_DEFAULT, tf: str = "daily",
@@ -1121,6 +1162,8 @@ def _cartera_payload():
     mval = sum(p["market_value"] for p in valued)
     unreal = sum(p["unreal"] for p in valued)
     realized = sum(p["realized"] for p in positions if p["realized"] is not None)
+    realized_fifo = sum(p["realized_fifo"] for p in positions if p["realized_fifo"] is not None)
+    income = sum(p["income"] for p in positions if p["income"] is not None)
     currencies = sorted({p["ccy"] for p in open_pos if p.get("ccy") and p["ccy"] != "?"})
     unvalued = [{"ticker": p["ticker"], "why": p["why"]} for p in open_pos if not p["valued"]]
     oversold = [{"ticker": p["ticker"], "qty": p["oversold"]}
@@ -1131,6 +1174,19 @@ def _cartera_payload():
                "unreal": round(unreal, 2),
                "unreal_pct": round(unreal / invested * 100, 2) if invested > 1e-9 else None,
                "realized": round(realized, 2),
+               # El mismo resultado con el otro criterio de coste. Coinciden
+               # salvo que haya ventas PARCIALES; cuando divergen, la diferencia
+               # es exactamente lo que separa la lectura de la cartera de la
+               # declaración, y esconderla no la hace desaparecer.
+               "realized_fifo": round(realized_fifo, 2),
+               # Renta cobrada, aparte de las plusvalías: ni suma al realizado
+               # ni baja el coste.
+               "income": round(income, 2),
+               "n_dividends": sum(1 for m in movs if m.get("side") == "div"),
+               # Rentabilidad total = lo que la posición aún no ha soltado + lo
+               # que ya soltó + lo que pagó por el camino. Es la única de las
+               # tres cifras que responde «¿cuánto he ganado?».
+               "total_return": round(unreal + realized + income, 2),
                # What the totals above do NOT include, and why.
                "n_valued": len(valued), "unvalued": unvalued,
                "oversold": oversold,
@@ -1156,6 +1212,14 @@ def api_cartera_add():
     d = request.get_json(force=True, silent=True) or {}
     raw = str(d.get("ticker", "")).strip()
     qty, price = _num(d.get("quantity")), _num(d.get("price"))
+    side = _norm_side(d.get("side", "buy"), qty)
+    # Un dividendo llega como IMPORTE. El extracto de un banco da el total
+    # cobrado y muchas veces ni menciona cuántos títulos lo generaron, así que
+    # exigir la cantidad obligaría a inventársela. Sin ella, una unidad al
+    # precio del importe: `cantidad x precio` sigue siendo el bruto, que es lo
+    # único que la aritmética de posiciones lee.
+    if side == "div" and qty is None:
+        qty = 1.0
     if not raw or qty is None or price is None:
         return jsonify({"error": "instrumento, cantidad y precio son obligatorios"}), 400
     name = str(d.get("name", "")).strip()
@@ -1166,7 +1230,6 @@ def api_cartera_add():
         if sym:
             tk, kind, name = sym, (kind or kd), (name or rn)
     kind = _instrument_kind(tk, kind)                     # the symbol decides the type
-    side = _norm_side(d.get("side", "buy"), qty)
     with _cartera_conn() as c:
         c.execute("INSERT INTO movements(date,ticker,name,kind,side,quantity,price,fee,note) VALUES(?,?,?,?,?,?,?,?,?)",
                   (_norm_date(d.get("date")) if d.get("date") else "", tk, name, kind, side, abs(qty), price,
@@ -1243,11 +1306,11 @@ def api_cartera_export():
     w = csv.writer(buf, lineterminator="\n")
     w.writerow(CARTERA_EXPORT_COLS)
     for date, ticker, name, side, qty, price, fee, note in rows:
-        # The words, not the codes: "compra"/"venta" survive a human opening the
-        # file in Excel and re-saving it, and `_norm_side` reads them as whole
-        # words. A bare "c"/"v" is one careless edit away from inverting a trade.
-        w.writerow([date or "", ticker or "", name or "",
-                    "venta" if side == "sell" else "compra",
+        # The words, not the codes: "compra"/"venta"/"dividendo" survive a human
+        # opening the file in Excel and re-saving it, and `_norm_side` reads them
+        # as whole words. A bare "c"/"v"/"d" is one careless edit away from
+        # inverting a trade or turning income into a sale.
+        w.writerow([date or "", ticker or "", name or "", _side_es(side),
                     _csv_num(qty), _csv_num(price), _csv_num(fee), note or ""])
     # utf-8-sig: without the BOM Excel reads a UTF-8 CSV as latin-1 and turns
     # every accented name into mojibake. The importer already opens with
@@ -1261,6 +1324,86 @@ def api_cartera_export():
     # outcome the host guard and the 0600 chmod are built to prevent.
     resp.headers["Cache-Control"] = "no-store"
     return resp
+
+
+@app.route("/api/cartera/zonas")
+def api_cartera_zonas():
+    """La zona del índice para cada posición ABIERTA de la cartera.
+
+    Es la unión que faltaba: esta aplicación sabía decir que un activo está en
+    Capitulación y sabía que ese activo estaba en la cartera, y no lo cruzaba.
+    Eran dos webs compartiendo menú.
+
+    Los símbolos salen del libro, no de la petición: así esta ruta no sirve para
+    barrer tickers ajenos, y lo que devuelve ya lo sabía quien la llama.
+
+    Con la caché fría cada instrumento cuesta una descarga de 25 años, así que
+    la petición tiene PRESUPUESTO: lo que no da tiempo a calcular se devuelve
+    como `pending` y el cliente vuelve a llamar. Preferimos una tabla que se
+    completa por partes a una petición que tarda medio minuto y el navegador
+    corta a la mitad.
+    """
+    with _cartera_conn() as c:
+        rows = c.execute("SELECT ticker, side, quantity FROM movements").fetchall()
+    net: dict[str, float] = {}
+    for tk, side, q in rows:
+        if not tk or side == "div":            # un dividendo no da ni quita títulos
+            continue
+        net[tk] = net.get(tk, 0.0) + (q or 0.0) * (1 if side == "buy" else -1)
+    open_tk = sorted(t for t, q in net.items() if q > 1e-9)
+
+    out, pending = {}, []
+    deadline = time.time() + ZONES_BUDGET_S
+    for t in open_tk:
+        cached = _zone_cache.get(t.upper().strip())
+        warm = bool(cached and time.time() - cached[0] < CACHE_TTL)
+        if not warm and time.time() > deadline:
+            pending.append(t)
+            continue
+        try:
+            out[t] = _zone_of(t)
+        except NoHistory:
+            # Cotiza pero no tiene gráfico: es un hecho asentado del instrumento,
+            # no un fallo pasajero, y decirlo con su nombre evita que alguien
+            # busque el error en su cartera.
+            out[t] = {"error": "sin histórico que puntuar"}
+        except BadSymbol:
+            out[t] = {"error": "símbolo no válido"}
+        except Exception:
+            # Un tropiezo de Yahoo NO se cachea como respuesta: vuelve a la cola.
+            pending.append(t)
+    return _json_response({"zones": out, "pending": pending,
+                           "vol_w": VOL_W_DEFAULT, "tf": "daily"}, max_age=0)
+
+
+@app.route("/api/instrumento")
+def api_instrumento():
+    """Divisa y último precio de un símbolo, para que el formulario pueda decir
+    EN QUÉ MONEDA hay que teclear el precio.
+
+    El panel siempre asumió la divisa nativa del instrumento sin decirlo en
+    ninguna parte. Quien copiaba el importe en euros que le cobró su bróker por
+    una acción estadounidense se metía un error del tamaño del EURUSD, y nada
+    en la pantalla chirriaba: el número era plausible.
+    """
+    sym = (request.args.get("symbol") or "").strip().upper()
+    if not sym:
+        return jsonify({"error": "falta el símbolo"}), 400
+    try:
+        safe_symbol(sym)
+    except BadSymbol as e:
+        return jsonify({"error": str(e)}), 400
+    try:
+        price, ccy = _quote_meta(sym)
+    except Exception:
+        price, ccy = None, ""
+    base, factor = _ccy_base_factor(ccy) if ccy else ("", 1.0)
+    return _json_response({"symbol": sym, "ccy": ccy or "", "last": price,
+                           # GBp cotiza en PENIQUES. Un instrumento de Londres a
+                           # "850" no vale 850 libras, y el formulario tiene que
+                           # poder avisarlo antes de que alguien teclee el precio
+                           # cien veces más grande de lo que es.
+                           "base_ccy": base, "factor": factor}, max_age=0)
 
 
 # ── Proyecto de Abraham (analisis) — servido, no integrado ──────────────────
@@ -1339,6 +1482,75 @@ def api_search():
 def api_cartera_delete(mid):
     with _cartera_conn() as c:
         c.execute("DELETE FROM movements WHERE id=?", (mid,))
+    return jsonify(_cartera_payload())
+
+
+@app.route("/api/cartera/<int:mid>", methods=["PATCH"])
+def api_cartera_edit(mid):
+    """Corregir un movimiento en su sitio.
+
+    Antes sólo se podía borrar y volver a teclear, y eso convertía el error más
+    común de todos —un dedazo en el precio— en un borrado sobre el único estado
+    de esta aplicación que no se puede reconstruir desde ningún sitio. Un fallo
+    a mitad de camino dejaba el libro con un movimiento MENOS.
+
+    Sólo se tocan los campos que vienen; lo que no viaja en el cuerpo se queda
+    como estaba. Un campo presente pero ilegible es un error, no un cero: quien
+    escribe `precio: "abc"` no está pidiendo que su compra pase a valer nada.
+    """
+    d = request.get_json(force=True, silent=True) or {}
+    with _cartera_conn() as c:
+        row = c.execute("SELECT id,date,ticker,name,kind,side,quantity,price,fee,note "
+                        "FROM movements WHERE id=?", (mid,)).fetchone()
+        if row is None:
+            return jsonify({"error": "ese movimiento ya no existe"}), 404
+        cols = ("id", "date", "ticker", "name", "kind", "side", "quantity", "price", "fee", "note")
+        cur = dict(zip(cols, row))
+
+        upd = {}
+        campo_es = {"quantity": "cantidad", "price": "precio", "fee": "comisión"}
+        qty_raw = None
+        for f in ("quantity", "price", "fee"):
+            if f in d:
+                v = _num(d[f])
+                if v is None:
+                    return jsonify({"error": f"«{campo_es[f]}» no es un número"}), 400
+                if f == "quantity":
+                    # El SIGNO se guarda aparte antes de perderlo: es lo que
+                    # desempata el lado cuando la palabra que llega no está en
+                    # el vocabulario, y la base guarda siempre el valor absoluto.
+                    qty_raw = v
+                upd[f] = abs(v) if f != "fee" else v
+        if "date" in d:
+            upd["date"] = _norm_date(d["date"]) if d["date"] else ""
+        if "note" in d:
+            upd["note"] = str(d["note"]).strip()
+        if "side" in d:
+            # La cantidad que manda es la NUEVA si viene en la misma edición: el
+            # signo de la vieja no dice nada del movimiento que se está guardando.
+            upd["side"] = _norm_side(d["side"], qty_raw if qty_raw is not None else cur["quantity"])
+        if "ticker" in d and str(d["ticker"]).strip():
+            tk = str(d["ticker"]).strip().upper()
+            name, kind = str(d.get("name", "")).strip(), str(d.get("kind", "")).strip()
+            if _looks_like_isin(tk) and not d.get("symbol"):
+                sym, rn, kd = _resolve_symbol(tk)
+                if sym:
+                    tk, kind, name = sym, (kind or kd), (name or rn)
+            if tk != cur["ticker"]:
+                # Cambiar de instrumento y quedarse el nombre viejo deja una fila
+                # que dice una cosa y vale otra. Si no llega nombre nuevo, se
+                # borra el anterior antes que heredarlo.
+                upd["ticker"], upd["name"] = tk, name
+            elif name:
+                upd["name"] = name
+            upd["kind"] = _instrument_kind(tk, kind or cur["kind"])
+
+        if not upd:
+            return jsonify(_cartera_payload())
+        sets = ", ".join(f"{k}=?" for k in upd)
+        c.execute(f"UPDATE movements SET {sets} WHERE id=?", (*upd.values(), mid))
+    if "ticker" in upd:
+        _seed_geo_async(_geo_unknown([upd["ticker"]]))
     return jsonify(_cartera_payload())
 
 
@@ -1426,6 +1638,14 @@ def _cartera_history(benchmark: str = "SPY", max_points: int = 800):
         cols = [d[0] for d in cur.description]
         movs = [dict(zip(cols, r)) for r in cur.fetchall()]
     movs = [m for m in movs if m["date"]]
+    # Los dividendos salen ANTES de cualquier cuenta. Esta reconstrucción sólo
+    # sabe de dos cosas —títulos que entran y dinero que se despliega— y un
+    # dividendo no es ninguna de las dos. Cayendo por el `else` de más abajo se
+    # habría tratado como una VENTA: le habría restado títulos a la posición y
+    # habría sacado del benchmark un dinero que nunca se retiró, así que la
+    # línea de la cartera se separaba de la tabla de posiciones un poco más con
+    # cada cobro.
+    movs = [m for m in movs if m["side"] != "div"]
     empty = {"dates": [], "portfolio": [], "invested": [], "benchmark": None,
              "benchmark_ticker": benchmark, "base": BASE_CCY, "excluded": [],
              "covered": True, "proxied": []}

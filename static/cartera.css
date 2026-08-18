@@ -1,6 +1,7 @@
 /* Cartera — reutiliza los tokens de regime.css (enlazado antes). */
-.cart-hero{grid-template-columns:repeat(4,1fr);}
+.cart-hero{grid-template-columns:repeat(6,1fr);}
 .cart-hero .big{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.01em;margin-top:2px;}
+@media(max-width:1180px){.cart-hero{grid-template-columns:repeat(3,1fr);}}
 @media(max-width:760px){.cart-hero{grid-template-columns:1fr 1fr;}}
 
 .tbl{width:100%;border-collapse:collapse;font-size:13px;min-width:640px;}
@@ -16,6 +17,10 @@
 .side{font-size:11px;font-weight:600;padding:1px 8px;border-radius:5px;}
 .side.buy{color:#3fae6b;background:color-mix(in srgb,#3fae6b 16%,transparent);}
 .side.sell{color:#cf5b3a;background:color-mix(in srgb,#cf5b3a 16%,transparent);}
+/* El dividendo NO es ni verde de compra ni rojo de venta: es dinero que entra
+   sin que la posición se mueva, y confundirlo de un vistazo con una de las
+   otras dos es justo el error que la columna existe para evitar. */
+.side.div{color:#8a63d2;background:color-mix(in srgb,#8a63d2 16%,transparent);}
 .del{background:none;border:none;color:var(--faint);cursor:pointer;font-size:13px;padding:2px 6px;border-radius:5px;}
 .del:hover{color:#cf5b3a;background:color-mix(in srgb,#cf5b3a 14%,transparent);}
 
@@ -98,3 +103,43 @@ body.amounts-hidden .eye .off{display:block;}
 .r-empty{padding:10px 12px;color:var(--muted);font-size:12px;}
 .picked{margin-top:5px;font-size:12px;color:var(--muted);}
 .picked b{color:var(--text);}
+
+/* ── zona del índice por posición ─────────────────────────────────────────
+   El color lo pone el JS con la MISMA escala del Panel de Zonas (verde barato,
+   rojo caro), así que aquí sólo va la forma. Una pastilla contorneada y no
+   rellena: la fila ya tiene color en el P&L, y dos fondos de color compitiendo
+   se leen como una alerta que nadie ha dado. */
+.zchip{display:inline-block;font-size:11px;font-weight:600;padding:1px 8px;border-radius:5px;
+  border:1px solid currentColor;white-space:nowrap;}
+
+/* ── peso de la posición ──────────────────────────────────────────────────
+   La barra va DETRÁS del número, no en vez de él. Un peso es una cifra que se
+   compara con otra ("¿pesa más que aquella?") y una barra sola obliga a medir
+   a ojo lo que el número ya dice exacto. */
+.wbar{display:inline-block;padding:1px 5px;border-radius:4px;
+  background:linear-gradient(to right,
+    color-mix(in srgb,var(--accent) 22%,transparent) var(--w,0),
+    transparent var(--w,0));}
+
+/* ── criterio de coste del realizado ──────────────────────────────────────*/
+.seg.mini{vertical-align:middle;margin-left:6px;border-radius:6px;}
+.seg.mini button{padding:1px 7px;font-size:10px;}
+#s-realnote.has-warn{color:#cf8b3a;}
+
+/* ── divisa en la que se teclea el precio ─────────────────────────────────*/
+.ccy-hint{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.03em;
+  color:var(--muted);border:1px solid var(--border);border-radius:4px;padding:0 4px;margin-left:4px;}
+.ccy-hint.warn{color:#cf8b3a;border-color:#cf8b3a;}
+
+/* ── corregir un movimiento ───────────────────────────────────────────────
+   El formulario y la fila se marcan LOS DOS. Cambiar el destino de un botón
+   sin que se vea qué se está tocando es como se guarda una corrección encima
+   del movimiento equivocado. */
+.edit{background:none;border:none;color:var(--faint);cursor:pointer;font-size:13px;padding:2px 6px;border-radius:5px;}
+.edit:hover{color:var(--accent);background:color-mix(in srgb,var(--accent) 14%,transparent);}
+.tbl tr.editing td{background:color-mix(in srgb,var(--accent) 10%,transparent);}
+#add-form.editing{outline:1px solid color-mix(in srgb,var(--accent) 45%,transparent);
+  outline-offset:10px;border-radius:4px;}
+.add-grid .ghost{padding:8px 12px;background:var(--panel2);color:var(--muted);
+  border:1px solid var(--border);border-radius:8px;cursor:pointer;font-size:12px;}
+.add-grid .ghost:hover{color:var(--text);}

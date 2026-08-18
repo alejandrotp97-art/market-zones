@@ -43,7 +43,18 @@
       <div><div class="lbl">Invertido (abierto)</div><div id="s-inv" class="big">—</div></div>
       <div><div class="lbl">Valor de mercado</div><div id="s-mval" class="big">—</div></div>
       <div><div class="lbl">P&L no realizado</div><div id="s-unreal" class="big">—</div><div id="s-unrealpct" class="mut small"></div></div>
-      <div><div class="lbl">P&L realizado</div><div id="s-real" class="big">—</div></div>
+      <!-- El realizado se puede leer con dos criterios de coste y NO dan lo
+           mismo en una venta parcial. El selector no es un adorno: el número de
+           la izquierda es el de la cartera y el de la derecha el de la
+           declaración, y hasta ahora sólo se veía uno sin decir cuál. -->
+      <div><div class="lbl">P&L realizado
+          <span class="seg mini" id="real-mode" role="group" aria-label="Criterio de coste">
+            <button type="button" data-mode="avg" class="on" title="Coste medio ponderado — como se lee una cartera">Medio</button>
+            <button type="button" data-mode="fifo" title="Primera entrada, primera salida — el criterio de la ley española para valores homogéneos">FIFO</button>
+          </span></div>
+        <div id="s-real" class="big">—</div><div id="s-realnote" class="mut small"></div></div>
+      <div><div class="lbl">Dividendos cobrados</div><div id="s-income" class="big">—</div><div id="s-incomenote" class="mut small"></div></div>
+      <div><div class="lbl">Rentabilidad total</div><div id="s-total" class="big">—</div><div class="mut small">no realizado + realizado + dividendos</div></div>
     </section>
 
     <!-- evolución -->
@@ -65,9 +76,14 @@
       <div class="card-h"><span>Posiciones actuales</span><span id="pos-legend" class="legend"></span></div>
       <div class="scroll"><table id="pos" class="tbl">
         <thead><tr>
-          <th>Activo</th><th class="num">Cantidad</th><th class="num">Coste medio</th>
+          <th>Activo</th>
+          <th title="Zona del Panel de Zonas para este activo, con el modelo diario y el peso de volatilidad por defecto. Es un nivel, no un cuándo.">Zona</th>
+          <th class="num" title="Cuánto pesa esta posición sobre el valor de mercado de la cartera">Peso</th>
+          <th class="num">Cantidad</th><th class="num">Coste medio</th>
           <th class="num">Invertido</th><th class="num">Último</th><th class="num">Valor</th>
-          <th class="num">P&L no real.</th><th class="num">%</th><th class="num">P&L real.</th>
+          <th class="num">P&L no real.</th><th class="num">%</th>
+          <th class="num" title="Dividendos y cupones cobrados, netos de retención. No bajan el coste ni suman al realizado.">Dividendos</th>
+          <th class="num">P&L real.</th>
         </tr></thead><tbody id="pos-body"></tbody>
       </table></div>
     </section>
@@ -125,13 +141,22 @@
             <div id="f-results" class="results" hidden></div>
             <div id="f-picked" class="picked" hidden></div>
           </label>
-          <label>Tipo<select id="f-side"><option value="buy">Compra</option><option value="sell">Venta</option></select></label>
+          <label>Tipo<select id="f-side">
+            <option value="buy">Compra</option>
+            <option value="sell">Venta</option>
+            <option value="div">Dividendo / cupón</option>
+          </select></label>
           <label>Fecha<input type="date" id="f-date"></label>
-          <label>Cantidad<input type="number" id="f-qty" step="any" placeholder="10" required></label>
-          <label>Precio<input type="number" id="f-price" step="any" placeholder="450.20" required></label>
-          <label>Comisión<input type="number" id="f-fee" step="any" placeholder="0"></label>
+          <label><span id="f-qty-lbl">Cantidad</span><input type="number" id="f-qty" step="any" placeholder="10" required></label>
+          <!-- La divisa se rellena sola al elegir el instrumento. El precio
+               SIEMPRE ha sido el de la divisa nativa del activo; lo que no había
+               era ningún sitio donde la pantalla lo dijera. -->
+          <label><span id="f-price-lbl">Precio</span> <span id="f-ccy" class="ccy-hint" hidden></span>
+            <input type="number" id="f-price" step="any" placeholder="450.20" required></label>
+          <label><span id="f-fee-lbl">Comisión</span><input type="number" id="f-fee" step="any" placeholder="0"></label>
           <label class="wide">Nota<input type="text" id="f-note" placeholder="opcional"></label>
-          <button type="submit" class="primary">Añadir</button>
+          <button type="submit" class="primary" id="f-submit">Añadir</button>
+          <button type="button" class="ghost" id="f-cancel" hidden>Cancelar</button>
         </form>
       </section>
 
@@ -163,7 +188,7 @@
       <div class="scroll"><table id="mov" class="tbl">
         <thead><tr>
           <th>Fecha</th><th>Activo</th><th>Tipo</th><th class="num">Cantidad</th>
-          <th class="num">Precio</th><th class="num">Comisión</th><th>Nota</th><th></th>
+          <th class="num">Precio</th><th class="num">Comisión</th><th>Nota</th><th></th><th></th>
         </tr></thead><tbody id="mov-body"></tbody>
       </table></div>
     </section>

@@ -48,6 +48,7 @@
   // propia caía al gris genérico, indistinguible de "tipo desconocido".
   const KINDCOL = { ETF: "#4a90d9", ETC: "#b0873f", Fondo: "#8a63d2", "Acción": "#3fae6b", "Índice": "#d99a2b", Cripto: "#e0952b", Divisa: "#7c828e", Futuro: "#7c828e" };
   const kbadge = (k) => k ? `<span class="kbadge" style="background:${KINDCOL[k] || "#7c828e"}">${esc(k)}</span>` : "";
+  const SIDE_ES = { buy: "Compra", sell: "Venta", div: "Dividendo" };
 
   // Celda "Activo", compartida por posiciones y movimientos: el NOMBRE arriba
   // en negrita con su etiqueta, el ISIN/ticker debajo. Sin nombre, el ticker
@@ -55,7 +56,49 @@
   const assetCell = (ticker, name, kind, extra = "") => name
     ? `<span class="a-name">${esc(name)}</span> ${kbadge(kind)}${extra}<div class="a-sym">${esc(ticker)}</div>`
     : `<span class="a-name a-mono">${esc(ticker)}</span> ${kbadge(kind)}${extra}`;
-  let CH = null, sel = null, P = null;
+  // La misma escala del Panel de Zonas: 0 = barato (verde), 100 = caro (rojo).
+  // Copiada a propósito y no importada — cartera.js y app.js no se cargan nunca
+  // en la misma página, y un módulo compartido para una línea costaría más
+  // mantenerlo que tenerlo dos veces.
+  const colorForScore = (s) => `hsl(${140 * (1 - Math.max(0, Math.min(100, s)) / 100)}, 68%, 55%)`;
+
+  // Estado que NO viene del payload de la cartera: las zonas llegan por su
+  // propia ruta (son lentas) y el criterio de coste lo elige quien mira.
+  let ZONES = {}, ZONE_TRIES = 0, REALMODE = "avg";
+
+  function zoneCell(ticker) {
+    const z = ZONES[(ticker || "").toUpperCase()];
+    if (!z) return `<span class="mut">…</span>`;
+    if (z.error) return `<span class="mut small" title="${esc(z.error)}">—</span>`;
+    const c = colorForScore(z.score);
+    return `<span class="zchip" style="border-color:${c};color:${c}" `
+      + `title="Score ${z.score} · modelo ${esc(z.model || "")} · lleva ${z.dwell} día(s) en esta zona · datos a ${esc(z.date || "")}">`
+      + `${esc(z.zone)}</span>`;
+  }
+
+  function paintZones() {
+    document.querySelectorAll("[data-zone-for]").forEach((el) => {
+      el.innerHTML = zoneCell(el.dataset.zoneFor);
+    });
+  }
+
+  // Las zonas se piden DESPUÉS de pintar la tabla, y por partes. Con la caché
+  // fría cada instrumento es una descarga de 25 años, así que el servidor
+  // devuelve lo que le da tiempo y deja el resto en `pending`; aquí se vuelve a
+  // llamar hasta que no queda nada. El límite de intentos existe para que un
+  // instrumento que falla siempre no deje al navegador llamando para siempre.
+  async function loadZones(first = true) {
+    if (first) ZONE_TRIES = 0;
+    if (ZONE_TRIES++ > 6) return;
+    let d;
+    try { d = await (await fetch("/api/cartera/zonas")).json(); } catch (e) { return; }
+    if (d.error) return;
+    ZONES = { ...ZONES, ...d.zones };
+    paintZones();
+    if ((d.pending || []).length) setTimeout(() => loadZones(false), 400);
+  }
+
+  let CH = null, sel = null, P = null, EDITING = null;
 
   async function load() {
     status("Cargando…");
@@ -82,10 +125,18 @@
     $("s-mval").textContent = eur(s.market_value);
     $("s-unreal").innerHTML = signed(s.unreal, " €");
     $("s-unrealpct").textContent = s.unreal_pct != null ? (s.unreal_pct >= 0 ? "+" : "") + s.unreal_pct + "%" : "";
-    $("s-real").innerHTML = signed(s.realized, " €");
+    paintRealized(s);
+    $("s-income").innerHTML = signed(s.income, " €");
+    $("s-incomenote").textContent = s.n_dividends
+      ? `${s.n_dividends} cobro${s.n_dividends === 1 ? "" : "s"}`
+      : "sin dividendos apuntados";
+    $("s-total").innerHTML = signed(s.total_return, " €");
     // posiciones
     const open = (p.positions || []).filter((r) => r.qty > 1e-9);
-    const closed = (p.positions || []).filter((r) => r.qty <= 1e-9 && Math.abs(r.realized) > 1e-9);
+    // Una posición cerrada que sólo dejó dividendos también es historia de esta
+    // cartera: filtrarla por el realizado a secas la borraba de la tabla.
+    const closed = (p.positions || []).filter((r) => r.qty <= 1e-9
+      && (Math.abs(r.realized || 0) > 1e-9 || Math.abs(r.income || 0) > 1e-9));
     const ccyNote = (s.currencies && s.currencies.length > 1) ? ` · ${s.currencies.join("/")} → EUR en tiempo real` : "";
     // The totals cover only what could be valued. Never let the header imply
     // it covers everything when it does not.
@@ -104,6 +155,8 @@
           (r.why ? ` <span class="warn" title="No puedo expresarla en EUR: ${esc(r.why)}">⚠</span>` : "")
           + (r.oversold ? ` <span class="warn" title="Hay ${qty(r.oversold)} vendidas de más: falta una compra en los movimientos">⚠ ventas de más</span>` : "")
           + (cl ? ' <span class="mut small">cerrada</span>' : ""))}</td>
+        <td data-zone-for="${esc(r.ticker)}">${cl ? "" : zoneCell(r.ticker)}</td>
+        <td class="num">${cl || r.weight == null ? "—" : `<span class="wbar" style="--w:${r.weight}%">${r.weight}%</span>`}</td>
         <td class="num">${cl ? "—" : qty(r.qty)}</td>
         <td class="num">${nat(r.avg_cost, r.ccy, 4)}</td>
         <td class="num">${cl ? "—" : eur(r.invested)}</td>
@@ -111,22 +164,60 @@
         <td class="num">${eur(r.market_value)}</td>
         <td class="num">${cl ? "—" : signed(r.unreal, " €")}</td>
         <td class="num">${r.unreal_pct != null ? `<span style="color:${r.unreal_pct >= 0 ? POS : NEG}">${r.unreal_pct >= 0 ? "+" : ""}${r.unreal_pct}%</span>` : "—"}</td>
-        <td class="num">${signed(r.realized, " €")}</td></tr>`;
-    }).join("") || `<tr><td colspan="9" class="mut" style="padding:16px">Sin posiciones todavía. Añade un movimiento o importa un archivo.</td></tr>`;
+        <td class="num">${r.income ? signed(r.income, " €") : "—"}</td>
+        <td class="num">${signed(REALMODE === "fifo" ? r.realized_fifo : r.realized, " €")}</td></tr>`;
+    }).join("") || `<tr><td colspan="12" class="mut" style="padding:16px">Sin posiciones todavía. Añade un movimiento o importa un archivo.</td></tr>`;
     // movimientos
     $("mov-body").innerHTML = (p.movements || []).map((m) => `
-      <tr>
+      <tr class="${EDITING == m.id ? "editing" : ""}">
         <td>${m.date ? esc(m.date) : "—"}</td><td>${assetCell(m.ticker, m.name, m.kind)}</td>
-        <td><span class="side ${m.side === "buy" ? "buy" : "sell"}">${m.side === "buy" ? "Compra" : "Venta"}</span></td>
+        <td><span class="side ${esc(m.side)}">${esc(SIDE_ES[m.side] || "Compra")}</span></td>
         <td class="num">${qty(m.quantity)}</td><td class="num">${money(m.price, 4)}</td>
         <td class="num">${money(m.fee)}</td><td class="note">${esc(m.note || "")}</td>
+        <td class="num"><button class="edit" data-id="${esc(m.id)}" title="corregir">✎</button></td>
         <td class="num"><button class="del" data-id="${esc(m.id)}" title="eliminar">✕</button></td>
-      </tr>`).join("") || `<tr><td colspan="8" class="mut" style="padding:16px">Aún no hay movimientos.</td></tr>`;
+      </tr>`).join("") || `<tr><td colspan="9" class="mut" style="padding:16px">Aún no hay movimientos.</td></tr>`;
     $("mov-body").querySelectorAll(".del").forEach((b) =>
       b.addEventListener("click", () => del(b.dataset.id)));
+    $("mov-body").querySelectorAll(".edit").forEach((b) =>
+      b.addEventListener("click", () => startEdit((p.movements || []).find((m) => String(m.id) === b.dataset.id))));
     if (p.import) importMsg(p.import);
+    // Las zonas van por su cuenta y DESPUÉS: son la parte lenta, y la tabla no
+    // tiene por qué esperarlas para enseñar el dinero. Sólo se vuelven a pedir
+    // cuando los datos han cambiado; repintar por el ojo no toca la red.
+    if (dataChanged) loadZones(); else paintZones();
     if (reloadHistory) loadHistory();     // skipped on first load: already in flight
   }
+
+  // El realizado y la advertencia que lo acompaña. Los dos criterios coinciden
+  // salvo que haya ventas PARCIALES —cerrar entera una posición consume todos
+  // los lotes con cualquiera de los dos—, así que cuando divergen la diferencia
+  // no es un matiz: es lo que separa lo que enseña la cartera de lo que hay que
+  // declarar. Enseñar sólo uno de los dos y callarse el otro era esconderlo.
+  function paintRealized(s) {
+    const v = REALMODE === "fifo" ? s.realized_fifo : s.realized;
+    $("s-real").innerHTML = signed(v, " €");
+    const gap = (s.realized_fifo != null && s.realized != null)
+      ? s.realized_fifo - s.realized : null;
+    const note = $("s-realnote");
+    if (gap == null || Math.abs(gap) < 0.01) {
+      note.textContent = REALMODE === "fifo" ? "FIFO · criterio fiscal" : "coste medio";
+      note.classList.remove("has-warn");
+    } else {
+      const otro = REALMODE === "fifo" ? s.realized : s.realized_fifo;
+      note.innerHTML = `${REALMODE === "fifo" ? "FIFO" : "coste medio"} · `
+        + `con el otro criterio: <b>${eur(otro)}</b>`;
+      note.classList.add("has-warn");
+    }
+  }
+
+  $("real-mode").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-mode]");
+    if (!b || b.dataset.mode === REALMODE) return;
+    REALMODE = b.dataset.mode;
+    $("real-mode").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
+    if (P) render(P, false, false);
+  });
 
   // ── evolución de la cartera + benchmark ──────────────────────────────
   async function loadHistory() {
@@ -378,11 +469,99 @@
     fRes.hidden = false;
     fRes.querySelectorAll(".r-item").forEach((el) => el.addEventListener("click", () => pick(res[+el.dataset.i])));
   }
+  // Escribir el símbolo a mano es tan legítimo como elegirlo de la lista, y era
+  // justo el camino por el que nadie llegaba a ver la divisa. Al salir del
+  // campo, no en cada tecla: el buscador ya se encarga de lo que se teclea.
+  fTk.addEventListener("blur", () => {
+    const v = fTk.value.trim();
+    if (v && (!sel || sel.symbol !== v)) showCcy(v);
+    else if (!v) $("f-ccy").hidden = true;
+  });
+
   function pick(x) {
     sel = { symbol: x.symbol, name: x.name, kind: x.kind };
     fTk.value = x.symbol; fRes.hidden = true;
     fPick.innerHTML = `${kbadge(x.kind)} <b>${esc(x.name)}</b>`; fPick.hidden = false;
+    showCcy(x.symbol);
   }
+
+  // ── en qué moneda se teclea el precio ─────────────────────────────────
+  // El precio siempre ha sido el de la divisa NATIVA del instrumento, y la
+  // pantalla no lo decía en ninguna parte. Quien copiaba el importe en euros
+  // que le cobró su bróker por una acción estadounidense se metía el error del
+  // EURUSD entero en el coste, y el número resultante era perfectamente
+  // plausible — que es lo que lo hacía caro.
+  async function showCcy(symbol) {
+    const box = $("f-ccy");
+    box.hidden = true; box.className = "ccy-hint";
+    if (!symbol) return;
+    let d;
+    try { d = await (await fetch("/api/instrumento?symbol=" + encodeURIComponent(symbol))).json(); }
+    catch (e) { return; }
+    if (fTk.value.trim().toUpperCase() !== symbol.toUpperCase()) return;   // stale
+    if (!d.ccy) return;
+    box.textContent = "en " + d.ccy;
+    box.title = `Este instrumento cotiza en ${d.ccy}. Teclea el precio TAL CUAL viene en la operación, sin convertirlo: la conversión a euros la hace el panel con el cambio del día de la operación.`;
+    // GBp cotiza en peniques, no en libras. Es la trampa clásica de una plaza
+    // de Londres y se avisa aparte, porque el error no es del 20%: es de 100x.
+    if (d.factor && d.factor !== 1) {
+      box.textContent = `en ${d.ccy} (¡peniques!)`;
+      box.classList.add("warn");
+      box.title = `${d.ccy} cotiza en centésimas de ${d.base_ccy}. Un precio de 850 son 8,50 ${d.base_ccy}.`;
+    }
+    box.hidden = false;
+  }
+
+  // ── el formulario cambia de forma según lo que se apunte ──────────────
+  // Un dividendo no tiene ni cantidad ni precio: tiene un IMPORTE y una
+  // retención. Reusar las mismas casillas con las mismas etiquetas es como se
+  // acaba apuntando un cobro de 45 € como una compra de 45 títulos.
+  function sideMode() {
+    const div = $("f-side").value === "div";
+    $("f-qty-lbl").textContent = div ? "Títulos (opcional)" : "Cantidad";
+    $("f-price-lbl").textContent = div ? "Importe" : "Precio";
+    $("f-fee-lbl").textContent = div ? "Retención" : "Comisión";
+    $("f-qty").required = !div;
+    $("f-qty").placeholder = div ? "déjalo vacío si sólo sabes el total" : "10";
+    $("f-price").placeholder = div ? "45.20" : "450.20";
+    $("f-ccy").hidden = div ? true : $("f-ccy").hidden;
+  }
+  $("f-side").addEventListener("change", sideMode);
+
+  // ── corregir un movimiento en vez de borrarlo ─────────────────────────
+  function startEdit(m) {
+    if (!m) return;
+    EDITING = m.id;
+    $("f-date").value = m.date || "";
+    fTk.value = m.ticker || "";
+    $("f-side").value = m.side || "buy";
+    $("f-qty").value = m.quantity ?? "";
+    $("f-price").value = m.price ?? "";
+    $("f-fee").value = m.fee ?? "";
+    $("f-note").value = m.note || "";
+    // El instrumento se conserva tal cual salvo que se elija otro: `sel` queda
+    // a null y el PATCH sólo manda el ticker, así que el nombre y el tipo
+    // guardados no se pisan con los de una búsqueda que nadie hizo.
+    sel = null; fPick.hidden = true; fRes.hidden = true;
+    sideMode(); showCcy(m.ticker);
+    $("f-submit").textContent = "Guardar cambios";
+    $("f-cancel").hidden = false;
+    document.getElementById("add-form").classList.add("editing");
+    $("f-price").focus();
+    if (P) render(P, false, false);
+  }
+
+  function cancelEdit(repaint = true) {
+    EDITING = null;
+    ["f-ticker", "f-qty", "f-price", "f-fee", "f-note"].forEach((i) => ($(i).value = ""));
+    sel = null; fPick.hidden = true; fRes.hidden = true; $("f-ccy").hidden = true;
+    $("f-submit").textContent = "Añadir";
+    $("f-cancel").hidden = true;
+    document.getElementById("add-form").classList.remove("editing");
+    sideMode();
+    if (repaint && P) render(P, false, false);
+  }
+  $("f-cancel").addEventListener("click", () => cancelEdit());
   // Un clic fuera cierra cada lista por su cuenta: son dos buscadores distintos
   // y abrir uno tiene que cerrar el otro, no dejar dos desplegables encendidos.
   document.addEventListener("click", (e) => {
@@ -391,18 +570,24 @@
     if (w !== bWrap) bRes.hidden = true;
   });
 
-  // alta manual
+  // alta manual — y corrección, que es el mismo formulario con otro destino
   $("add-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const body = { date: $("f-date").value, ticker: fTk.value, side: $("f-side").value,
       quantity: $("f-qty").value, price: $("f-price").value, fee: $("f-fee").value, note: $("f-note").value };
+    // Una cantidad vacía sólo es legítima en un dividendo (el servidor la toma
+    // como una unidad al importe). En cualquier otro caso mandar "" convertiría
+    // la casilla en blanco en un cero, así que se queda fuera del cuerpo.
+    if (body.quantity === "" && body.side === "div") delete body.quantity;
     if (sel && sel.symbol === fTk.value.trim()) { body.name = sel.name; body.kind = sel.kind; body.symbol = 1; }
-    status("Guardando…");
-    const r = await send("/api/cartera", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const editing = EDITING;
+    status(editing ? "Guardando cambios…" : "Guardando…");
+    const r = await send(editing ? "/api/cartera/" + editing : "/api/cartera",
+      { method: editing ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const d = await r.json();
     if (d.error) { status(""); alert(d.error); return; }
-    ["f-ticker", "f-qty", "f-price", "f-fee", "f-note"].forEach((i) => ($(i).value = ""));
-    sel = null; fPick.hidden = true; fRes.hidden = true;
+    cancelEdit(false);
     render(d); status("");
   });
 
@@ -426,6 +611,10 @@
 
   async function del(id) {
     status("Eliminando…");
+    // Si se borra justo el que estaba abierto en el formulario, la edición se
+    // queda apuntando a un `id` que ya no existe y el siguiente "Guardar" da un
+    // 404 sin que se vea por qué.
+    if (EDITING != null && String(EDITING) === String(id)) cancelEdit(false);
     render(await (await send("/api/cartera/" + id, { method: "DELETE" })).json());
     status("");
   }
@@ -439,7 +628,12 @@
     e.preventDefault();
     const csv = "fecha,ticker,tipo,cantidad,precio,comision,nota\n" +
       "2024-01-15,SPY,compra,10,450.20,1.5,ejemplo\n" +
-      "2024-06-01,SPY,venta,4,510.00,1.5,toma parcial\n";
+      "2024-06-01,SPY,venta,4,510.00,1.5,toma parcial\n" +
+      // En un dividendo la columna «comision» es la RETENCIÓN, y la cantidad
+      // puede ir a 1 con el total en «precio» si el extracto no da el importe
+      // por título. Va en la plantilla porque un tipo de movimiento que nadie
+      // sabe escribir es un tipo de movimiento que nadie apunta.
+      "2024-07-10,SPY,dividendo,6,1.75,1.58,retención 15%\n";
     const b = new Blob([csv], { type: "text/csv" }); const u = URL.createObjectURL(b);
     const a = document.createElement("a"); a.href = u; a.download = "plantilla_cartera.csv"; a.click();
     setTimeout(() => URL.revokeObjectURL(u), 1000);
