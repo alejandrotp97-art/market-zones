@@ -422,6 +422,9 @@ def _r(x, n: int) -> float | None:
 
 def _build(symbol: str, vol_w: float, tf: str = "daily") -> dict:
     df = fetch_daily(symbol, years=YEARS)
+    # El nombre se lee AQUÍ, del meta que vino con este mismo frame, y antes de
+    # transformarlo: `attrs` no sobrevive garantizado a un resample.
+    name = _name_from_meta(df.attrs.get("meta"))
     # Continuous futures report rollover-contaminated volume -> drop it so the
     # conviction layer falls back to volatility only for these.
     if symbol.upper().endswith("=F"):
@@ -458,7 +461,7 @@ def _build(symbol: str, vol_w: float, tf: str = "daily") -> dict:
 
     return {
         "symbol": symbol,
-        "name": _instrument_name(symbol),
+        "name": name,
         "as_of": str(s.date.date()),
         "model": s.model,
         "vol_w": vol_w,
@@ -865,7 +868,6 @@ PROXY_MAX_DEV = 0.02            # a sibling further than 2% away is not the same
 # tail of legal-form tokens is dropped and the rest upper-cased. Curated symbols
 # keep their hand-written name client-side, so this only ever labels searched
 # tickers — an over-eager strip on some odd ETF name is cosmetic, never wrong data.
-_name_cache: dict[str, tuple[float, str]] = {}
 _CORP_SUFFIX = {"INC", "INCORPORATED", "CORP", "CORPORATION", "CO", "COMPANY",
                 "LTD", "LIMITED", "PLC", "SA", "NV", "AG", "SE", "LLC", "LP",
                 "HOLDINGS", "HOLDING", "GROUP", "THE",
@@ -883,24 +885,19 @@ def _clean_company_name(raw: str) -> str:
     return (cleaned or n).strip().upper()
 
 
-def _instrument_name(symbol: str) -> str:
-    """Cleaned company / instrument name from Yahoo chart meta, or "" if Yahoo did
-    not say. Cached a day — the name of a ticker does not change intraday."""
-    t = symbol.upper().strip()
-    hit = _name_cache.get(t)
-    if hit and time.time() - hit[0] < 86400:
-        return hit[1]
-    try:
-        u = ("https://query1.finance.yahoo.com/v8/finance/chart/"
-             + safe_symbol(t) + "?range=1d&interval=1d")
-        m = json.load(urllib.request.urlopen(
-            urllib.request.Request(u, headers={"User-Agent": "Mozilla/5.0"}), timeout=12)
-        )["chart"]["result"][0]["meta"]
-        name = _clean_company_name(m.get("longName") or m.get("shortName") or "")
-    except Exception:
-        return ""                                  # transient -> do not cache
-    _cache_put(_name_cache, t, (time.time(), name), cap=256)
-    return name
+def _name_from_meta(meta: object) -> str:
+    """Cleaned company / instrument name a partir del `meta` que YA trajo
+    `fetch_daily`, o "" si Yahoo no lo dijo.
+
+    Antes esto abría su propia conexión al mismo endpoint del que ya venía el
+    histórico: 12 s de timeout encadenados DETRÁS de los 30 s del precio, o sea
+    42 s en el peor caso contra un abort de cliente de 25 s. Y como un fallo no
+    se cacheaba, una degradación parcial de Yahoo hacía repagar esos 12 s en
+    cada refresco. Leyendo el dato que ya está descargado no hay ni petición
+    extra, ni timeout que encadenar, ni caché que mantener."""
+    if not isinstance(meta, dict):
+        return ""
+    return _clean_company_name(meta.get("longName") or meta.get("shortName") or "")
 
 
 def _quote_meta(symbol: str):

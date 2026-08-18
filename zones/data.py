@@ -71,7 +71,11 @@ class NoHistory(LookupError):
 def fetch_daily(symbol: str, years: int = 25, drop_forming: bool = True) -> pd.DataFrame:
     """Daily OHLCV for `symbol`, closed bars only.
 
-    Returns a frame with columns: date, open, high, low, close, volume.
+    Returns a frame with columns: date, open, high, low, close, volume, and
+    carries Yahoo's `meta` block (longName, shortName, currency, ...) on
+    `df.attrs["meta"]` — `{}` when the response omitted it. Read it BEFORE
+    reshaping the frame: pandas does not guarantee `attrs` survives a resample.
+
     `years` bounds the lookback; Yahoo returns whatever history it has within
     that window (so a young ETF like SPCX simply comes back short).
 
@@ -101,4 +105,12 @@ def fetch_daily(symbol: str, years: int = 25, drop_forming: bool = True) -> pd.D
     if drop_forming:
         today = pd.Timestamp.now(tz="utc").normalize()
         df = df[df["date"].dt.normalize() < today]
-    return df.reset_index(drop=True)
+
+    out = df.reset_index(drop=True)
+    # `meta` rides along in THIS same response and used to be dropped on the
+    # floor, so the dashboard fetched it again from the SAME endpoint: a 12s
+    # timeout chained behind the 30s above, i.e. 42s worst case against a 25s
+    # client abort, and a failure there was never cached. Exposing it here costs
+    # nothing and leaves the return contract (the frame and its columns) intact.
+    out.attrs["meta"] = res.get("meta") or {}
+    return out
