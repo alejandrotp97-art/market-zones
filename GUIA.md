@@ -248,6 +248,46 @@ posiciones**: detecta las repetidas y te dice cuántas se ha saltado.
 > del producto en tu banco. Es la forma fiable de identificarlo, porque los
 > nombres comerciales se parecen muchísimo entre sí.
 
+### Sacar una copia de tu cartera
+
+Todo lo demás en este panel se vuelve a calcular solo: los precios, las zonas,
+el mapa de países. **Tu libro de movimientos no.** Es lo único que, si se
+pierde, se perdió.
+
+Así que tienes dos formas de tenerlo a salvo, y no sobra ninguna:
+
+**1. Descargártelo tú.** En **Cartera**, arriba a la derecha del recuadro de
+importar, hay un enlace **«↓ mis movimientos»**. Te baja un CSV con todo. Ese
+mismo archivo se puede volver a subir aquí tal cual — es el mismo formato que
+lee el importador. Guárdalo donde guardas las cosas importantes.
+
+**2. Que la máquina la copie sola, cada noche.** Sólo si dejas el panel
+instalado en un servidor:
+
+```bash
+cp market-zones-cartera-backup.service market-zones-cartera-backup.timer ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now market-zones-cartera-backup.timer
+```
+
+Guarda los **14 últimos estados distintos** en la carpeta `backups/`. Si un día
+no tocas la cartera, no gasta copia. Para ver las que hay:
+
+```bash
+python backup_cartera.py --list
+```
+
+Y si algún día necesitas volver atrás, esto te dice exactamente qué teclear
+(no toca nada por su cuenta, sólo te lo explica):
+
+```bash
+python backup_cartera.py --restore backups/cartera-2026-08-18-051500.db
+```
+
+> **No copies el fichero `cartera.db` con el ratón mientras el panel está
+> abierto.** Puede llevarse la base a medio escribir: abre sin dar ningún error
+> y le faltan movimientos. Usa una de las dos formas de arriba.
+
 ### Qué mirar el primer día
 
 1. **Cartera** → cuánto llevas invertido, cuánto vale hoy, y el mapa de países.

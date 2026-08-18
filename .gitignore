@@ -7,6 +7,11 @@ cartera.db
 *.db-wal
 *.db-shm
 
+# Las copias de seguridad son el mismo dato con otra fecha. `*.db` ya las cubre,
+# pero el directorio se nombra entero para que una copia a medias (`.parcial`) o
+# cualquier cosa que se guarde ahí mañana nazca ya excluida.
+backups/
+
 # La tabla de pesos por país lleva los instrumentos que tiene cada uno como
 # claves, así que también es información de cartera. Se publica la plantilla
 # vacía (.example) y cada instalación construye la suya al añadir posiciones.

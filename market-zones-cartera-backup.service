@@ -1,0 +1,37 @@
+[Unit]
+Description=market-zones - copia de seguridad de cartera.db (SQLite online backup, rotación local). Solo lee la cartera, sin claves, no toca ningún bot.
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/alex/bots/market-zones
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/alex/bots/btc-poly/.venv/bin/python /home/alex/bots/market-zones/backup_cartera.py --quiet
+
+# El 2 es "sin cambios desde la última copia" o "todavía no hay cartera".
+# Ninguno de los dos es un incidente, y marcar la unidad como fallida por eso
+# llenaría `--failed` de ruido justo hasta que dejase de mirarse.
+SuccessExitStatus=0 2
+
+# Sin red: una copia de un fichero local que abre un socket es una copia que no
+# entiendes. Y la cartera es el dato que menos debe salir de la máquina.
+PrivateNetwork=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/alex/bots/market-zones/backups
+PrivateTmp=true
+NoNewPrivileges=true
+
+TimeoutStartSec=120
+MemoryHigh=80M
+MemoryMax=120M
+OOMScoreAdjust=200
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=market-zones-backup
+
+# Instalar:
+#   cp market-zones-cartera-backup.{service,timer} ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now market-zones-cartera-backup.timer
+# Probar ahora:  systemctl --user start market-zones-cartera-backup.service
+# Ver copias:    python3 backup_cartera.py --list

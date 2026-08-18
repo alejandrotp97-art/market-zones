@@ -1407,6 +1407,68 @@ def api_cartera_upload():
     return jsonify(p)
 
 
+# Import and export are ONE feature, not two: the header below is exactly the
+# set of names `_parse_upload` detects, so an exported file is a valid input to
+# the importer. That round trip is the point — an export that cannot be read
+# back is a decoration, not a copy of your book.
+CARTERA_EXPORT_COLS = ["fecha", "ticker", "nombre", "tipo", "cantidad", "precio",
+                       "comision", "nota"]
+
+
+def _csv_num(x) -> str:
+    """A stored number as the shortest string that reads back as the SAME float.
+
+    `repr` round-trips exactly in Python 3; formatting to a fixed width does
+    not. A quantity rounded on the way out is a wrong cost basis on the way
+    back in, which is the expensive kind of wrong — it looks like a number.
+    """
+    if x is None:
+        return ""
+    try:
+        return repr(float(x))
+    except (TypeError, ValueError):
+        return ""
+
+
+@app.route("/api/cartera/export")
+def api_cartera_export():
+    """The movement book as a CSV the importer accepts unchanged.
+
+    `kind` is deliberately NOT exported. The classifier derives it from the
+    symbol on every read and write precisely so a stale label cannot re-badge a
+    position; shipping it in the file would build the round trip that rule
+    exists to prevent.
+
+    Sorted oldest-first (the screen sorts newest-first): a file a human reads is
+    a statement, and a statement runs forward in time.
+    """
+    with _cartera_conn() as c:
+        rows = c.execute("SELECT date,ticker,name,side,quantity,price,fee,note "
+                         "FROM movements ORDER BY date, id").fetchall()
+    buf = io.StringIO()
+    w = csv.writer(buf, lineterminator="\n")
+    w.writerow(CARTERA_EXPORT_COLS)
+    for date, ticker, name, side, qty, price, fee, note in rows:
+        # The words, not the codes: "compra"/"venta" survive a human opening the
+        # file in Excel and re-saving it, and `_norm_side` reads them as whole
+        # words. A bare "c"/"v" is one careless edit away from inverting a trade.
+        w.writerow([date or "", ticker or "", name or "",
+                    "venta" if side == "sell" else "compra",
+                    _csv_num(qty), _csv_num(price), _csv_num(fee), note or ""])
+    # utf-8-sig: without the BOM Excel reads a UTF-8 CSV as latin-1 and turns
+    # every accented name into mojibake. The importer already opens with
+    # `encoding="utf-8-sig"`, so the BOM costs the round trip nothing.
+    raw = buf.getvalue().encode("utf-8-sig")
+    resp = Response(raw, mimetype="text/csv; charset=utf-8")
+    resp.headers["Content-Disposition"] = (
+        f'attachment; filename="cartera_{time.strftime("%Y-%m-%d")}.csv"')
+    # `no-store`, not merely `max-age=0`: this is the portfolio itself, and a
+    # proxy or a browser cache holding a copy of it on disk is the exact
+    # outcome the host guard and the 0600 chmod are built to prevent.
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
 # ── Proyecto de Abraham (analisis) — servido, no integrado ──────────────────
 # Es OTRO proyecto: su pipeline, sus datos y sus páginas HTML, que él genera. Se
 # sirven TAL CUAL, sin releer ni reinterpretar una sola línea suya. Van bajo

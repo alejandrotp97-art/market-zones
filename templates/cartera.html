@@ -137,8 +137,15 @@
 
       <!-- importar -->
       <section class="card">
-        <div class="card-h"><span>Importar CSV / Excel</span>
-          <a id="tpl" class="legend" href="#" style="cursor:pointer">↓ plantilla CSV</a></div>
+        <div class="card-h"><span>Importar / exportar CSV</span>
+          <span class="legend">
+            <a id="tpl" href="#" style="cursor:pointer">↓ plantilla</a> ·
+            <!-- Enlace normal, no fetch(): la exportación es un GET que
+                 devuelve un adjunto, así que el navegador ya sabe descargarlo
+                 y no hace falta ni cabecera CSRF ni JavaScript que mantener. -->
+            <a id="export" href="/api/cartera/export"
+               title="Descarga tus movimientos en CSV. El mismo archivo se puede volver a importar aquí.">↓ mis movimientos</a>
+          </span></div>
         <div id="drop" class="drop">
           <input type="file" id="file" accept=".csv,.xlsx,.xls" hidden>
           <div class="drop-in">Arrastra un archivo aquí o <button type="button" id="pick" class="link">elígelo</button>

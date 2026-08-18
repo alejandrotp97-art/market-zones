@@ -1,0 +1,15 @@
+[Unit]
+Description=Copia diaria de la cartera de market-zones
+
+[Timer]
+# Diario aunque el libro se toque una vez al mes: la copia idéntica se descarta
+# sola, así que el coste de madrugar todos los días es cero y lo que se conserva
+# son los últimos 14 estados DISTINTOS del libro, no los últimos 14 días.
+OnCalendar=*-*-* 05:15
+# Si la máquina estaba apagada a las 05:15, se ejecuta al arrancar. Sin esto un
+# portátil que duerme de noche no tiene copia ningún día.
+Persistent=true
+RandomizedDelaySec=600
+
+[Install]
+WantedBy=timers.target
