@@ -16,7 +16,6 @@ import io
 import json
 import math
 import os
-import re
 import sqlite3
 import subprocess
 import sys
@@ -32,6 +31,23 @@ from flask import (Flask, Response, jsonify, redirect, render_template, request,
                    send_from_directory)
 
 import geo
+# El dominio de la cartera vive en su propio paquete: qué significa un
+# movimiento no depende de que haya un navegador delante. Aquí dentro siguen
+# siendo detalles internos, así que se reexportan con el guion bajo con el que
+# los llama el resto de este fichero.
+from cartera.parsing import CARTERA_EXPORT_COLS, COLSYN, FAR_FUTURE
+from cartera.parsing import clean_company_name as _clean_company_name
+from cartera.parsing import csv_num as _csv_num
+from cartera.parsing import instrument_kind as _instrument_kind
+from cartera.parsing import looks_like_isin as _looks_like_isin
+from cartera.parsing import mov_key as _mov_key
+from cartera.parsing import name_from_meta as _name_from_meta
+from cartera.parsing import norm_col as _norm_col
+from cartera.parsing import norm_date as _norm_date
+from cartera.parsing import norm_side as _norm_side
+from cartera.parsing import num as _num
+from cartera.parsing import sniff_sep as _sniff_sep
+from cartera.parsing import symbol_isin as _symbol_isin
 from zones import (WEEKLY, BadSymbol, NoHistory, analyze, fetch_daily,
                    safe_symbol, to_weekly)
 from zones.engine import VOL_W_DEFAULT
@@ -750,20 +766,7 @@ def api_regime():
 # this directory when unset, which is where the original instance keeps it.
 CARTERA_DB = os.environ.get("CARTERA_DB") or os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "cartera.db")
-_ACC = str.maketrans("áéíóúüñÁÉÍÓÚÜÑ", "aeiouunAEIOUUN")
 _price_cache: dict[str, tuple[float, float | None]] = {}
-
-COLSYN = {
-    "date": {"fecha", "date", "dia", "fecha operacion", "f valor", "fecha valor", "f. valor"},
-    "ticker": {"ticker", "simbolo", "symbol", "activo", "valor", "isin", "instrumento", "producto"},
-    "side": {"tipo", "side", "operacion", "movimiento", "compra/venta", "b/s", "c/v", "accion", "sentido"},
-    "quantity": {"cantidad", "qty", "quantity", "shares", "titulos", "acciones", "unidades", "numero",
-                 "participaciones", "num", "nominal", "n titulos", "no titulos"},
-    "price": {"precio", "price", "precio unitario", "cotizacion", "valor liquidativo", "precio compra", "precio medio"},
-    "fee": {"comision", "fee", "fees", "gastos", "coste", "costes", "comisiones", "corretaje"},
-    "name": {"nombre", "name", "denominacion", "fondo", "descripcion del activo", "nombre del activo"},
-    "note": {"nota", "note", "comentario", "observaciones"},
-}
 
 
 def _cartera_conn():
@@ -797,44 +800,6 @@ def _cartera_conn():
 _search_cache: dict[str, tuple[float, list]] = {}
 _KIND_ES = {"EQUITY": "Acción", "ETF": "ETF", "MUTUALFUND": "Fondo", "INDEX": "Índice",
             "CRYPTOCURRENCY": "Cripto", "CURRENCY": "Divisa", "FUTURE": "Futuro"}
-_ISIN_RE = re.compile(r"^[A-Z]{2}[A-Z0-9]{9}[0-9]$")
-
-
-def _looks_like_isin(s: str) -> bool:
-    return bool(_ISIN_RE.match(str(s).strip().upper()))
-
-
-def _symbol_isin(symbol: str) -> str:
-    """The ISIN a Yahoo symbol is built from, or "" — `IE000M7V94E1.SG` -> `IE000M7V94E1`."""
-    root = str(symbol or "").strip().upper().split(".")[0]
-    return root if _looks_like_isin(root) else ""
-
-
-# Yahoo's `quoteType` is not a dependable instrument classifier for European
-# listings, and the portfolio proves it: IE000M7V94E1.SG came back ETF when it
-# was imported and MUTUALFUND when the same holding was added by hand weeks
-# later, so one position ended up wearing two different badges. Both answers
-# cannot be right, and the second is the impossible one — `.SG` is the Stuttgart
-# LINE of an instrument, and an unlisted fund has no line on any exchange.
-# FR0013416716.SG (an ETC) is reported MUTUALFUND too.
-#
-# The symbol itself says what the label was supposed to, and it does not change
-# between requests:
-#   * `0P...`         Yahoo's synthetic symbol for a fund quoted at NAV, unlisted
-#   * `<ISIN>.<MIC>`  a line on an exchange — whatever it is, it is not unlisted
-# Only that contradiction is overruled. A type we were never told stays unknown
-# (guessing "ETF" for a bond ETC would just be a nicer-looking wrong answer),
-# and a label the user wrote — ETC — is never overwritten.
-def _instrument_kind(symbol: str, reported: str = "") -> str:
-    """Instrument type for a Yahoo symbol: the symbol decides listed vs unlisted,
-    the reported type fills in the rest. "" when nothing is known."""
-    sym = str(symbol or "").strip().upper()
-    kind = str(reported or "").strip()
-    if sym.startswith("0P"):                       # unlisted fund, quoted at NAV
-        return "Fondo"
-    if "." in sym and _symbol_isin(sym):           # a listing: it is not unlisted
-        return "ETF" if kind == "Fondo" else kind
-    return kind
 
 
 def _yahoo_search(q: str, limit: int = 12) -> list:
@@ -923,38 +888,6 @@ PROXY_MAX_DEV = 0.02            # a sibling further than 2% away is not the same
 # tail of legal-form tokens is dropped and the rest upper-cased. Curated symbols
 # keep their hand-written name client-side, so this only ever labels searched
 # tickers — an over-eager strip on some odd ETF name is cosmetic, never wrong data.
-_CORP_SUFFIX = {"INC", "INCORPORATED", "CORP", "CORPORATION", "CO", "COMPANY",
-                "LTD", "LIMITED", "PLC", "SA", "NV", "AG", "SE", "LLC", "LP",
-                "HOLDINGS", "HOLDING", "GROUP", "THE",
-                "USD"}   # Yahoo tags crypto names with a quote-ccy suffix: "Ethereum USD"
-
-
-def _clean_company_name(raw: str) -> str:
-    """"Tesla, Inc." -> "TESLA", "Amazon.com, Inc." -> "AMAZON". Falls back to the
-    raw name upper-cased when stripping would empty it (e.g. a pure fund name)."""
-    n = re.sub(r"\.com\b", "", str(raw or "").strip(), flags=re.IGNORECASE)
-    tokens = [t for t in re.split(r"[\s,]+", n) if t]
-    while tokens and tokens[-1].strip(".").upper() in _CORP_SUFFIX:
-        tokens.pop()
-    cleaned = " ".join(tokens).strip(" ,.-")
-    return (cleaned or n).strip().upper()
-
-
-def _name_from_meta(meta: object) -> str:
-    """Cleaned company / instrument name a partir del `meta` que YA trajo
-    `fetch_daily`, o "" si Yahoo no lo dijo.
-
-    Antes esto abría su propia conexión al mismo endpoint del que ya venía el
-    histórico: 12 s de timeout encadenados DETRÁS de los 30 s del precio, o sea
-    42 s en el peor caso contra un abort de cliente de 25 s. Y como un fallo no
-    se cacheaba, una degradación parcial de Yahoo hacía repagar esos 12 s en
-    cada refresco. Leyendo el dato que ya está descargado no hay ni petición
-    extra, ni timeout que encadenar, ni caché que mantener."""
-    if not isinstance(meta, dict):
-        return ""
-    return _clean_company_name(meta.get("longName") or meta.get("shortName") or "")
-
-
 def _quote_meta(symbol: str):
     """(live price, currency) from Yahoo chart meta. Cached ~120s (near real-time)."""
     t = symbol.upper().strip()
@@ -1050,95 +983,6 @@ def _fx_series_eur(ccy):
     return None if s is None else (s * f)
 
 
-def _num(x):
-    if x is None:
-        return None
-    if isinstance(x, (int, float)):
-        return None if (isinstance(x, float) and math.isnan(x)) else float(x)
-    s = str(x).strip().replace("€", "").replace("$", "").replace(" ", "").replace("%", "")
-    if not s or s.lower() == "nan":
-        return None
-    if "," in s and "." in s:                 # 1.234,56 -> 1234.56
-        s = s.replace(".", "").replace(",", ".")
-    elif "," in s:
-        s = s.replace(",", ".")
-    try:
-        return float(s)
-    except ValueError:
-        return None
-
-
-def _norm_col(c):
-    return str(c).strip().lower().translate(_ACC)
-
-
-# Broker/fund vocabulary, accent-stripped and lowercased. Matched as WHOLE
-# WORDS, not prefixes: `startswith("s")` used to turn "Suscripción" — which is a
-# PURCHASE of fund units — into a sale, and "Reembolso" (a redemption) into a
-# buy. Both terms are the standard ones on Spanish fund statements, so the two
-# most common rows in a fund export were being booked backwards.
-_SIDE_WORDS = {
-    "buy": {"compra", "compras", "comprar", "buy", "bought", "purchase", "adquisicion",
-            "suscripcion", "suscripciones", "aportacion", "aportaciones", "entrada",
-            "alta", "ingreso", "cargo", "inversion"},
-    "sell": {"venta", "ventas", "vender", "sell", "sold", "sale", "reembolso",
-             "reembolsos", "rescate", "amortizacion", "retirada", "salida", "baja",
-             "disposicion", "abono"},
-}
-# Single-character and sign codes are only honoured when they are the WHOLE
-# value. As substrings they are everywhere — a stray hyphen inside a date, or
-# the "s" of any word — and each false hit inverts a trade.
-_SIDE_CODES = {"c": "buy", "b": "buy", "+": "buy",
-               "v": "sell", "s": "sell", "-": "sell"}
-
-
-def _norm_side(v, qty=None):
-    """Movement direction: exact code, then whole words, then the sign, then buy.
-
-    Unknown vocabulary falls back to the SIGN of the quantity rather than to a
-    guess from the first letter — a wrong guess here silently inverts a trade.
-    """
-    s = _norm_col(v)                                   # lowercase + strip accents
-    sign = "sell" if (qty is not None and qty < 0) else "buy"
-    if not s or s == "nan":
-        return sign
-    if s in _SIDE_CODES:
-        return _SIDE_CODES[s]
-    words = set(re.findall(r"[a-z]+", s))
-    for side in ("sell", "buy"):                       # an explicit sale wins a tie
-        if words & _SIDE_WORDS[side]:
-            return side
-    return sign
-
-
-def _norm_date(x):
-    if x is None:
-        return ""
-    s = str(x).strip()
-    if not s or s.lower() == "nan":
-        return ""
-    # Respect ISO YYYY-MM-DD as-is; only use dayfirst for European DD/MM/YYYY forms
-    iso = len(s) >= 10 and s[4:5] == "-" and s[7:8] == "-"
-    try:
-        return pd.to_datetime(s[:10] if iso else s, dayfirst=not iso).strftime("%Y-%m-%d")
-    except Exception:
-        return s[:10]
-
-
-def _sniff_sep(data: bytes) -> str:
-    """Delimiter from the header line only.
-
-    `sep=None` forces pandas onto its Python engine, which is ~7x slower. The
-    header is all the evidence needed, and a wrong guess is visible immediately
-    (no columns are detected) rather than silently corrupting values.
-    """
-    try:
-        head = data[:8192].decode("utf-8", "replace").splitlines()[0]
-        return csv.Sniffer().sniff(head, delimiters=",;\t|").delimiter
-    except Exception:
-        return ","
-
-
 def _parse_upload(filename: str, data: bytes):
     name = filename.lower()
     # `nrows` bounds the frame BEFORE the per-row loop: reading a capped frame
@@ -1212,9 +1056,6 @@ def _parse_upload(filename: str, data: bytes):
         errors.append(f"el archivo excede {MAX_UPLOAD_ROWS} filas: solo se han "
                       f"leído las primeras {MAX_UPLOAD_ROWS}")
     return rows, errors, list(cols.keys())
-
-
-FAR_FUTURE = "9999-12-31"      # sort key for undated movements
 
 
 def _positions(movs):
@@ -1406,13 +1247,6 @@ def api_cartera_add():
     return jsonify(_cartera_payload())
 
 
-def _mov_key(r):
-    """Identity of a movement for duplicate detection."""
-    return (str(r.get("date") or ""), str(r.get("ticker") or "").upper(),
-            str(r.get("side") or ""), round(float(r.get("quantity") or 0), 8),
-            round(float(r.get("price") or 0), 8))
-
-
 @app.route("/api/cartera/upload", methods=["POST"])
 def api_cartera_upload():
     """Import movements from CSV/Excel.
@@ -1460,29 +1294,6 @@ def api_cartera_upload():
                                    "quantity": r["quantity"], "price": r["price"]}
                                   for r in dupes[:10]]}
     return jsonify(p)
-
-
-# Import and export are ONE feature, not two: the header below is exactly the
-# set of names `_parse_upload` detects, so an exported file is a valid input to
-# the importer. That round trip is the point — an export that cannot be read
-# back is a decoration, not a copy of your book.
-CARTERA_EXPORT_COLS = ["fecha", "ticker", "nombre", "tipo", "cantidad", "precio",
-                       "comision", "nota"]
-
-
-def _csv_num(x) -> str:
-    """A stored number as the shortest string that reads back as the SAME float.
-
-    `repr` round-trips exactly in Python 3; formatting to a fixed width does
-    not. A quantity rounded on the way out is a wrong cost basis on the way
-    back in, which is the expensive kind of wrong — it looks like a number.
-    """
-    if x is None:
-        return ""
-    try:
-        return repr(float(x))
-    except (TypeError, ValueError):
-        return ""
 
 
 @app.route("/api/cartera/export")
