@@ -1,0 +1,60 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Un panel que no se toca en dos meses sigue dependiendo de numpy y pandas, y
+  # esas sí se mueven. La ejecución semanal es la que avisa de que el mundo de
+  # fuera ha cambiado cuando aquí dentro no ha cambiado nada.
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Los dos extremos de lo que promete la GUIA ("tiene que empezar por
+        # 3.10 o más alto"). El 3.12 es el que corre en producción; el 3.10
+        # está aquí para que esa promesa se compruebe en vez de suponerse.
+        python: ["3.10", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      # Se instala el requirements.txt ENTERO, no sólo lo que los tests
+      # importan: es el comando exacto que la GUIA le manda teclear a alguien
+      # que no programa, así que si se rompe, se rompe aquí y no en su portátil.
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # Deja en el log las versiones con las que estos números son ciertos.
+      # Cuando un golden falle dentro de seis meses, esto es lo que dice por qué.
+      - name: Versiones
+        run: pip freeze
+
+      - name: Tests
+        run: pytest
+
+      # La suite no toca la red (todas las llamadas van mockeadas). Si alguien
+      # añade un test que sí la toca, se vuelve intermitente y contamina al
+      # resto; este paso lo detecta el día que pasa, no meses después.
+      - name: La suite no debe depender de la red
+        run: |
+          sudo iptables -P OUTPUT DROP
+          sudo iptables -A OUTPUT -o lo -j ACCEPT
+          pytest
