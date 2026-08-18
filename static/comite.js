@@ -152,26 +152,47 @@
   }
 
   // ── P4-2 · salud de la cartera ────────────────────────────────────────
+  // Esta función se usa ahora con DOS carteras: la que el comité propone (donde
+  // todas las filas vienen del motor y están puntuadas) y la REAL del usuario,
+  // que casi nunca lo está entera — un fondo indexado europeo o un ETC de oro no
+  // están en el universo del régimen.
+  //
+  // La concentración (HHI, N efectivo, top1, top3) no necesita ninguna
+  // puntuación: son pesos, y se calcula sobre TODO lo que se tiene. Las medias
+  // de oportunidad, robustez y evidencia sí, y se calculan sobre el subconjunto
+  // puntuado CON SU PROPIO DENOMINADOR, no sobre el total. Repartir entre el
+  // total lo que sólo cubre a la mitad daría una robustez media hundida por
+  // posiciones que nadie ha medido, que es peor que no dar el número: parece
+  // medido. `covered` dice qué parte del capital respalda esas medias.
   function buildHealth(alloc) {
     const held = alloc.rows.filter((r) => r.pct > 0), inv = alloc.invested;
     if (!held.length || inv <= 0)
       return { rating: "Defensiva", score: 0, effN: 0, top1: 0, top3: 0, groups: 0,
-        pctGreen: 0, oppMean: 50, robMean: 0, confAgg: 0, cash: alloc.cash, inv: 0, empty: true };
+        pctGreen: 0, oppMean: 50, robMean: 0, confAgg: 0, cash: alloc.cash, inv: 0,
+        covered: 0, empty: true };
     const w = held.map((r) => r.pct / inv);
     const hhi = w.reduce((a, x) => a + x * x, 0), effN = 1 / hhi;
     const top1 = Math.max(...held.map((r) => r.pct)) / inv;
-    const top3 = held.slice(0, 3).reduce((a, r) => a + r.pct, 0) / inv;
+    const top3 = [...held].sort((a, b) => b.pct - a.pct).slice(0, 3).reduce((a, r) => a + r.pct, 0) / inv;
     const groups = new Set(held.map((r) => r.group)).size;
-    const pctGreen = held.filter((r) => r.ev === "pos").reduce((a, r) => a + r.pct, 0) / inv;
-    const oppMean = held.reduce((a, r) => a + r.pct * r.opp, 0) / inv;
-    const robMean = held.reduce((a, r) => a + r.pct * r.rob, 0) / inv;
+
+    const scored = held.filter((r) => r.opp != null && r.rob != null);
+    const sInv = scored.reduce((a, r) => a + r.pct, 0);
+    const covered = sInv / inv;
     const cm = { Alta: 2, Media: 1, Baja: 0 };
-    const confAgg = held.reduce((a, r) => a + r.pct * (cm[full[r.sym].summary.confidence] ?? 1), 0) / inv;
+    const wmean = (f) => (sInv > 1e-9 ? scored.reduce((a, r) => a + r.pct * f(r), 0) / sInv : null);
+    const pctGreen = sInv > 1e-9
+      ? scored.filter((r) => r.ev === "pos").reduce((a, r) => a + r.pct, 0) / sInv : 0;
+    const oppMean = wmean((r) => r.opp) ?? 50;
+    const robMean = wmean((r) => r.rob) ?? 0;
+    const confAgg = wmean((r) => cm[(full[r.sym] || {}).summary?.confidence] ?? 1) ?? 1;
+
     const divScore = Math.min(1, effN / 5);
     const score = 100 * (0.30 * pctGreen + 0.25 * robMean / 100 + 0.20 * divScore
       + 0.15 * Math.max(0, (oppMean - 50) / 50) + 0.10 * confAgg / 2);
     const rating = score >= 75 ? "Excelente" : score >= 60 ? "Buena" : score >= 45 ? "Aceptable" : "Débil";
-    return { rating, score: Math.round(score), effN, top1, top3, groups, pctGreen, oppMean, robMean, confAgg, hhi, cash: alloc.cash, inv };
+    return { rating, score: Math.round(score), effN, top1, top3, groups, pctGreen, oppMean,
+      robMean, confAgg, hhi, cash: alloc.cash, inv, covered };
   }
 
   // ── P4-4 · radar de calidad de decisión ───────────────────────────────
@@ -391,6 +412,7 @@
 
   // ── interactivos (una vez cargado todo) ───────────────────────────────
   function initInteractive() {
+    loadMine();                       // la cartera real, ya con la propuesta lista
     const held = LAST.alloc.rows.filter((r) => r.pct > 0);
     const universe = held.length ? held.map((r) => r.sym) : okSyms();
     const def = universe[0];
@@ -414,6 +436,136 @@
     tlSel.addEventListener("change", () => drawTimeline(tlSel.value));
     drawTimeline(def);
     window.addEventListener("resize", () => { if (LAST) drawRadar(LAST.radar); drawTimeline(tlSel.value); });
+  }
+
+  // ══ Mi cartera REAL ═══════════════════════════════════════════════════
+  // Toda la maquinaria de salud de cartera —HHI, N efectivo, concentración,
+  // capital en evidencia positiva— ya estaba escrita, y corría sobre una
+  // asignación HIPOTÉTICA. La pregunta que nadie podía hacerle era la única que
+  // importa cuando hay dinero dentro: ¿y lo que YO tengo, qué nota saca?
+  const MINE = { rows: [], loaded: false, err: null, total: 0, unvalued: 0 };
+
+  async function loadMine() {
+    let d;
+    try { d = await (await fetch("/api/cartera")).json(); }
+    catch (e) { MINE.err = "no pude leer la cartera"; return renderMine(); }
+    if (d.error) { MINE.err = d.error; return renderMine(); }
+    const open = (d.positions || []).filter((r) => r.qty > 1e-9);
+    const valued = open.filter((r) => r.market_value != null);
+    MINE.unvalued = open.length - valued.length;
+    MINE.total = valued.reduce((a, r) => a + r.market_value, 0);
+    if (!valued.length) { MINE.loaded = true; return renderMine(); }
+    MINE.rows = valued.map((r) => ({
+      sym: r.ticker, name: r.name || r.ticker, kind: r.kind || "",
+      // El grupo sólo se afirma cuando se sabe. Meter en "Otros" un fondo que
+      // es renta variable global inflaría la diversificación aparente con una
+      // etiqueta inventada, y la diversificación es justo lo que se mide aquí.
+      group: GROUP[r.ticker] || null,
+      pct: r.market_value / MINE.total * 100, eur: r.market_value,
+      opp: null, rob: null, ev: null,
+    })).sort((a, b) => b.pct - a.pct);
+    renderMine();                                  // pesos ya, puntuación después
+
+    // El motor de régimen, para MIS símbolos. Muchos no estarán cubiertos (un
+    // fondo sin histórico largo, un ETC): eso no es un fallo, es el alcance
+    // real del análisis, y se dice en vez de rellenarlo.
+    let i = 0;
+    const worker = async () => {
+      while (i < MINE.rows.length) {
+        const row = MINE.rows[i++];
+        if (full[row.sym]) { applyScore(row, full[row.sym]); continue; }
+        try {
+          const p = await (await fetch(`/api/regime?view=light&symbol=${encodeURIComponent(row.sym)}`)).json();
+          if (!p.error) { full[row.sym] = p; applyScore(row, p); }
+        } catch (e) { /* sin cobertura: la fila se queda sin puntuar */ }
+        renderMine();
+      }
+    };
+    await Promise.all([worker(), worker(), worker()]);
+    MINE.loaded = true;
+    renderMine();
+  }
+
+  function applyScore(row, p) {
+    const s = p.summary || {}, sc = (p.scenarios || {})["6m"] || {};
+    if (s.opportunity == null || s.robustness == null) return;
+    row.opp = s.opportunity; row.rob = s.robustness; row.ev = sc.evidence || null;
+  }
+
+  const recoTag = (r) => {
+    const k = recommend(r.opp, r.ev);
+    return `<span style="color:${k.c}">${k.t}</span>`;
+  };
+
+  function renderMine() {
+    const box = document.getElementById("mine"), leg = document.getElementById("mine-legend");
+    if (MINE.err) {
+      leg.textContent = "";
+      box.innerHTML = `<div class="mut">No hay cartera que medir (${esc(MINE.err)}).</div>`;
+      return;
+    }
+    if (!MINE.rows.length) {
+      leg.textContent = "";
+      box.innerHTML = `<div class="mut">Sin posiciones abiertas. Añádelas en <a href="/cartera">Cartera</a> y aquí sale su nota.</div>`;
+      return;
+    }
+    const alloc = { rows: MINE.rows, cash: 0, invested: 100 };
+    const h = buildHealth(alloc);
+    const prop = LAST ? LAST.alloc.rows.filter((r) => r.pct > 0) : [];
+    const mineSyms = new Set(MINE.rows.map((r) => r.sym));
+    // Las dos listas que convierten esto en una decisión y no en un boletín.
+    const missing = prop.filter((r) => !mineSyms.has(r.sym)).slice(0, 5);
+    const avoidable = MINE.rows.filter((r) => r.ev === "neg");
+
+    leg.innerHTML = MINE.loaded
+      ? `${MINE.rows.length} posiciones · análisis sobre el <b>${Math.round(h.covered * 100)}%</b> del capital`
+      : `${MINE.rows.length} posiciones · puntuando…`;
+
+    const bar = MINE.rows.map((r) => {
+      const c = r.ev ? EVID[r.ev].c : "#7c828e";
+      return `<div class="alloc-seg" style="flex:${r.pct.toFixed(2)};background:${c}"
+        title="${esc(r.sym)} ${r.pct.toFixed(1)}%"></div>`;
+    }).join("");
+
+    const rows = MINE.rows.map((r) => {
+      const cov = r.opp != null;
+      return `<tr${cov ? "" : ' class="uncovered"'}>
+        <td><span class="sym">${esc(r.sym)}</span> <span class="mut">${esc(r.name)}</span></td>
+        <td class="num"><b>${r.pct.toFixed(1)}%</b></td>
+        <td class="num">${cov ? r.opp : "—"}</td>
+        <td class="num">${cov ? Math.round(r.rob) : "—"}</td>
+        <td>${cov
+          ? (r.ev ? `<span style="color:${EVID[r.ev].c}">${EVID[r.ev].t}</span>` : "<span class='mut'>—</span>")
+          : `<span class="mut" title="El motor de régimen no cubre este instrumento: no tiene histórico suficiente o no cotiza de forma que pueda puntuarse.">fuera del análisis</span>`}</td>
+        <td>${cov ? recoTag(r) : ""}</td></tr>`;
+    }).join("");
+
+    box.innerHTML = `
+      <div class="mine-top">
+        <div class="mine-kpi"><div class="ex-h">Nota de la cartera</div>
+          <div class="mine-big">${h.rating} <span class="mut">${h.score}/100</span></div>
+          <div class="mut small">misma fórmula que la asignación sugerida</div></div>
+        <div class="mine-kpi"><div class="ex-h">Concentración</div>
+          <div class="mine-big">${h.effN.toFixed(1)} <span class="mut">activos efectivos</span></div>
+          <div class="mut small">mayor posición ${Math.round(h.top1 * 100)}% · top 3 ${Math.round(h.top3 * 100)}%</div></div>
+        <div class="mine-kpi"><div class="ex-h">Cobertura del análisis</div>
+          <div class="mine-big">${Math.round(h.covered * 100)}%</div>
+          <div class="mut small">del capital tiene régimen medible</div></div>
+      </div>
+      <div class="alloc-bar mine-bar">${bar}</div>
+      <div class="scroll"><table class="alloc-tbl mine-tbl">
+        <thead><tr><th>Posición</th><th class="num">Peso</th><th class="num">Oport.</th>
+          <th class="num">Robustez</th><th>Evidencia 6m</th><th></th></tr></thead>
+        <tbody>${rows}</tbody></table></div>
+      ${h.covered < 0.999 ? `<p class="mut small">⚠ Las medias de oportunidad, robustez y evidencia
+        se calculan SÓLO sobre el ${Math.round(h.covered * 100)}% del capital que el motor puede puntuar.
+        El resto no está medido — que no es lo mismo que estar bien.</p>` : ""}
+      ${MINE.unvalued ? `<p class="mut small">⚠ ${MINE.unvalued} posición(es) sin valorar quedan fuera de estos pesos.</p>` : ""}
+      ${avoidable.length ? `<p class="mine-flag">Con evidencia NEGATIVA a 6 meses:
+        ${avoidable.map((r) => `<b>${esc(r.sym)}</b> (${r.pct.toFixed(1)}%)`).join(" · ")}.</p>` : ""}
+      ${missing.length ? `<p class="mut small">El comité sugeriría además:
+        ${missing.map((r) => `<b>${esc(r.sym)}</b> ${r.pct}%`).join(" · ")}.
+        Sale de la misma heurística de arriba: es una sugerencia, no una orden.</p>` : ""}`;
   }
 
   // ── P4-6 stress ───────────────────────────────────────────────────────
