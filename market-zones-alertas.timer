@@ -1,0 +1,14 @@
+[Unit]
+Description=Comprobacion diaria de zona de las posiciones de la cartera
+
+[Timer]
+# Despues del cierre de Wall Street (22:00 CET / 21:00 verano) y con margen para
+# que Yahoo consolide la barra del dia. Antes de esa hora la zona que se lee es
+# la de AYER, y avisar del cambio de ayer un dia tarde es peor que no avisar:
+# ensena a desconfiar de la hora del aviso.
+OnCalendar=*-*-* 23:30
+Persistent=true
+RandomizedDelaySec=900
+
+[Install]
+WantedBy=timers.target

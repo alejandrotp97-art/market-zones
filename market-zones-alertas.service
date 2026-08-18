@@ -1,0 +1,45 @@
+[Unit]
+Description=market-zones - aviso de cambio de zona de las posiciones de la cartera. Solo lee; no opera nada.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/alex/bots/market-zones
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/alex/bots/btc-poly/.venv/bin/python /home/alex/bots/market-zones/alertas_cartera.py
+
+# El 2 es "ningún cambio de zona", que es el resultado normal de casi todos los
+# dias. Marcar la unidad como fallida por eso llenaria `--failed` de ruido justo
+# hasta que dejase de mirarse.
+SuccessExitStatus=0 2
+
+# Esta SI necesita red: descarga el historico de cada posicion de Yahoo. Lo que
+# no necesita es escribir en ningun sitio salvo su propio fichero de estado.
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/alex/bots/market-zones
+PrivateTmp=true
+NoNewPrivileges=true
+
+# Sin claves, no avisa por Telegram: escribe en el journal y ya esta. Para
+# activarlo, un drop-in con las dos variables (asi no viven en git):
+#   systemctl --user edit market-zones-alertas.service
+#   [Service]
+#   Environment=MZ_TELEGRAM_TOKEN=...
+#   Environment=MZ_TELEGRAM_CHAT_ID=...
+
+TimeoutStartSec=900
+MemoryHigh=400M
+MemoryMax=600M
+OOMScoreAdjust=200
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=market-zones-alertas
+
+# Instalar:
+#   cp market-zones-alertas.{service,timer} ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now market-zones-alertas.timer
+# Probar ahora:  systemctl --user start market-zones-alertas.service
+# Ver zonas:     python3 alertas_cartera.py --list
