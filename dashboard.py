@@ -328,6 +328,61 @@ def _csrf_guard():
     return None
 
 
+# ── La cartera no se sirve a ciegas ───────────────────────────────────────
+# Esta aplicación no autentica a nadie, y nunca ha hecho falta: el aislamiento
+# es el loopback más un túnel SSH. `PUBLIC_HOST` es la única variable que rompe
+# esa premisa — abre el panel a un nombre servido por un proxy — y el bloque que
+# la define da por supuesto "un proxy que mapea un login". Ese proxy vive fuera
+# de este repositorio, así que aquí dentro no hay forma de comprobar que exista.
+#
+# Lo que sí se puede hacer es negarse a servir el libro de movimientos a quien
+# nunca ha declarado que hay un login delante. No es autenticación y no pretende
+# serlo: cierra el fallo de CONFIGURACIÓN —poner PUBLIC_HOST sin caer en que la
+# cartera queda colgada de él— y no al atacante que ya haya atravesado el proxy.
+# Esa distinción importa; no vale confundir un cerrojo con una cerradura.
+#
+# Falla CERRADO. El resto del panel (zonas, régimen, screener) son precios
+# públicos y siguen sirviéndose: lo único que se retira es el dato de alguien.
+CARTERA_BEHIND_AUTH = (os.environ.get("CARTERA_BEHIND_AUTH") or "").strip() == "1"
+CARTERA_PATHS = ("/cartera", "/api/cartera")
+_CARTERA_LOCKED_MSG = (
+    "La cartera no se sirve bajo un nombre público sin declarar que hay "
+    "autenticación delante. Si este panel está detrás de un proxy que exige "
+    "login, arranca el servicio con CARTERA_BEHIND_AUTH=1. Si no lo está, no "
+    "pongas PUBLIC_HOST: en loopback la cartera funciona sin nada de esto.")
+
+
+def _is_cartera_path(path: str) -> bool:
+    """Comparación por segmento, no por prefijo de texto.
+
+    `startswith("/api/cartera")` daría por cubierta `/api/carteras-publicas` —
+    o al revés, dejaría fuera una ruta nueva por un guion. El límite es la
+    barra o el final de la cadena.
+    """
+    return any(path == p or path.startswith(p + "/") for p in CARTERA_PATHS)
+
+
+@app.before_request
+def _cartera_guard():
+    """Registrado global, no como decorador por ruta, por la misma razón que el
+    de CSRF: una ruta nueva bajo /api/cartera nace protegida. Olvidar el
+    decorador es exactamente como reaparece este agujero."""
+    if not PUBLIC_HOST or CARTERA_BEHIND_AUTH:
+        return None
+    if not _is_cartera_path(request.path):
+        return None
+    if request.path.startswith("/api/"):
+        return jsonify({"error": _CARTERA_LOCKED_MSG}), 403
+    # La página la abre una persona con un navegador: se le contesta en HTML,
+    # igual que el manejador del 413 contesta en la forma que el cliente ya
+    # sabe leer.
+    return Response(
+        "<!doctype html><meta charset=utf-8><title>Cartera no disponible</title>"
+        "<p style='font:16px/1.6 system-ui;max-width:38em;margin:4em auto;padding:0 1em'>"
+        + html.escape(_CARTERA_LOCKED_MSG) + "</p>",
+        status=403, mimetype="text/html; charset=utf-8")
+
+
 @app.template_global()
 def asset(path: str) -> str:
     """`/static/<path>?v=<mtime>` — the URL changes exactly when the file does.

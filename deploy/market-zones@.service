@@ -11,6 +11,20 @@
 #     MZ_PORT=8782
 #     CARTERA_DB=%h/var/carteras/ana.db
 #
+# Servido bajo un nombre (no por túnel SSH), hacen falta DOS variables más, y
+# la segunda es una declaración, no un interruptor:
+#     PUBLIC_HOST=panel.ejemplo.com
+#     CARTERA_BEHIND_AUTH=1
+#
+# Con PUBLIC_HOST puesto y CARTERA_BEHIND_AUTH sin poner, el panel sigue
+# sirviendo zonas y régimen —precios públicos— pero DEVUELVE 403 en /cartera y
+# /api/cartera*. Es a propósito: la aplicación no autentica a nadie y no puede
+# comprobar desde aquí que el proxy exija login, así que lo que hace es negarse
+# a servir el libro de alguien mientras nadie haya afirmado que lo hay. Poner
+# CARTERA_BEHIND_AUTH=1 es esa afirmación, y es tuya: si la haces sin que el
+# proxy pida login de verdad, la cartera queda publicada y el panel te habrá
+# obedecido.
+#
 # Install (per person):
 #   cp deploy/market-zones@.service ~/.config/systemd/user/
 #   mkdir -p ~/etc/carteras ~/var/carteras && chmod 700 ~/var/carteras
