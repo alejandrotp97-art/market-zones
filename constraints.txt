@@ -1,0 +1,51 @@
+# Versiones EXACTAS con las que este panel corre en producción hoy.
+#
+# `requirements.txt` dice qué hace falta y desde qué versión. Este fichero dice
+# con qué está comprobado. Son dos preguntas distintas y por eso son dos
+# ficheros: el primero deja que una instalación nueva coja lo último, el
+# segundo permite reconstruir ESTA máquina tal cual.
+#
+# Para qué sirve, en concreto:
+#
+#   1. Cuando un golden falle dentro de seis meses, la primera pregunta es «¿he
+#      cambiado yo algo o ha cambiado pandas?». Sin este fichero no hay forma de
+#      responderla; con él, se instala esto y se compara.
+#
+#   2. Para levantar el panel en otra máquina y que dé los MISMOS números:
+#          pip install -r requirements.txt -c constraints.txt
+#
+# El CI, a propósito, NO usa este fichero: instala lo último para que sea él
+# quien se entere primero de que el mundo de fuera se ha movido. Ese es su
+# trabajo; el de este fichero es el contrario.
+#
+# ATENCIÓN: en este servidor el servicio NO usa un venv propio — reutiliza el de
+# btc-poly, compartido por ~60 servicios, varios de trading REAL. NO ejecutes un
+# `pip install` contra ese venv para cuadrarlo con este fichero: actualizar
+# pandas ahí le cambia el suelo a bots que mueven dinero. Este fichero está para
+# LEERLO y para instalaciones nuevas, no para imponerlo sobre lo que ya corre.
+#
+# Actualizar: `pip freeze` en el intérprete que use el servicio, y traer aquí
+# las líneas de abajo. Última toma: 2026-08-18, Python 3.12.3.
+
+numpy==2.4.4
+pandas==3.0.3
+
+flask==3.1.3
+Werkzeug==3.1.8
+Jinja2==3.1.6
+MarkupSafe==3.0.3
+itsdangerous==2.2.0
+click==8.3.3
+blinker==1.9.0
+
+# Instalado con `pip install --target=./vendor`, no en el venv, así que no sale
+# en un `pip freeze` de éste. Sale de `vendor/waitress-3.0.2.dist-info/`.
+waitress==3.0.2
+
+# Sólo research/ y analysis/. El panel no los importa.
+scipy==1.17.1
+matplotlib==3.10.9
+
+python-dateutil==2.9.0.post0
+six==1.17.0
+packaging==26.2
