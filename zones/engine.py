@@ -120,25 +120,15 @@ class Summary:
     verdict: str
 
 
-def analyze(df: pd.DataFrame, hysteresis: float = C.HYSTERESIS,
-            vol_weight: float = VOL_W_DEFAULT,
-            causal: bool = True,
-            windows: Optional[Windows] = None) -> tuple[pd.DataFrame, Summary]:
-    """Return (enriched frame, latest-row Summary).
+def _score_core(df: pd.DataFrame, vol_weight: float, causal: bool,
+                w: Windows) -> tuple[pd.DataFrame, str, pd.Series, int]:
+    """The score legs and nothing else: `(frame, model, close, zmin)`.
 
-    `df` must have columns 'date' and 'close' (extra columns are preserved).
-    The enriched frame adds: stretch, rsi, drawdown, trend_dev, score_raw,
-    score, zone, zone_name — enough to drive the dashboard tooltip.
-
-    `causal=True` (default) normalizes every component against [0..t] only, so
-    a past point on the chart is what the index actually said that day. Pass
-    False to reproduce the legacy in-sample (revisionist) curve.
-
-    `windows` selects the bar-count horizons: `None` -> `DAILY` (byte-identical
-    to before this parameter existed). Pass `WEEKLY` together with a weekly-
-    resampled `df` to score the same asset on weekly bars.
+    Extraído de `analyze()` para que la inversión de precio pueda re-puntuar sin
+    pagar la clasificación de zonas ni la capa de convicción, que descarta. No
+    se duplica: `analyze()` construye el resto ENCIMA de esto, así que la
+    selección de modelo y los pesos siguen teniendo un solo sitio donde vivir.
     """
-    w = windows or DAILY
     out = df.reset_index(drop=True).copy()
     close = out["close"].astype(float)
     n = len(close)
@@ -173,7 +163,56 @@ def analyze(df: pd.DataFrame, hysteresis: float = C.HYSTERESIS,
                      + W["drawdown"] * dd + W["trend_dev"] * td
                      + W["vol"] * vol)
 
-    score = ema(score_raw, w.smooth_span)
+    out["stretch"] = stretch
+    out["rsi"] = rsi
+    out["drawdown"] = dd
+    out["trend_dev"] = td
+    out["volatility"] = vol
+    out["score_raw"] = score_raw
+    out["score"] = ema(score_raw, w.smooth_span)
+    out["model"] = model
+    return out, model, close, zmin
+
+
+def score_components(df: pd.DataFrame, vol_weight: float = VOL_W_DEFAULT,
+                     causal: bool = True,
+                     windows: Optional[Windows] = None) -> pd.DataFrame:
+    """Sólo las patas del score: sin zonas, sin convicción, sin `Summary`.
+
+    La inversión de precio re-puntúa la MISMA historia decenas de veces por
+    petición y lee únicamente estas columnas. Calcular para cada una de esas
+    pasadas la clasificación por histéresis y la capa de convicción era el ~48%
+    del coste de una llamada cuyo resultado se tiraba entero.
+
+    Devuelve las mismas columnas que `analyze()` para esas patas, con los mismos
+    valores: es el mismo código, no una reimplementación.
+    """
+    out, _, _, _ = _score_core(df, vol_weight, causal, windows or DAILY)
+    return out
+
+
+def analyze(df: pd.DataFrame, hysteresis: float = C.HYSTERESIS,
+            vol_weight: float = VOL_W_DEFAULT,
+            causal: bool = True,
+            windows: Optional[Windows] = None) -> tuple[pd.DataFrame, Summary]:
+    """Return (enriched frame, latest-row Summary).
+
+    `df` must have columns 'date' and 'close' (extra columns are preserved).
+    The enriched frame adds: stretch, rsi, drawdown, trend_dev, score_raw,
+    score, zone, zone_name — enough to drive the dashboard tooltip.
+
+    `causal=True` (default) normalizes every component against [0..t] only, so
+    a past point on the chart is what the index actually said that day. Pass
+    False to reproduce the legacy in-sample (revisionist) curve.
+
+    `windows` selects the bar-count horizons: `None` -> `DAILY` (byte-identical
+    to before this parameter existed). Pass `WEEKLY` together with a weekly-
+    resampled `df` to score the same asset on weekly bars.
+    """
+    w = windows or DAILY
+    out, model, close, zmin = _score_core(df, vol_weight, causal, w)
+    score = out["score"]
+    n = len(close)
     zones = C.classify_series(score, hysteresis) if model != "none" else [None] * n
 
     volume = out["volume"] if "volume" in out.columns else None
@@ -182,20 +221,12 @@ def analyze(df: pd.DataFrame, hysteresis: float = C.HYSTERESIS,
     conv = CV.compute(close, volume, zones, causal, zmin,
                       vol_w=w.vol_window, volu_w=w.volume_window)
 
-    out["stretch"] = stretch
-    out["rsi"] = rsi
-    out["drawdown"] = dd
-    out["trend_dev"] = td
-    out["volatility"] = vol
-    out["score_raw"] = score_raw
-    out["score"] = score
     out["zone"] = zones
     out["zone_name"] = [C.NAMES[z] if z is not None else None for z in zones]
     out["vol_pct"] = conv["vol_pct"]
     out["volu_pct"] = conv["volu_pct"]
     out["climax"] = conv["climax"]
     out["conviction"] = conv["conviction"]
-    out["model"] = model
 
     summary = _summarize(out, zones, model)
     return out, summary

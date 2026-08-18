@@ -28,7 +28,7 @@ import numpy as np
 import pandas as pd
 
 from .engine import (DAILY, VOL_W_DEFAULT, W_REDUCED, Windows, _full_weights,
-                     analyze)
+                     analyze, score_components)
 
 BUY_U, SELL_U = 20.0, 80.0            # Capitulación entry / Euforia entry
 
@@ -95,7 +95,10 @@ def compute(df: pd.DataFrame, symbol: str, vol_w: float = VOL_W_DEFAULT, *,
             return cache[k]
         d = df.copy()
         d.loc[li, "close"] = float(P)
-        f, _ = analyze(d, vol_weight=vol_w, windows=windows)
+        # Ruta ligera: la inversión sólo lee `_FIELDS`, y calcular zonas y
+        # convicción en cada pasada era ~48% del coste de un resultado que se
+        # descarta entero. Mismos valores: es el mismo núcleo que `analyze()`.
+        f = score_components(d, vol_weight=vol_w, windows=windows)
         r = f.iloc[-1]
         out = {c: float(r[c]) for c in _FIELDS}
         cache[k] = out

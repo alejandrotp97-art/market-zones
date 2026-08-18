@@ -77,3 +77,45 @@ def test_summary_matches_pre_refactor_engine(golden, case):
 def test_golden_covers_every_model_branch(golden):
     """Un golden que solo pillara 'full' dejaría reduced y none sin proteger."""
     assert {str(golden[f"{c}/sum"][2]) for c in CASES} == {"full", "reduced", "none"}
+
+
+# ── la ruta ligera de la inversión ──────────────────────────────────────────
+
+def test_score_components_matches_analyze_exactly(golden):
+    """`score_components()` es la vía rápida de la inversión de precio.
+
+    Existe para no pagar zonas ni convicción en cada una de las ~60 pasadas que
+    hace `compute()` y que descarta enteras. Sólo es legítima si devuelve
+    EXACTAMENTE lo mismo que `analyze()` en las columnas que la inversión lee:
+    en cuanto se desvíe un ULP, los precios objetivo dejan de ser los del motor.
+    """
+    from zones.engine import score_components
+    from zones.target import _FIELDS
+
+    for case in CASES:
+        df = _frame(golden, case)
+        full, _ = analyze(df)
+        light = score_components(df)
+        for c in _FIELDS:
+            np.testing.assert_array_equal(
+                light[c].to_numpy(float), full[c].to_numpy(float),
+                err_msg=f"[{case}] '{c}' difiere entre la ruta ligera y analyze()")
+
+
+def test_score_components_matches_analyze_on_perturbed_last_bar(golden):
+    """La inversión perturba el ÚLTIMO cierre: ahí es donde tiene que coincidir."""
+    from zones.engine import score_components
+    from zones.target import _FIELDS
+
+    df = _frame(golden, "full")
+    li = len(df) - 1
+    base = float(df.loc[li, "close"])
+    for mult in (0.4, 0.75, 1.0, 1.5, 2.0):
+        d = df.copy()
+        d.loc[li, "close"] = base * mult
+        full, _ = analyze(d)
+        light = score_components(d)
+        for c in _FIELDS:
+            assert float(light[c].iloc[-1]) == float(full[c].iloc[-1]) or (
+                np.isnan(float(light[c].iloc[-1])) and np.isnan(float(full[c].iloc[-1]))), \
+                f"'{c}' difiere con el último cierre a x{mult}"
