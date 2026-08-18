@@ -48,6 +48,8 @@ from cartera.parsing import norm_side as _norm_side
 from cartera.parsing import num as _num
 from cartera.parsing import sniff_sep as _sniff_sep
 from cartera.parsing import symbol_isin as _symbol_isin
+from cartera.positions import BASE_CCY
+from cartera.positions import compute as _compute_positions
 from zones import (WEEKLY, BadSymbol, NoHistory, analyze, fetch_daily,
                    safe_symbol, to_weekly)
 from zones.engine import VOL_W_DEFAULT
@@ -858,7 +860,6 @@ def _resolve_symbol(query: str):
     return q.upper(), "", ""
 
 
-BASE_CCY = "EUR"
 _meta_cache: dict[str, tuple[float, tuple]] = {}
 
 # ── History proxies ───────────────────────────────────────────────────────
@@ -1058,118 +1059,45 @@ def _parse_upload(filename: str, data: bytes):
     return rows, errors, list(cols.keys())
 
 
-def _positions(movs):
-    """Positions valued in EUR: market value at the CURRENT fx, cost basis at the fx
-    on each purchase date. avg_cost/last stay in the instrument's native currency.
+class _Market:
+    """El puerto de datos de mercado que pide `cartera.positions`.
 
-    A position is only reported in EUR when its currency AND its rate are known.
-    When either is missing the EUR fields come back None with a `why` — never a
-    number produced by pretending the rate was 1.0.
+    Cada método resuelve el nombre del módulo EN LA LLAMADA, no al construirse.
+    Es deliberado: los tests de la aritmética sustituyen `_fx_now`,
+    `_last_price` o `_instrument_ccy` en este módulo para fijar el mercado y
+    dejar variar sólo la contabilidad, y un enlace capturado en `__init__` los
+    dejaría fuera sin que nada fallase.
     """
-    tickers = {m["ticker"] for m in movs}
-    _prefetch(_quote_meta, tickers)                   # quote + currency, in parallel
-    ccy = {t: _instrument_ccy(t) for t in tickers}
-    # Only NON-base currencies need an fx series; a EUR instrument needs no
-    # conversion at all, and "EUREUR=X" is a wasted round trip to nowhere.
-    _prefetch(_close_series, [f"{b}EUR=X" for b in
-                             {_ccy_base_factor(c)[0] for c in ccy.values() if c}
-                             if b != BASE_CCY])
-    fxser = {cu: _fx_series_eur(cu) for cu in set(ccy.values()) if cu}
 
-    def fx_on(cu, date):
-        """EUR per unit at `date`, or None if not knowable."""
-        if not cu:
-            return None
-        base, f = _ccy_base_factor(cu)
-        if base == BASE_CCY:
-            return f
-        s = fxser.get(cu)
-        if s is None or not len(s):
-            return _fx_now(cu)                            # may be None: that is the answer
-        d = pd.to_datetime(date) if date else s.index[-1]
-        try:
-            if getattr(d, "tzinfo", None) is not None:
-                d = d.tz_localize(None)
-        except Exception:
-            pass
-        sub = s[s.index <= d]
-        return float(sub.iloc[-1]) if len(sub) else float(s.iloc[0])
+    def warm(self, tickers):
+        _prefetch(_quote_meta, tickers)               # quote + currency, in parallel
+        # Sólo las divisas que NO son la base necesitan serie histórica: un
+        # instrumento en euros no se convierte, y "EUREUR=X" es un viaje de ida
+        # y vuelta a ninguna parte.
+        cur = {_instrument_ccy(t) for t in tickers}
+        bases = {_ccy_base_factor(c)[0] for c in cur if c}
+        _prefetch(_close_series, [b + "EUR=X" for b in bases if b != BASE_CCY])
 
-    agg = {}
-    # Undated movements sort LAST, not first. An empty string sorts before every
-    # real date, so a movement with an unparsed date used to become the oldest
-    # one and silently reset the average cost of the whole position.
-    for m in sorted(movs, key=lambda r: (r["date"] or FAR_FUTURE, r["id"])):
-        t = m["ticker"]; cu = ccy[t]
-        p = agg.setdefault(t, {"ticker": t, "qty": 0.0, "cost_n": 0.0, "cost_e": 0.0,
-                               "realized": 0.0, "name": "", "kind": "", "ccy": cu,
-                               "oversold": 0.0, "fx_gap": False})
-        if m.get("name"):
-            p["name"] = m["name"]
-        if m.get("kind"):
-            p["kind"] = m["kind"]
-        q, px, fee = m["quantity"] or 0.0, m["price"] or 0.0, m["fee"] or 0.0
-        rate = fx_on(cu, m["date"])                       # EUR per unit at the movement date
-        if rate is None:
-            p["fx_gap"] = True                            # EUR column is unrecoverable
-        if m["side"] == "buy":
-            p["qty"] += q
-            p["cost_n"] += q * px + fee
-            if rate is not None:
-                p["cost_e"] += (q * px + fee) * rate
-        else:
-            # Never let a sell drive the position negative: that is a data error
-            # (a missing buy, a double-imported sale), and inventing negative
-            # shares hides it behind a plausible-looking number.
-            sell = min(q, p["qty"]) if p["qty"] > 1e-9 else 0.0
-            p["oversold"] += q - sell
-            if sell > 1e-9:
-                avg_n = p["cost_n"] / p["qty"]
-                avg_e = p["cost_e"] / p["qty"] if p["qty"] > 1e-9 else 0.0
-                if rate is not None:
-                    p["realized"] += (sell * px - fee) * rate - sell * avg_e
-                p["qty"] -= sell
-                p["cost_n"] -= sell * avg_n
-                p["cost_e"] -= sell * avg_e
-    out = []
-    for t, p in agg.items():
-        cu = p["ccy"]; qty = round(p["qty"], 6)
-        open_pos = qty > 1e-9
-        avg_n = (p["cost_n"] / p["qty"]) if open_pos else None             # native avg cost
-        last_n = _last_price(t) if open_pos else None                      # native live price
-        rate_now = _fx_now(cu)
-        # One gate for the whole EUR column, so invested/market_value/unreal are
-        # either all present or all absent — never a mixed row that reads as a loss.
-        why = (None if not open_pos else
-               "moneda desconocida" if not cu else
-               "sin tipo de cambio" if rate_now is None or p["fx_gap"] else
-               "sin precio" if last_n is None else None)
-        valued = open_pos and why is None
-        inv_e = p["cost_e"] if valued else None
-        mval_e = (qty * last_n * rate_now) if valued else None
-        unreal_e = (mval_e - inv_e) if valued else None
-        out.append({
-            "ticker": t, "name": p.get("name") or "", "kind": p.get("kind") or "",
-            "ccy": cu or "?", "qty": qty,
-            # `if avg_n` would erase a legitimate zero-cost basis (a gift, a
-            # spin-off, a fully rebated position) by treating it as missing.
-            "avg_cost": (round(avg_n, 4) if avg_n is not None else None),
-            "last": (round(last_n, 4) if last_n is not None else None),
-            "fx": (round(rate_now, 4) if rate_now is not None else None),
-            "invested": (round(inv_e, 2) if inv_e is not None else (0.0 if not open_pos else None)),
-            "market_value": (round(mval_e, 2) if mval_e is not None else None),
-            "unreal": (round(unreal_e, 2) if unreal_e is not None else None),
-            "unreal_pct": (round(unreal_e / inv_e * 100, 2)
-                           if (unreal_e is not None and inv_e and inv_e > 1e-9) else None),
-            # Realized P&L is a EUR figure too: if any leg of this position hit
-            # an fx gap it was accumulated from partial data, so it is withheld
-            # rather than published as if it were complete.
-            "realized": (None if p["fx_gap"] else round(p["realized"], 2)),
-            "valued": valued, "why": why,
-            "oversold": (round(p["oversold"], 6) if p["oversold"] > 1e-9 else 0.0),
-        })
-    out.sort(key=lambda r: (r["qty"] <= 1e-9, -(r["market_value"] or 0)))
-    return out
+    def currency(self, ticker):
+        return _instrument_ccy(ticker)
+
+    def base_factor(self, ccy):
+        return _ccy_base_factor(ccy)
+
+    def fx_series(self, ccy):
+        return _fx_series_eur(ccy)
+
+    def fx_now(self, ccy):
+        return _fx_now(ccy)
+
+    def last_price(self, ticker):
+        return _last_price(ticker)
+
+
+def _positions(movs):
+    """Posiciones valoradas. La aritmética vive en `cartera.positions`; aquí
+    sólo queda el cable que le enchufa este panel como fuente de mercado."""
+    return _compute_positions(movs, _Market())
 
 
 def _cartera_payload():
