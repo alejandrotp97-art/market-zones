@@ -208,3 +208,173 @@ if __name__ == "__main__":
     for f in fns:
         f()
         print("PASS", f.__name__)
+
+
+# ── dividendos: la renta que no mueve la posición ─────────────────────────
+def test_un_dividendo_no_toca_ni_la_cantidad_ni_el_coste():
+    """Cobrar un dividendo no compra ni vende nada.
+
+    Si se colase como compra subiría la cantidad de títulos; si se colase como
+    venta la bajaría. Las dos formas de equivocarse dejan un precio medio
+    plausible, que es lo que las hace caras: nada chirría en pantalla.
+    """
+    market = FakeMarket(ccy="EUR", last=120.0, fx_now=1.0)
+    movs = [mov(1, "buy", 10, 100.0, date="2024-01-01"),
+            mov(2, "div", 10, 1.5, date="2024-06-01")]
+
+    p = compute(movs, market)[0]
+
+    assert p["qty"] == 10                       # ni un título más ni uno menos
+    assert p["invested"] == 1000.0              # el coste no se toca
+    assert p["avg_cost"] == 100.0
+    assert p["income"] == 15.0
+    assert p["n_dividends"] == 1
+    assert p["realized"] == 0.0                 # una renta NO es una plusvalía
+
+
+def test_la_retencion_de_un_dividendo_se_resta_del_cobro():
+    market = FakeMarket(ccy="EUR", last=100.0, fx_now=1.0)
+    movs = [mov(1, "buy", 100, 10.0, date="2024-01-01"),
+            mov(2, "div", 100, 0.50, date="2024-06-01", fee=9.5)]
+
+    p = compute(movs, market)[0]
+
+    assert p["income"] == 40.5                  # 50 brutos - 9,5 de retención
+    assert p["invested"] == 1000.0              # y sigue sin tocar el coste
+
+
+def test_el_dividendo_se_convierte_al_cambio_de_SU_dia():
+    """La misma regla que el coste: el cambio del día del cobro, no el de hoy."""
+    fx = _serie([("2024-01-01", 0.80), ("2024-06-01", 0.75), ("2026-01-01", 0.50)])
+    market = FakeMarket(ccy="USD", last=100.0, fx_now=0.50, fx_hist=fx)
+    movs = [mov(1, "buy", 10, 100.0, date="2024-01-01"),
+            mov(2, "div", 10, 2.0, date="2024-06-01")]
+
+    p = compute(movs, market)[0]
+
+    assert p["income"] == 15.0                  # 20 USD x 0,75, no x 0,50
+
+
+def test_un_dividendo_sin_tipo_de_cambio_no_se_lleva_por_delante_el_realizado():
+    """El hueco de cambio de un dividendo se apunta APARTE.
+
+    Compartir bandera con la compraventa haría que un cobro sin tipo retuviera
+    un resultado realizado que sí se puede calcular, y una cifra que desaparece
+    se lee como un cero.
+    """
+    market = FakeMarket(ccy="USD", last=100.0, fx_now=None, fx_hist=None)
+    movs = [mov(1, "buy", 10, 100.0, date="2024-01-01"),
+            mov(2, "div", 10, 1.0, date="2024-06-01")]
+
+    p = compute(movs, market)[0]
+
+    assert p["income"] is None                  # no se inventa un cambio de 1,0
+    assert p["valued"] is False
+
+
+# ── FIFO frente a coste medio ─────────────────────────────────────────────
+def test_fifo_y_coste_medio_difieren_en_una_venta_parcial():
+    """Dos compras a precios distintos y se vende la mitad.
+
+    Coste medio: 15 por título. FIFO: se van los de 10 primero. La diferencia
+    es exactamente lo que separa lo que enseña una cartera de lo que hay que
+    declarar, y por eso se publican los dos números en vez de elegir uno.
+    """
+    market = FakeMarket(ccy="EUR", last=30.0, fx_now=1.0)
+    movs = [mov(1, "buy", 10, 10.0, date="2024-01-01"),
+            mov(2, "buy", 10, 20.0, date="2024-02-01"),
+            mov(3, "sell", 10, 25.0, date="2024-03-01")]
+
+    p = compute(movs, market)[0]
+
+    assert p["realized"] == 100.0               # 250 - 10 x 15 (medio)
+    assert p["realized_fifo"] == 150.0          # 250 - 10 x 10 (los primeros)
+    assert p["qty"] == 10
+
+
+def test_al_cerrar_la_posicion_entera_los_dos_criterios_coinciden():
+    """Es la propiedad que hace honesto enseñar los dos: cerrar del todo
+    consume TODOS los lotes, así que la discrepancia sólo puede vivir en una
+    venta parcial. Si divergieran aquí, uno de los dos estaría mal."""
+    market = FakeMarket(ccy="EUR", last=30.0, fx_now=1.0)
+    movs = [mov(1, "buy", 10, 10.0, date="2024-01-01"),
+            mov(2, "buy", 10, 20.0, date="2024-02-01"),
+            mov(3, "sell", 20, 25.0, date="2024-03-01")]
+
+    p = compute(movs, market)[0]
+
+    assert p["qty"] == 0
+    assert p["realized"] == p["realized_fifo"] == 200.0
+
+
+def test_fifo_reparte_la_comision_de_compra_en_el_coste_del_lote():
+    market = FakeMarket(ccy="EUR", last=30.0, fx_now=1.0)
+    movs = [mov(1, "buy", 10, 10.0, date="2024-01-01", fee=5.0),
+            mov(2, "buy", 10, 20.0, date="2024-02-01"),
+            mov(3, "sell", 5, 30.0, date="2024-03-01")]
+
+    p = compute(movs, market)[0]
+
+    # El primer lote costó 105 por 10 títulos: 10,50 cada uno.
+    assert p["realized_fifo"] == round(150.0 - 5 * 10.5, 2)
+
+
+def test_fifo_usa_el_cambio_del_lote_que_consume():
+    """El lote guarda su coste en euros al cambio de SU día. Reconvertir al
+    cambio de hoy inventaría una plusvalía de divisa que nadie ha realizado."""
+    fx = _serie([("2024-01-01", 1.0), ("2024-02-01", 0.5), ("2024-03-01", 0.5)])
+    market = FakeMarket(ccy="USD", last=30.0, fx_now=0.5, fx_hist=fx)
+    movs = [mov(1, "buy", 10, 10.0, date="2024-01-01"),   # 100 USD -> 100 €
+            mov(2, "buy", 10, 10.0, date="2024-02-01"),   # 100 USD ->  50 €
+            mov(3, "sell", 10, 10.0, date="2024-03-01")]  # 100 USD ->  50 €
+
+    p = compute(movs, market)[0]
+
+    assert p["realized_fifo"] == -50.0          # 50 cobrados contra 100 de coste
+    assert p["realized"] == -25.0               # el medio reparte: 75 de coste
+
+
+def test_el_dividendo_no_gasta_lotes_de_fifo():
+    market = FakeMarket(ccy="EUR", last=30.0, fx_now=1.0)
+    movs = [mov(1, "buy", 10, 10.0, date="2024-01-01"),
+            mov(2, "div", 10, 1.0, date="2024-02-01"),
+            mov(3, "sell", 10, 20.0, date="2024-03-01")]
+
+    p = compute(movs, market)[0]
+
+    assert p["realized_fifo"] == 100.0          # el lote de 10 seguía entero
+    assert p["income"] == 10.0
+
+
+# ── peso de cada posición ─────────────────────────────────────────────────
+def test_los_pesos_suman_cien_sobre_lo_valorado():
+    market = FakeMarket(ccy="EUR", last=100.0, fx_now=1.0)
+    movs = [mov(1, "buy", 30, 10.0, ticker="AAA"),
+            mov(2, "buy", 10, 10.0, ticker="BBB")]
+
+    out = {p["ticker"]: p for p in compute(movs, market)}
+
+    assert out["AAA"]["weight"] == 75.0
+    assert out["BBB"]["weight"] == 25.0
+
+
+def test_una_posicion_sin_valorar_no_recibe_peso_cero():
+    """Un peso de 0% dice «no tienes casi nada de esto», que es lo contrario de
+    «no he podido calcular cuánto tienes». `None` es la respuesta honesta."""
+    market = FakeMarket(ccy="", last=None, fx_now=None)
+    p = compute([mov(1, "buy", 10, 10.0)], market)[0]
+
+    assert p["market_value"] is None
+    assert p["weight"] is None
+
+
+def test_una_posicion_cerrada_no_pesa():
+    market = FakeMarket(ccy="EUR", last=100.0, fx_now=1.0)
+    movs = [mov(1, "buy", 10, 10.0, ticker="AAA"),
+            mov(2, "buy", 10, 10.0, ticker="BBB"),
+            mov(3, "sell", 10, 12.0, ticker="BBB", date="2024-02-01")]
+
+    out = {p["ticker"]: p for p in compute(movs, market)}
+
+    assert out["AAA"]["weight"] == 100.0
+    assert out["BBB"]["weight"] is None

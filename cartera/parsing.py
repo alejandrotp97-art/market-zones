@@ -118,20 +118,38 @@ _SIDE_WORDS = {
     "sell": {"venta", "ventas", "vender", "sell", "sold", "sale", "reembolso",
              "reembolsos", "rescate", "amortizacion", "retirada", "salida", "baja",
              "disposicion", "abono"},
+    # La renta que paga un instrumento sin que se venda nada. Gana a las otras
+    # dos (ver el orden del bucle) porque un extracto español la escribe como
+    # "Abono dividendo" o "Pago de cupon": las dos palabras están en la misma
+    # celda, y la que manda es la que dice QUÉ es, no la que dice por dónde
+    # entró el dinero. Sin esa prioridad, un dividendo se apuntaba como venta y
+    # se comía participaciones que nadie había vendido.
+    # `div` va en la lista porque es el código CANÓNICO que guarda la base y que
+    # manda la API. Un valor que el sistema escribe y luego no sabe releer es un
+    # viaje de ida y vuelta roto: el dividendo volvía a entrar como compra.
+    "div": {"div", "dividendo", "dividendos", "dividend", "dividends", "cupon",
+            "cupones", "coupon", "reparto", "distribucion", "interes",
+            "intereses", "rendimiento", "rendimientos"},
 }
 # Los códigos de una letra y los signos sólo valen cuando son el valor ENTERO.
 # Como subcadena están en todas partes —un guion dentro de una fecha, la "s" de
 # cualquier palabra— y cada acierto falso invierte una operación.
 _SIDE_CODES = {"c": "buy", "b": "buy", "+": "buy",
-               "v": "sell", "s": "sell", "-": "sell"}
+               "v": "sell", "s": "sell", "-": "sell",
+               "d": "div"}
 
 
 def norm_side(v, qty=None):
     """Dirección del movimiento: código exacto, palabras enteras, signo, y compra.
 
-    El vocabulario desconocido cae al SIGNO de la cantidad y no a una suposición
-    a partir de la primera letra: equivocarse aquí invierte una operación en
-    silencio.
+    Devuelve "buy", "sell" o "div". El vocabulario desconocido cae al SIGNO de
+    la cantidad y no a una suposición a partir de la primera letra: equivocarse
+    aquí invierte una operación en silencio.
+
+    Un dividendo NUNCA sale del signo ni de una suposición: hay que nombrarlo.
+    Es el único movimiento que no mueve la posición, así que confundirlo con una
+    compraventa por accidente cambia la cantidad de títulos, y eso no se ve
+    hasta que el precio medio ya está mal.
     """
     s = norm_col(v)                                    # lowercase + strip accents
     sign = "sell" if (qty is not None and qty < 0) else "buy"
@@ -140,10 +158,20 @@ def norm_side(v, qty=None):
     if s in _SIDE_CODES:
         return _SIDE_CODES[s]
     words = set(re.findall(r"[a-z]+", s))
-    for side in ("sell", "buy"):                       # an explicit sale wins a tie
+    for side in ("div", "sell", "buy"):                # renta > venta explícita > compra
         if words & _SIDE_WORDS[side]:
             return side
     return sign
+
+
+# El texto que se escribe en el CSV y el que se lee en pantalla. Palabra
+# completa, nunca un código de una letra: una "d" suelta en una hoja de cálculo
+# está a un dedazo de ser otra cosa.
+SIDE_ES = {"buy": "compra", "sell": "venta", "div": "dividendo"}
+
+
+def side_es(side: str) -> str:
+    return SIDE_ES.get(side, "compra")
 
 
 # ── identidad de un instrumento ───────────────────────────────────────────
