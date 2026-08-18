@@ -156,13 +156,35 @@ and, for a long time, the half that did *not* follow this architecture: it lived
 inside `dashboard.py` between the Flask routes and the SQL. It does now.
 
 ```
-cartera/parsing.py    text → data: numbers, dates, buy/sell, ISIN, instrument
-                      type, commercial name. No network, no disk, no clock.
+cartera/parsing.py    text → data: numbers, dates, buy/sell/dividend, ISIN,
+                      instrument type, commercial name. No network, no disk,
+                      no clock.
 cartera/positions.py  movements → valued positions. The money arithmetic.
                       Takes the market as a parameter — six methods — so the
                       rule that cost basis uses the fx of the PURCHASE date can
                       be verified without reaching Yahoo.
 ```
+
+Three movement types, and only two of them move the position:
+
+| Movement | Quantity | Cost basis | Where it lands |
+|----------|----------|------------|----------------|
+| buy      | up       | up         | `invested` |
+| sell     | down     | down       | `realized` **and** `realized_fifo` |
+| dividend | —        | —          | `income`, its own column |
+
+A dividend folded into the cost basis would lower the average price (a tax
+convention of a different country) and folded into realized P&L would mix with
+capital gains, which are taxed under their own rule. It goes to `income`, adds
+to total return, and touches nothing else.
+
+**Realized P&L is reported twice on purpose.** `realized` uses weighted average
+cost — how a portfolio reads. `realized_fifo` uses first-in-first-out, the
+criterion Spanish law applies to fungible securities. They are identical
+whenever a position is closed in full (both consume every lot) and can only
+diverge on a PARTIAL sale. That divergence is exactly the gap between the number
+an app shows and the number a tax return wants, so both are published rather
+than picking one and calling it "the result".
 
 **Everything else**, none of it imported by the two cores above:
 
@@ -171,6 +193,9 @@ dashboard.py          Flask: routes, caches, rate limit, CSRF, host guard,
                       SQLite persistence, the Yahoo adapters
 cli.py                command-line entrypoint (no server needed)
 backup_cartera.py     SQLite online backup of the movement book + rotation
+alertas_cartera.py    daily zone-change watch over the open positions. Notifies
+                      on entering or leaving an extreme zone only — a state, not
+                      a forecast; it never says buy or sell
 geo.py                country look-through of funds and ETFs
 regime/               market-regime panel (its own package and suite)
 validation/           strict-causal walk-forward of the regime predictions
@@ -187,7 +212,7 @@ the two is how a holding silently disappears from a chart while its cost stays i
 
 ## Tests
 
-254 tests, hermetic — every outbound call is stubbed, so the suite never touches
+303 tests, hermetic — every outbound call is stubbed, so the suite never touches
 the network and never depends on Yahoo being up.
 
 ```bash
@@ -195,6 +220,7 @@ pytest                                  # everything (tests/ + regime/tests/)
 pytest tests/test_causal.py             # the no-lookahead guarantee
 pytest tests/test_positions_domain.py   # the money arithmetic, no Flask, no net
 pytest tests/test_daily_golden.py       # the score is byte-identical to the golden
+pytest tests/test_cartera_dividendos_edicion.py   # dividends, editing, per-position zone
 ```
 
 CI runs the same suite on every push and once a week on Python 3.10 and 3.12,

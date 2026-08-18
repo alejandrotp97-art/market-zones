@@ -239,6 +239,25 @@ Ve a **Cartera** en el menú. Tienes dos formas:
 | Precio | A cuánto compraste **cada una** | `140` |
 | Fecha | Cuándo | `2026-03-15` |
 
+> **El precio va en la moneda del producto, no en euros.** Si compraste una
+> acción estadounidense, pon los dólares que costó cada una, aunque tu banco te
+> cobrase en euros. Al elegir el instrumento, al lado de «Precio» aparece la
+> moneda (`en USD`) para que no haya duda: el panel hace la conversión solo, con
+> el cambio del día de la operación. Poner euros ahí mete un error del tamaño
+> del tipo de cambio, y el número resultante parece perfectamente normal.
+
+**¿Y los dividendos?** En «Tipo» elige **Dividendo / cupón**. Las casillas
+cambian de nombre solas: pon el **importe** que te ingresaron y, en
+«Retención», lo que te quitaron. Si tu extracto no dice cuánto tocó por título,
+deja «Títulos» vacío y pon el total.
+
+Un dividendo **no cambia tu posición**: no compra ni vende nada, ni toca tu
+precio medio. Va a su propia casilla, «Dividendos cobrados», y suma a la
+«Rentabilidad total». Si no los apuntas, esa cifra se queda corta.
+
+**¿Metiste un dato mal?** No hace falta borrar nada: en la lista de movimientos,
+el botón **✎** de cada fila lo abre en el formulario para corregirlo.
+
 **Importando un fichero** desde tu banco o bróker. Exporta tus movimientos a
 CSV o Excel y súbelo. Si vuelves a subir el mismo fichero, **no se duplican las
 posiciones**: detecta las repetidas y te dice cuántas se ha saltado.
@@ -288,12 +307,73 @@ python backup_cartera.py --restore backups/cartera-2026-08-18-051500.db
 > abierto.** Puede llevarse la base a medio escribir: abre sin dar ningún error
 > y le faltan movimientos. Usa una de las dos formas de arriba.
 
+### Dos números del realizado, y por qué no son el mismo
+
+En «P&L realizado» hay un interruptor: **Medio** y **FIFO**.
+
+- **Medio** reparte el coste entre todos los títulos que tienes. Es como se lee
+  una cartera y es lo que el panel enseña por defecto.
+- **FIFO** (primero que entra, primero que sale) es el criterio que aplica la
+  ley española a los valores homogéneos. Es el que hace falta para la
+  declaración.
+
+**Coinciden siempre que cierras una posición entera**, así que la mayoría de los
+días verás el mismo número con los dos. Sólo se separan si has vendido una
+**parte**. Cuando eso pasa, el panel te enseña el otro debajo en vez de callarse:
+esa diferencia es real y no desaparece por no mirarla.
+
+> Esto no es asesoramiento fiscal. Es la misma cuenta hecha con los dos
+> criterios, para que sepas que existen y no te lleves la sorpresa en abril.
+
 ### Qué mirar el primer día
 
 1. **Cartera** → cuánto llevas invertido, cuánto vale hoy, y el mapa de países.
    Ese mapa abre cada fondo y mira qué hay dentro de verdad. Suele sorprender.
+   La columna **Zona** te dice, de cada cosa que tienes, si su precio está
+   estirado o deprimido respecto a su propia historia.
 2. **Régimen** → en qué estado está el mercado en general.
-3. **Inicio** → busca un activo tuyo y mira su zona.
+3. **Comité** → al final de la página, **«Mi cartera real»**: pone nota a lo que
+   de verdad tienes, con la misma fórmula que usa para su propuesta. Fíjate en
+   «activos efectivos»: es la diversificación de verdad, no cuántas líneas
+   tienes. Y en «cobertura»: si dice 60%, es que el 40% de tu dinero no está
+   medido — que no es lo mismo que estar bien.
+4. **Inicio** → busca un activo tuyo y mira su zona con el gráfico entero.
+
+### Que te avise cuando algo entre en un extremo
+
+Sólo si dejas el panel en un servidor. Comprueba cada noche las zonas de lo que
+tienes y avisa **cuando una posición entra o sale de Capitulación o Euforia**:
+
+```bash
+cp market-zones-alertas.service market-zones-alertas.timer ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now market-zones-alertas.timer
+```
+
+La primera vez no avisa de nada: sólo se apunta dónde está cada cosa. A partir
+de ahí, sólo habla cuando algo cambia. Para ver la foto de hoy sin esperar:
+
+```bash
+python alertas_cartera.py --list
+```
+
+Por defecto escribe en el registro del sistema. Si quieres que llegue a
+Telegram, mete tus claves sin que acaben en ningún fichero del proyecto:
+
+```bash
+systemctl --user edit market-zones-alertas.service
+```
+
+y dentro:
+
+```
+[Service]
+Environment=MZ_TELEGRAM_TOKEN=el-token-de-tu-bot
+Environment=MZ_TELEGRAM_CHAT_ID=tu-chat-id
+```
+
+> **Ojo con lo que es este aviso.** No dice que compres ni que vendas. Dice que
+> una cosa que ya tienes ha cambiado de estado — lee la advertencia de abajo.
 
 ### Una advertencia sobre las zonas
 
