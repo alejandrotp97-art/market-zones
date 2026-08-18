@@ -135,16 +135,48 @@ print(summary.zone_name, summary.score)
 
 ## Architecture
 
-Pure core has zero I/O and is fully unit-tested without the network:
+Two pure cores with zero I/O, each fully unit-tested without the network, and a
+web layer on top that owns every socket in the project.
+
+**The scoring engine** — what a price is worth relative to its own history:
 
 ```
 zones/normalize.py    z_to_100, pct_rank + expanding_* (causal twins)
-zones/indicators.py   stretch, rsi, drawdown, trend_dev, ema
+zones/indicators.py   stretch, rsi, drawdown, trend_dev, volatility, ema
 zones/classify.py     zones + hysteresis + verdict text
+zones/conviction.py   the climax layer (grades an extreme, never scores it)
 zones/engine.py       model selection → compose → EMA → classify → Summary
+zones/resample.py     daily → weekly bars, so one engine scores both
+zones/target.py       price inversion: at what price would TODAY read this zone
 zones/data.py         Yahoo daily OHLCV via urllib   (the only network module)
-cli.py                entrypoint
-tests/                33 tests (run: `$PY tests/test_indicators.py`)
+```
+
+**The portfolio domain** — what a movement means. Added later than the engine
+and, for a long time, the half that did *not* follow this architecture: it lived
+inside `dashboard.py` between the Flask routes and the SQL. It does now.
+
+```
+cartera/parsing.py    text → data: numbers, dates, buy/sell, ISIN, instrument
+                      type, commercial name. No network, no disk, no clock.
+cartera/positions.py  movements → valued positions. The money arithmetic.
+                      Takes the market as a parameter — six methods — so the
+                      rule that cost basis uses the fx of the PURCHASE date can
+                      be verified without reaching Yahoo.
+```
+
+**Everything else**, none of it imported by the two cores above:
+
+```
+dashboard.py          Flask: routes, caches, rate limit, CSRF, host guard,
+                      SQLite persistence, the Yahoo adapters
+cli.py                command-line entrypoint (no server needed)
+backup_cartera.py     SQLite online backup of the movement book + rotation
+geo.py                country look-through of funds and ETFs
+regime/               market-regime panel (its own package and suite)
+validation/           strict-causal walk-forward of the regime predictions
+research/             the v2 experimental program (E1–E10)
+analysis/             redundancy study and PNG reports
+snapshot.py           self-contained static HTML export
 ```
 
 `zones/data.py` raises **`NoHistory`** when Yahoo answers with a populated `meta`
@@ -155,9 +187,18 @@ the two is how a holding silently disappears from a chart while its cost stays i
 
 ## Tests
 
+254 tests, hermetic — every outbound call is stubbed, so the suite never touches
+the network and never depends on Yahoo being up.
+
 ```bash
-$PY tests/test_indicators.py
-$PY tests/test_classify_engine.py
-$PY tests/test_volatility_conviction.py
-$PY tests/test_causal.py            # the no-lookahead guarantee
+pytest                                  # everything (tests/ + regime/tests/)
+pytest tests/test_causal.py             # the no-lookahead guarantee
+pytest tests/test_positions_domain.py   # the money arithmetic, no Flask, no net
+pytest tests/test_daily_golden.py       # the score is byte-identical to the golden
 ```
+
+CI runs the same suite on every push and once a week on Python 3.10 and 3.12,
+installing `requirements.txt` exactly as `GUIA.md` tells a reader to. The weekly
+run is the one that matters: nothing here changes for months, but numpy and
+pandas do. `constraints.txt` records the exact versions production runs on, so
+"did I break it or did pandas?" is an answerable question.
