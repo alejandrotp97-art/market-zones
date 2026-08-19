@@ -241,7 +241,8 @@ def test_un_maximo_solo_merece_linea_si_es_un_ESCALON():
     assert 2 <= len(d) <= 4                  # los escalones, no las 39 sesiones
     # y cada uno está al menos un 10% por encima del anterior
     vals = [float(x["detail"].split("vale ")[1].split(" ")[0].replace(",", ".")) for x in d]
-    for a, b in zip(sorted(vals), sorted(vals)[1:]):
+    orden = sorted(vals)
+    for a, b in zip(orden, orden[1:], strict=False):   # pares consecutivos: la última no tiene siguiente
         assert b >= a * 1.09
 
 
