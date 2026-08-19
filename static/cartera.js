@@ -732,8 +732,10 @@
       </div>
       ${d.repurchase.length ? `<p class="perf-note" style="border-color:#cf8b3a;background:color-mix(in srgb,#cf8b3a 8%,transparent)">
         ⚠ Has comprado ${esc(d.ticker)} hace ${d.repurchase[0].days} días
-        (${esc(d.repurchase[0].date)}). Con una recompra dentro de los dos meses
-        anteriores o posteriores, la minusvalía <b>no se puede computar todavía</b>.
+        (${esc(d.repurchase[0].date)}). Con una recompra dentro ${d.listed
+          ? "de los dos meses anteriores o posteriores"
+          : "del año anterior o posterior (no cotiza)"}, la minusvalía
+        <b>no se puede computar todavía</b>.
         Y hacia delante este panel no sabe si vas a recomprar.</p>` : ""}
       ${d.short ? `<p class="mut small">⚠ Sólo tienes ${qty(d.held)}: se ha simulado sobre eso.</p>` : ""}
       <p class="mut small"><b>Esto no es asesoramiento fiscal.</b> El impuesto sale de

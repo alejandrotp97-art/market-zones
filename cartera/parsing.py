@@ -70,6 +70,36 @@ def num(x):
         return None
 
 
+CSV_FORMULA_LEAD = ("=", "+", "-", "@", "\t", "\r", "'")
+
+
+def csv_text(x) -> str:
+    """Free text safe to write into a CSV cell.
+
+    Excel and Sheets read a cell starting with =, + , - or @ as a FORMULA, so a
+    note that arrived from a bank statement can execute when the export is
+    opened. An apostrophe is the neutralisation those programs understand.
+
+    Tab and CR are on the list for the same reason OWASP lists them: a
+    spreadsheet drops the leading whitespace and then honours what follows, so
+    a tab in front of an = does not disarm it, it hides it.
+
+    The apostrophe itself is on the list on purpose: without it a note that
+    already starts with one would come back a character short. `csv_text_read`
+    undoes exactly what this adds, so the round trip lands on the same string.
+    """
+    s = "" if x is None else str(x)
+    return "'" + s if s[:1] in CSV_FORMULA_LEAD else s
+
+
+def csv_text_read(x) -> str:
+    """Inverse of `csv_text`: takes off the apostrophe it put on, and only that
+    one. A cell that a foreign file starts with an apostrophe followed by an
+    ordinary character was never escaped by us, so it survives untouched."""
+    s = "" if x is None else str(x)
+    return s[1:] if s[:1] == "'" and s[1:2] in CSV_FORMULA_LEAD else s
+
+
 def csv_num(x) -> str:
     """Un número guardado como la cadena más corta que se relee como el MISMO
     float.

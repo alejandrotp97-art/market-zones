@@ -44,6 +44,8 @@ from cartera.fiscal import simulate_sale as _simulate_sale
 # los llama el resto de este fichero.
 from cartera.parsing import CARTERA_EXPORT_COLS, COLSYN
 from cartera.parsing import csv_num as _csv_num
+from cartera.parsing import csv_text as _csv_text
+from cartera.parsing import csv_text_read as _csv_text_read
 from cartera.parsing import instrument_kind as _instrument_kind
 from cartera.parsing import looks_like_isin as _looks_like_isin
 from cartera.parsing import mov_key as _mov_key
@@ -1131,6 +1133,11 @@ def _parse_upload(filename: str, data: bytes):
                 cols[field] = c
                 used.add(c)
                 break
+    # El apóstrofo inicial sólo lo puso este programa, y sólo en SU export. En
+    # un extracto del banco —CSV o XLSX, que caen los dos aquí— ese apóstrofo
+    # es del banco y quitarlo borra un carácter real. Va ANTES del `.strip()`:
+    # al revés, una nota que sea sólo un tabulador vuelve como apóstrofo.
+    _des = _csv_text_read if list(df.columns) == CARTERA_EXPORT_COLS else str
     rows, errors = [], []
     # Each distinct ISIN costs one outbound Yahoo search, so a crafted file is
     # a request amplifier pointed at a third party. Resolutions are memoised
@@ -1141,7 +1148,7 @@ def _parse_upload(filename: str, data: bytes):
             raw = str(row[cols["ticker"]]).strip() if "ticker" in cols else ""
             if not raw or raw.upper() == "NAN":
                 continue
-            nm = (str(row[cols["name"]]).strip() if "name" in cols and pd.notna(row[cols["name"]]) else "")
+            nm = (_des(str(row[cols["name"]])).strip() if "name" in cols and pd.notna(row[cols["name"]]) else "")
             tk, kind = raw.upper(), ""
             if _looks_like_isin(raw):                 # ISIN column -> resolve to a Yahoo symbol
                 if raw in resolved:
@@ -1159,7 +1166,7 @@ def _parse_upload(filename: str, data: bytes):
             side = _norm_side(row[cols["side"]], qty) if "side" in cols else ("sell" if (qty or 0) < 0 else "buy")
             qty = abs(qty) if qty is not None else None
             date = _norm_date(row[cols["date"]]) if "date" in cols else ""
-            note = (str(row[cols["note"]]).strip() if "note" in cols and pd.notna(row[cols["note"]]) else "")
+            note = (_des(str(row[cols["note"]])).strip() if "note" in cols and pd.notna(row[cols["note"]]) else "")
             if qty is None or price is None:
                 errors.append(f"fila {int(i) + 2}: falta cantidad o precio")
                 continue
@@ -1422,8 +1429,11 @@ def api_cartera_export():
         # opening the file in Excel and re-saving it, and `_norm_side` reads them
         # as whole words. A bare "c"/"v"/"d" is one careless edit away from
         # inverting a trade or turning income into a sale.
-        w.writerow([date or "", ticker or "", name or "", _side_es(side),
-                    _csv_num(qty), _csv_num(price), _csv_num(fee), note or ""])
+        # `_csv_text` en el texto libre: una nota que empiece por = o @ es una
+        # FÓRMULA para Excel, y el importador le quita el escape al volver.
+        w.writerow([date or "", ticker or "", _csv_text(name or ""), _side_es(side),
+                    _csv_num(qty), _csv_num(price), _csv_num(fee),
+                    _csv_text(note or "")])
     # utf-8-sig: without the BOM Excel reads a UTF-8 CSV as latin-1 and turns
     # every accented name into mojibake. The importer already opens with
     # `encoding="utf-8-sig"`, so the BOM costs the round trip nothing.

@@ -94,6 +94,56 @@ def test_export_round_trips_through_the_importer():
     assert c["fee"] == 0.0
 
 
+def test_una_nota_que_excel_leeria_como_FORMULA_sale_neutralizada():
+    """Una nota que llega del extracto del banco empezando por = o @ es una
+    FÓRMULA para Excel y Sheets: se ejecuta al abrir el fichero. Sale con un
+    apóstrofo delante, que es el escape que esos programas entienden, y el
+    importador se lo quita, así que el ida y vuelta cae en la MISMA cadena.
+    """
+    db = _fresh_db()
+    peligrosas = [
+        "=1+1",                                   # fórmula a secas
+        "@SUM(A1:A9)",                            # otra forma de arrancarla
+        "+34 600 111 222",                        # un teléfono, no una fórmula
+        "-5% de comisión",                        # un descuento, tampoco
+        "'ya empezaba por apóstrofo",             # el escape no puede comérselo
+        "compra normal",                          # y lo inocuo no se toca
+    ]
+    _insert(db, [(f"2024-01-1{i}", "SPY", "SPDR S&P 500", "ETF", "buy",
+                  1.0, 100.0, 0.0, nota)
+                 for i, nota in enumerate(peligrosas, start=1)])
+
+    raw = _export_bytes(db).data
+    texto = raw.decode("utf-8-sig")
+
+    # En el fichero, ninguna celda arranca la fórmula.
+    for linea in texto.splitlines()[1:]:
+        for celda in linea.split(","):
+            assert not celda.lstrip('"').startswith(("=", "@")), linea
+
+    # Y al volver a entrar, la nota es exactamente la que era.
+    rows, errors, _ = D._parse_upload("cartera.csv", raw)
+    assert errors == [], errors
+    assert sorted(r["note"] for r in rows) == sorted(peligrosas)
+
+
+def test_el_desescapado_es_SOLO_para_nuestro_export():
+    """El apóstrofo inicial lo puso este programa, y sólo en SU fichero. En un
+    extracto del banco es del banco, y quitarlo borra un carácter de verdad. Y
+    va ANTES del `.strip()`: al revés, una nota que sea sólo un tabulador
+    vuelve convertida en un apóstrofo, que no es lo que había ni lo que había
+    antes del cambio."""
+    ajeno = (b"fecha,ticker,observaciones,cantidad,precio\n"
+             b"2024-01-15,SPY,'-5% custodia,1,100\n")
+    rows, errores, _ = D._parse_upload("extracto_banco.csv", ajeno)
+    assert errores == [] and rows[0]["note"] == "'-5% custodia"
+
+    db = _fresh_db()
+    _insert(db, [("2024-01-15", "SPY", "SPDR", "ETF", "buy", 1.0, 100.0, 0.0, "\t")])
+    vuelta, errores, _ = D._parse_upload("cartera.csv", _export_bytes(db).data)
+    assert errores == [] and vuelta[0]["note"] == ""      # igual que antes del cambio
+
+
 def test_export_keeps_full_quantity_precision():
     """Las participaciones de un fondo llevan seis o más decimales. Redondear al
     exportar no se ve en pantalla y falsea el precio medio al reimportar."""
