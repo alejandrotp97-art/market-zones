@@ -57,6 +57,7 @@ from __future__ import annotations
 import pandas as pd
 
 from .parsing import FAR_FUTURE
+from .returns import currency_split
 
 BASE_CCY = "EUR"
 
@@ -101,7 +102,8 @@ def compute(movs, market) -> list[dict]:
                                "realized": 0.0, "name": "", "kind": "", "ccy": cu,
                                "oversold": 0.0, "fx_gap": False,
                                "lots": [], "realized_fifo": 0.0,
-                               "income": 0.0, "n_div": 0, "inc_gap": False})
+                               "income": 0.0, "n_div": 0, "inc_gap": False,
+                               "fees": 0.0, "withheld": 0.0, "n_ops": 0})
         if m.get("name"):
             p["name"] = m["name"]
         if m.get("kind"):
@@ -119,9 +121,17 @@ def compute(movs, market) -> list[dict]:
                 p["inc_gap"] = True
             else:
                 p["income"] += (q * px - fee) * rate
+                # En un dividendo `fee` es la RETENCIÓN, no una comisión. Van a
+                # cubos distintos porque son cosas distintas: la comisión es un
+                # precio que se puede negociar cambiando de bróker; la retención
+                # es un impuesto a cuenta, y parte se recupera al declarar.
+                p["withheld"] += fee * rate
             continue
         if rate is None:
             p["fx_gap"] = True                     # EUR column is unrecoverable
+        else:
+            p["fees"] += fee * rate
+        p["n_ops"] += 1
         if m["side"] == "buy":
             p["qty"] += q
             p["cost_n"] += q * px + fee
@@ -197,6 +207,15 @@ def compute(movs, market) -> list[dict]:
             "n_dividends": p["n_div"],
             "valued": valued, "why": why,
             "oversold": (round(p["oversold"], 6) if p["oversold"] > 1e-9 else 0.0),
+            # Lo que has pagado por tener esto, separado de lo que te han
+            # retenido. Estaba guardado movimiento a movimiento y enterrado
+            # dentro del coste medio: no había ni un sitio donde se sumara.
+            "fees": round(p["fees"], 2), "withheld": round(p["withheld"], 2),
+            "n_ops": p["n_ops"],
+            # Cuánto del resultado lo puso el ACTIVO y cuánto la DIVISA. Es una
+            # descomposición exacta, no un reparto aproximado.
+            "split": (currency_split(qty, avg_n, last_n, rate_now,
+                                     p["cost_n"], p["cost_e"]) if valued else None),
         })
     # El peso se calcula al final, cuando ya se sabe el total, y SÓLO sobre lo
     # que se pudo valorar: repartir 100% incluyendo una posición sin precio
