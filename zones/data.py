@@ -68,6 +68,30 @@ class NoHistory(LookupError):
     """
 
 
+def _parse_splits(events):
+    """Los splits que Yahoo declara, como `[{"date", "ratio"}]` y en orden.
+
+    `ratio` es cuántos títulos nuevos salen de uno viejo: un 10:1 devuelve 10,0
+    y un contrasplit 1:4 devuelve 0,25. Se guarda como número y no como el par
+    "10/1" porque quien lo usa multiplica, y dejar la división para más tarde es
+    invitar a que alguien la haga al revés.
+    """
+    ev = ((events or {}).get("splits") or {})
+    out = []
+    for v in ev.values():
+        try:
+            num = float(v["numerator"])
+            den = float(v["denominator"])
+            ts = int(v.get("date") or 0)
+            if den <= 0 or num <= 0 or not ts:
+                continue
+            out.append({"date": dt.datetime.fromtimestamp(ts, dt.timezone.utc)
+                        .date().isoformat(), "ratio": num / den})
+        except (KeyError, TypeError, ValueError):
+            continue
+    return sorted(out, key=lambda s: s["date"])
+
+
 def fetch_daily(symbol: str, years: int = 25, drop_forming: bool = True) -> pd.DataFrame:
     """Daily OHLCV for `symbol`, closed bars only.
 
@@ -85,7 +109,12 @@ def fetch_daily(symbol: str, years: int = 25, drop_forming: bool = True) -> pd.D
     enc = safe_symbol(symbol)
     now = int(dt.datetime.now(dt.timezone.utc).timestamp())
     p1 = now - years * 366 * 86400
-    url = f"{_BASE}{enc}?period1={p1}&period2={now}&interval=1d"
+    # `events=split` viaja en la MISMA respuesta y no cuesta una petición más.
+    # La serie de precios no cambia por pedirlo —`quote.close` ya viene ajustada
+    # por splits con o sin este parámetro—, pero sin él no hay forma de saber
+    # QUÉ splits la han ajustado, y una cartera cuya cantidad de títulos no se
+    # actualizó tras uno queda mal valorada sin que nada chirríe.
+    url = f"{_BASE}{enc}?period1={p1}&period2={now}&interval=1d&events=split"
     req = urllib.request.Request(url, headers=_UA)
     with urllib.request.urlopen(req, timeout=30) as r:
         res = json.load(r)["chart"]["result"][0]
@@ -107,6 +136,7 @@ def fetch_daily(symbol: str, years: int = 25, drop_forming: bool = True) -> pd.D
         df = df[df["date"].dt.normalize() < today]
 
     out = df.reset_index(drop=True)
+    out.attrs["splits"] = _parse_splits(res.get("events"))
     # `meta` rides along in THIS same response and used to be dropped on the
     # floor, so the dashboard fetched it again from the SAME endpoint: a 12s
     # timeout chained behind the 30s above, i.e. 42s worst case against a 25s

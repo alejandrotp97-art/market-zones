@@ -54,6 +54,9 @@ from cartera.fiscal import TRAMOS_ANO as _TRAMOS_ANO
 from cartera.fiscal import loss_offset_note as _loss_note
 from cartera.fiscal import repurchase_risk as _repurchase_risk
 from cartera.fiscal import simulate_sale as _simulate_sale
+from cartera.splits import cost_is_preserved as _cost_ok
+from cartera.splits import pending as _splits_pending
+from cartera.splits import preview as _splits_preview
 from cartera.plan import attention as _attention
 from cartera.plan import contribution_stats as _contrib_stats
 from cartera.plan import goal_progress as _goal_progress
@@ -867,6 +870,13 @@ def _cartera_conn():
     # El plan de quien invierte: una fila, porque es una cartera. `id=1` fijo y
     # no autoincremental — un plan nuevo SUSTITUYE al anterior, y una tabla que
     # acumula planes viejos obliga a decidir cuál vale cada vez que se lee.
+    # Splits ya resueltos. Sin esto no hay forma de dejar de avisar: el programa
+    # NO puede saber si una cantidad del libro está en la escala vieja o en la
+    # nueva —«10 títulos» es el mismo número a los dos lados—, así que la única
+    # manera de cerrar el aviso es que alguien lo cierre.
+    c.execute("""CREATE TABLE IF NOT EXISTS split_ack(
+        ticker TEXT, split_date TEXT, action TEXT, ts TEXT DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (ticker, split_date))""")
     c.execute("""CREATE TABLE IF NOT EXISTS portfolio_goal(
         id INTEGER PRIMARY KEY CHECK (id = 1),
         capital REAL, horizon_years REAL, monthly REAL)""")
@@ -2081,7 +2091,12 @@ def _cartera_estado():
         doce = round(sum(r["in"] for r in aport["rows"][-12:]), 2)
     plan = _goal_progress(goal, total, doce)
 
+    try:
+        splits = _cartera_splits().get("pending") or []
+    except Exception:
+        splits = []
     hechos = {
+        "splits": splits,
         "total": total,
         "positions": [{**x, "has_history": con_hist.get(x["ticker"], False)}
                       for x in abiertas],
@@ -2252,6 +2267,119 @@ def api_cartera_divisa():
                            "base": BASE_CCY}, max_age=0)
 
 
+def _cartera_splits():
+    """Splits posteriores a alguna compra y todavía sin resolver.
+
+    Se detecta, se enseña QUÉ cambiaría y se espera. El programa no puede saber
+    si la cantidad del libro ya está en la escala nueva —«10 títulos» es el
+    mismo número antes y después—, así que decidir por su cuenta sería
+    reescribir el libro de alguien sobre una suposición.
+    """
+    p = _cartera_payload()
+    abiertas = [x for x in p["positions"] if x["qty"] > 1e-9]
+    with _cartera_conn() as c:
+        ack = {}
+        for tk, fecha in c.execute("SELECT ticker, split_date FROM split_ack"):
+            ack.setdefault(tk, set()).add(fecha)
+
+    filas, sin_mirar = [], []
+    for pos in abiertas:
+        tk = pos["ticker"]
+        sp = _splits_of(tk)
+        if sp is None:
+            sin_mirar.append(tk)
+            continue
+        movs = [m for m in p["movements"] if m["ticker"] == tk]
+        for s in _splits_pending(movs, sp, acked=ack.get(tk, ())):
+            prev = _splits_preview(movs, s)
+            filas.append({**s, "ticker": tk, "name": pos.get("name") or tk,
+                          "rows": prev, "cost_ok": _cost_ok(prev),
+                          "qty_now": pos["qty"],
+                          "qty_if_applied": round(pos["qty"] * s["ratio"], 6)})
+    return {"pending": filas, "unchecked": sin_mirar,
+            "n": len(filas), "base": BASE_CCY}
+
+
+@app.route("/api/cartera/splits")
+def api_cartera_splits():
+    try:
+        return _json_response(_cartera_splits(), max_age=0)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
+
+
+@app.route("/api/cartera/splits", methods=["POST"])
+def api_cartera_splits_resolver():
+    """Aplicar un split al libro, o marcarlo como ya tenido en cuenta.
+
+    Aplicar REESCRIBE movimientos, que es la operación más delicada de todo el
+    panel. Por eso, antes de tocar nada: se saca una copia de seguridad, se
+    recalcula la previsualización desde la base (no se acepta la que mandó el
+    cliente, que pudo quedarse vieja) y se comprueba que el COSTE TOTAL no se
+    mueve. Si esa comprobación falla, no se escribe una sola fila.
+    """
+    d = request.get_json(force=True, silent=True) or {}
+    tk = str(d.get("ticker", "")).strip().upper()
+    fecha = str(d.get("date", ""))[:10]
+    accion = str(d.get("action", "")).strip()
+    if not tk or not fecha or accion not in ("apply", "ack"):
+        return jsonify({"error": "faltan instrumento, fecha o acción"}), 400
+
+    if accion == "ack":
+        with _cartera_conn() as c:
+            c.execute("INSERT INTO split_ack(ticker,split_date,action) VALUES(?,?,?) "
+                      "ON CONFLICT(ticker,split_date) DO UPDATE SET action=excluded.action",
+                      (tk, fecha, "ack"))
+        return jsonify(_cartera_payload())
+
+    sp = _splits_of(tk) or []
+    split = next((s for s in sp if str(s["date"])[:10] == fecha), None)
+    if split is None:
+        return jsonify({"error": "ese split no consta en la fuente de datos"}), 404
+
+    with _cartera_conn() as c:
+        cur = c.execute("SELECT id,date,ticker,side,quantity,price FROM movements "
+                        "WHERE ticker=?", (tk,))
+        cols = [x[0] for x in cur.description]
+        movs = [dict(zip(cols, r)) for r in cur.fetchall()]
+
+    filas = _splits_preview(movs, split)
+    if not filas:
+        return jsonify({"error": "no hay movimientos anteriores a ese split"}), 400
+    if not _cost_ok(filas):
+        # Cinturón: el ajuste sólo es seguro porque no mueve el coste. Si aquí
+        # no cuadra, escribir sería dejar el libro peor de lo que estaba.
+        return jsonify({"error": "el ajuste no conserva el coste total; "
+                                 "no se ha tocado nada"}), 409
+
+    # Copia ANTES de reescribir. Es la única operación del panel que modifica
+    # movimientos ya apuntados, y el libro es el único estado que no se puede
+    # reconstruir desde ninguna parte. Si la copia falla, se dice y se sigue:
+    # negarse a aplicar por eso dejaría el libro mal para siempre, que es peor.
+    copia = None
+    try:
+        import backup_cartera as _bk
+        # Devuelve un CÓDIGO de salida, no una ruta: 0 copia nueva, 2 idéntica a
+        # la anterior (que también deja el libro a salvo), 1 fallo. Se traduce
+        # aquí porque un entero suelto en la respuesta no le dice nada a nadie.
+        rc = _bk.make_backup(CARTERA_DB, _bk.DEFAULT_DIR, quiet=True)
+        copia = {0: "copia nueva guardada",
+                 2: "ya había una copia idéntica"}.get(rc, "la copia falló")
+    except Exception as e:
+        copia = f"sin copia previa ({e})"
+
+    with _cartera_conn() as c:
+        c.executemany("UPDATE movements SET quantity=?, price=? WHERE id=?",
+                      [(f["qty_after"], f["price_after"], f["id"]) for f in filas])
+        c.execute("INSERT INTO split_ack(ticker,split_date,action) VALUES(?,?,?) "
+                  "ON CONFLICT(ticker,split_date) DO UPDATE SET action=excluded.action",
+                  (tk, fecha, "applied"))
+    out = _cartera_payload()
+    out["split_applied"] = {"ticker": tk, "date": fecha, "ratio": split["ratio"],
+                            "n": len(filas), "backup": copia}
+    return jsonify(out)
+
+
 @app.route("/api/cartera/rebalanceo")
 def api_cartera_rebalanceo():
     """Qué comprar con una aportación para acercarse a los pesos objetivo.
@@ -2305,6 +2433,23 @@ def api_cartera_clear():
 
 
 _series_cache: dict[str, tuple[float, object]] = {}
+_splits_cache: dict[str, tuple[float, list]] = {}
+
+
+def _splits_of(ticker: str):
+    """Splits declarados por la fuente, o None si aún no se sabe.
+
+    `None` y `[]` son respuestas distintas: la primera es «no lo he mirado» y la
+    segunda «no ha habido ninguno». Devolver `[]` en los dos casos haría que un
+    instrumento sin consultar pareciera limpio.
+    """
+    t = ticker.upper().strip()
+    hit = _splits_cache.get(t)
+    if hit and time.time() - hit[0] < CACHE_TTL:
+        return hit[1]
+    _close_series(t)                     # rellena la caché de paso, sin pedir más
+    hit = _splits_cache.get(t)
+    return hit[1] if hit else None
 
 
 def _close_series(ticker: str):
@@ -2320,6 +2465,11 @@ def _close_series(ticker: str):
         return hit[1]
     try:
         df = fetch_daily(t, years=25)
+        # Los splits llegan en la MISMA respuesta. Se apartan aquí porque este
+        # es el único sitio por el que pasa el frame entero; más adelante sólo
+        # sobrevive la serie de cierres.
+        _cache_put(_splits_cache, t, (time.time(), df.attrs.get("splits") or []),
+                   cap=CACHE_MAX)
         di = pd.DatetimeIndex(pd.to_datetime(df["date"]))
         if di.tz is not None:                    # Yahoo returns tz-aware -> make naive
             di = di.tz_localize(None)

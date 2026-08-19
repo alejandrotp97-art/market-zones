@@ -310,10 +310,37 @@
         <div class="av-s">${esc(a.scope)}</div>
         <div class="av-w">${esc(a.why)}</div>
         ${a.missing ? `<div class="av-m">Falta: ${esc(a.missing)}</div>` : ""}
+        ${a.key.startsWith("split:") ? splitBotones(a.key) : ""}
       </div>`).join("")}</div>
       <p class="mut small">Ninguno de estos avisos dice qué comprar ni qué vender.
         Describen el estado de tus datos y la distancia respecto a lo que TÚ has
         declarado; qué hacer con eso depende de cosas que este panel no sabe.</p>`;
+  }
+
+  // El único aviso con botones, porque es el único que el panel puede arreglar
+  // solo. Las dos salidas son distintas y se nombran distinto: «ya lo tenía en
+  // cuenta» sólo silencia, «ajustar» REESCRIBE movimientos. Llamar a las dos
+  // «aceptar» sería invitar a pulsar la que reescribe sin querer.
+  function splitBotones(key) {
+    const [, tk, fecha] = key.split(":");
+    return `<div class="av-acts">
+      <button type="button" class="sp-apply" data-tk="${esc(tk)}" data-d="${esc(fecha)}">Ajustar mis cantidades</button>
+      <button type="button" class="sp-ack" data-tk="${esc(tk)}" data-d="${esc(fecha)}">Ya lo tenía en cuenta</button>
+    </div>`;
+  }
+
+  async function resolverSplit(tk, fecha, accion) {
+    if (accion === "apply" && !confirm(
+        `Se van a REESCRIBIR los movimientos de ${tk} anteriores al ${fecha}: ` +
+        `las cantidades se multiplican y los precios se dividen por el factor del split. ` +
+        `El coste total no cambia. Se guarda una copia de seguridad antes.\n\n¿Sigo?`)) return;
+    const r = await send("/api/cartera/splits", { method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ticker: tk, date: fecha, action: accion }) });
+    const d = await r.json();
+    if (d.error) { alert(d.error); return; }
+    if (d.split_applied) status(`Ajustados ${d.split_applied.n} movimiento(s) · ${d.split_applied.backup}`);
+    render(d);
   }
 
   // ══ aportaciones ══════════════════════════════════════════════════════

@@ -206,3 +206,14 @@ def test_el_mismo_peso_SI_es_concentracion_con_muchas_posiciones():
     assert "concentracion:AAA" in claves(a)
     x = [i for i in a if i["key"] == "concentracion:AAA"][0]
     assert "reparto igual daría" in x["why"]
+
+
+def test_un_split_sin_resolver_es_AVISO_y_explica_que_rompe():
+    """Es el único de la lista que puede dividir el patrimonio por diez sin dar
+    un solo error, así que no puede quedarse en informativo."""
+    a = attention(facts(splits=[{"ticker": "AAA", "date": "2024-06-10", "ratio": 10.0,
+                                 "kind": "split", "n_movements": 2, "qty_now": 10}]))
+    x = [i for i in a if i["key"].startswith("split:")][0]
+    assert x["level"] == AVISO
+    assert "divididos por 10" in x["why"]
+    assert "no se puede deducir del número" in x["missing"]

@@ -169,6 +169,9 @@ cartera/returns.py    TWR, XIRR, drawdown, volatility, Sharpe, effective N,
 cartera/plan.py       the investor's own plan: contribution calendar, goal
                       progress, and the attention rules. Today's date arrives
                       as a parameter so a test can stand on any day.
+cartera/splits.py     splits: detect, preview, and the invariant that makes
+                      adjusting safe — quantity x ratio, price / ratio, total
+                      cost unchanged.
 cartera/exposure.py   currency exposure, two readings: quotation currency
                       (exact, uninformative) and economic currency, derived
                       from the same country look-through the map uses.
@@ -331,7 +334,7 @@ the two is how a holding silently disappears from a chart while its cost stays i
 
 ## Tests
 
-444 tests, hermetic — every outbound call is stubbed, so the suite never touches
+462 tests, hermetic — every outbound call is stubbed, so the suite never touches
 the network and never depends on Yahoo being up.
 
 ```bash

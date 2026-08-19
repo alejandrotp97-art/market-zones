@@ -163,6 +163,19 @@ def attention(facts, drift_pp=DRIFT_PP):
             "juntas son una sola apuesta repartida en varias filas.",
             None)
 
+    # ── splits sin resolver: el que rompe los números en silencio ────────
+    for s in (facts.get("splits") or []):
+        add(AVISO, f"split:{s['ticker']}:{s['date']}",
+            f"{s['ticker']} hizo un {s['kind']} el {s['date']} "
+            f"({s['ratio']:g} por 1) posterior a {s['n_movements']} de tus movimientos",
+            f"{s['ticker']}: {s['qty_now']:g} títulos hoy",
+            "La serie de precios ya viene ajustada por ese split, así que sólo "
+            "cuadra con la cantidad POSTERIOR. Si tus apuntes están en la escala "
+            "vieja, el valor de hoy y todo el histórico salen divididos por "
+            f"{s['ratio']:g} — sin que nada dé error.",
+            "saber si tus cantidades ya lo tienen en cuenta: eso no se puede "
+            "deducir del número")
+
     # ── ritmo de aportación ──────────────────────────────────────────────
     meses = facts.get("months_since_contribution")
     if meses is not None and meses >= MESES_SIN_APORTAR:

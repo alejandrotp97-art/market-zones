@@ -6,7 +6,7 @@
 > un importe. Todos los ejemplos son inventados.
 
 Estado a **2026-08-19**. Python 3.14.7, numpy 2.5.2, pandas 3.0.5.
-378 tests, herméticos.
+471 tests, herméticos.
 
 ---
 
@@ -85,7 +85,11 @@ todos los sockets del proyecto.
 ```
 cartera/parsing.py    261 líneas · texto -> dato
 cartera/positions.py  247 líneas · movimientos -> posiciones valoradas
-cartera/returns.py    480 líneas · rentabilidad, riesgo, diversificación, rebalanceo
+cartera/returns.py               · rentabilidad, riesgo, diversificación, rebalanceo
+cartera/plan.py                  · aportaciones, objetivo propio y reglas de atención
+cartera/fiscal.py                · simulador de venta: FIFO, tramos, compensación
+cartera/exposure.py              · divisa por cotización y por transparencia
+cartera/splits.py                · detección y ajuste de splits
 dashboard.py                     · Flask: rutas, cachés, límite de tasa, CSRF, SQLite, adaptadores Yahoo
 geo.py                           · transparencia por país de fondos y ETFs
 backup_cartera.py     274 líneas · copia en línea de SQLite + rotación
@@ -124,6 +128,12 @@ la compra se puede comprobar sin tocar Yahoo.
 | POST | `/api/cartera/objetivo` | declarar peso objetivo |
 | GET | `/api/instrumento` | divisa y último precio de un símbolo |
 | GET | `/api/search` | buscador por nombre, ticker o ISIN |
+| GET | `/api/cartera/estado` | bloque ejecutivo, cobertura y avisos |
+| GET | `/api/cartera/aportaciones` | calendario mensual de flujos |
+| POST | `/api/cartera/plan` | objetivo propio: capital, mensual, horizonte |
+| GET | `/api/cartera/simular-venta` | «si vendo X»: FIFO exacto + impuesto estimado |
+| GET | `/api/cartera/divisa` | exposición por divisa, dos lecturas |
+| GET/POST | `/api/cartera/splits` | splits pendientes; aplicar o marcar resuelto |
 
 Todo lo que muta pasa por un guard CSRF **global** (`before_request`), no por un
 decorador por ruta: una ruta nueva nace protegida. Lo mismo el guard de
@@ -275,7 +285,21 @@ distintas como para cinco fondos del mismo índice.
   fondo no cotizado.
 - **Reimportar el mismo fichero no duplica**: se detectan repetidos y se dicen.
 
-### 6.7 Coherencia del gráfico
+### 6.7 Splits
+
+- **La serie de precios viene ajustada por splits**, así que sólo cuadra con la
+  cantidad de títulos POSTERIOR al split. Si el libro está en la escala vieja,
+  el valor de hoy y todo el histórico salen divididos por el factor, sin error.
+- **El programa NO puede saber si ya se tuvo en cuenta**: «10 títulos» es el
+  mismo número a los dos lados del split. Por eso detecta y espera, en vez de
+  decidir. Cerrar el aviso es una decisión de quien tiene el libro.
+- **El ajuste es seguro porque NO mueve el coste**: multiplica cantidad y divide
+  precio por el mismo factor. Esa igualdad se comprueba antes de escribir, y si
+  falla no se toca una sola fila.
+- **Se saca copia de seguridad antes de reescribir.** Es la única operación del
+  panel que modifica movimientos ya apuntados.
+
+### 6.8 Coherencia del gráfico
 
 - **`portfolio` e `invested` describen SIEMPRE el mismo conjunto de
   posiciones.** Un instrumento sin serie se cae de las dos, y se nombra en
@@ -312,9 +336,14 @@ Ordenados por lo que aportarían a quien tiene dinero dentro.
 3. **Beta y correlación contra el índice**, no sólo entre posiciones.
 4. **Divisa agregada**: el reparto activo/divisa es por posición; falta la
    exposición neta por divisa de toda la cartera.
-5. **Splits.** La serie de precios viene ajustada por splits pero la cantidad
-   registrada es la que tecleó la persona. Un split no aplicado descuadra el
-   histórico (no el valor de hoy). Hoy no hay ni detección ni aviso.
+5. ~~**Splits.**~~ **RESUELTO 2026-08-19.** Y con una corrección a lo que este
+   documento decía: afirmaba que un split sin aplicar descuadra «el histórico,
+   no el valor de hoy». **Es falso.** El precio actual sale de la cotización en
+   vivo, ya post-split, así que la cantidad vieja del libro rompe también el
+   valor de HOY. Medido con datos reales: 10 NVDA compradas antes del 10:1 de
+   junio de 2024 se valoraban en 1.891 € contra 3.633 € invertidos —una pérdida
+   del 48%— cuando en realidad eran 100 títulos y 18.919 €. Ahora se detecta,
+   se avisa y se puede ajustar. Ver `cartera/splits.py`.
 6. **Instrumentos sin histórico.** Los `<ISIN>.<MIC>` que la fuente puntúa pero
    no grafica quedan fuera de zona, correlación y gráfico. Se dice en pantalla,
    pero no hay alternativa.
@@ -328,7 +357,7 @@ Ordenados por lo que aportarían a quien tiene dinero dentro.
 
 ## 9. Cómo se comprueba
 
-378 tests herméticos: toda llamada saliente está simulada. El CI corre en
+471 tests herméticos: toda llamada saliente está simulada. El CI corre en
 3.11 / 3.12 / 3.14 y repite la suite con un **guardia de red** activo
 (`MZ_NO_NETWORK=1`, en `conftest.py`) que intercepta `connect`, `connect_ex`,
 `create_connection` y `getaddrinfo`.

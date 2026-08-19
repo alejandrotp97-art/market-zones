@@ -305,3 +305,13 @@ table.fi-lots td,table.fi-lots th{padding:4px 8px;}
 .ccy-row i{width:9px;height:9px;border-radius:2px;}
 .ccy-n{font-family:var(--mono);font-size:11px;}
 @media(max-width:760px){.ccy-list{grid-template-columns:1fr;}}
+
+/* ── acciones dentro de un aviso ──────────────────────────────────────────
+   El botón que REESCRIBE el libro va con el color de acento y el que sólo
+   silencia va apagado: la diferencia entre los dos tiene que verse antes de
+   pulsar, no en el diálogo de confirmación. */
+.av-acts{display:flex;gap:8px;margin-top:10px;}
+.av-acts button{border-radius:7px;padding:4px 10px;font-size:11.5px;cursor:pointer;
+  border:1px solid var(--border);background:var(--panel);color:var(--muted);}
+.av-acts .sp-apply{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600;}
+.av-acts button:hover{filter:brightness(1.08);}

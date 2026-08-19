@@ -500,6 +500,33 @@ en los dos meses anteriores: con una recompra así de cerca, la minusvalía **no
 se puede computar todavía**. Hacia delante no puede saber si vas a recomprar, y
 te lo dice en vez de callárselo.
 
+### Splits: el error que no da ningún error
+
+Si una empresa parte cada acción en diez, tú pasas a tener diez veces más
+títulos y cada uno vale una décima parte. Tu dinero es el mismo.
+
+El problema es que **la fuente de precios ya ajusta el pasado** —los precios
+anteriores aparecen divididos entre diez— y tu libro sigue diciendo los títulos
+que compraste entonces. Si no actualizas la cantidad, el panel multiplica los
+títulos viejos por los precios nuevos y **tu posición sale diez veces más
+pequeña de lo que es**. No da ningún error: da un número creíble.
+
+Un caso real: 10 acciones de NVIDIA compradas antes de su split de junio de
+2024, con 3.633 € invertidos, aparecían valoradas en **1.891 €** — una pérdida
+del 48%. En realidad eran 100 títulos y **18.919 €**.
+
+Ahora el panel lo detecta y te avisa en «Qué merece tu atención», con dos
+botones:
+
+- **«Ajustar mis cantidades»** — multiplica los títulos y divide los precios de
+  los movimientos anteriores al split. **Tu coste total no cambia**: pagaste lo
+  que pagaste. Antes de tocar nada se guarda una copia de seguridad.
+- **«Ya lo tenía en cuenta»** — si tus apuntes ya estaban actualizados, esto
+  sólo silencia el aviso.
+
+> El panel **no puede adivinar** cuál de las dos es tu caso: «10 títulos» es el
+> mismo número antes y después del split. Por eso te pregunta en vez de decidir.
+
 ### De qué divisas dependes (y por qué hay dos listas)
 
 Dos lecturas, y **ninguna sobra**:

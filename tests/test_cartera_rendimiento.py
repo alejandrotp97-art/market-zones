@@ -498,3 +498,75 @@ def test_una_posicion_que_no_se_puede_valorar_no_se_simula(libro, monkeypatch):
 def test_un_instrumento_que_no_esta_en_cartera_da_404(libro):
     _post(libro, ticker="AAA", side="buy", quantity=10, price=100)
     assert libro.get("/api/cartera/simular-venta?ticker=ZZZ&qty=1").status_code == 404
+
+
+# ── splits ────────────────────────────────────────────────────────────────
+def test_un_split_posterior_a_una_compra_se_detecta_y_se_dice_que_cambiaria(libro, monkeypatch):
+    monkeypatch.setattr(D, "_splits_of", lambda t: [{"date": "2024-06-10", "ratio": 10.0}])
+    _post(libro, ticker="AAA", side="buy", quantity=10, price=400, date="2023-05-01")
+
+    d = D._cartera_splits()
+
+    assert d["n"] == 1
+    s = d["pending"][0]
+    assert s["ratio"] == 10.0 and s["qty_now"] == 10 and s["qty_if_applied"] == 100
+    assert s["cost_ok"] is True
+
+
+def test_aplicar_un_split_no_mueve_el_coste(libro, monkeypatch):
+    """Es la condición que hace segura la operación más delicada del panel:
+    reescribir movimientos ya apuntados."""
+    monkeypatch.setattr(D, "_splits_of", lambda t: [{"date": "2024-06-10", "ratio": 10.0}])
+    _post(libro, ticker="AAA", side="buy", quantity=10, price=400, date="2023-05-01")
+    antes = libro.get("/api/cartera").get_json()["positions"][0]["invested"]
+
+    r = libro.post("/api/cartera/splits",
+                   json={"ticker": "AAA", "date": "2024-06-10", "action": "apply"},
+                   headers={D.CSRF_HEADER: "1"})
+    p = r.get_json()
+
+    assert r.status_code == 200
+    assert p["positions"][0]["qty"] == 100
+    assert p["positions"][0]["invested"] == pytest.approx(antes, abs=0.01)
+    assert p["split_applied"]["n"] == 1
+
+
+def test_un_split_aplicado_deja_de_avisar(libro, monkeypatch):
+    monkeypatch.setattr(D, "_splits_of", lambda t: [{"date": "2024-06-10", "ratio": 10.0}])
+    _post(libro, ticker="AAA", side="buy", quantity=10, price=400, date="2023-05-01")
+    libro.post("/api/cartera/splits",
+               json={"ticker": "AAA", "date": "2024-06-10", "action": "apply"},
+               headers={D.CSRF_HEADER: "1"})
+    assert D._cartera_splits()["n"] == 0
+
+
+def test_marcarlo_como_ya_tenido_en_cuenta_no_toca_el_libro(libro, monkeypatch):
+    """El programa NO puede saber si la cantidad ya está en la escala nueva:
+    «10 títulos» es el mismo número a los dos lados. Marcarlo sólo silencia."""
+    monkeypatch.setattr(D, "_splits_of", lambda t: [{"date": "2024-06-10", "ratio": 10.0}])
+    _post(libro, ticker="AAA", side="buy", quantity=10, price=400, date="2023-05-01")
+
+    libro.post("/api/cartera/splits",
+               json={"ticker": "AAA", "date": "2024-06-10", "action": "ack"},
+               headers={D.CSRF_HEADER: "1"})
+
+    assert D._cartera_splits()["n"] == 0
+    assert libro.get("/api/cartera").get_json()["positions"][0]["qty"] == 10
+
+
+def test_un_split_que_no_consta_en_la_fuente_no_se_aplica(libro, monkeypatch):
+    monkeypatch.setattr(D, "_splits_of", lambda t: [])
+    _post(libro, ticker="AAA", side="buy", quantity=10, price=400, date="2023-05-01")
+    r = libro.post("/api/cartera/splits",
+                   json={"ticker": "AAA", "date": "2024-06-10", "action": "apply"},
+                   headers={D.CSRF_HEADER: "1"})
+    assert r.status_code == 404
+
+
+def test_un_instrumento_sin_consultar_no_se_da_por_limpio(libro, monkeypatch):
+    """`None` es «no lo he mirado» y `[]` es «no ha habido ninguno». Devolver
+    lista vacía en los dos casos haría parecer limpio lo que no se ha visto."""
+    monkeypatch.setattr(D, "_splits_of", lambda t: None)
+    _post(libro, ticker="AAA", side="buy", quantity=10, price=400, date="2023-05-01")
+    d = D._cartera_splits()
+    assert d["unchecked"] == ["AAA"] and d["n"] == 0
