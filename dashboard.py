@@ -2298,7 +2298,10 @@ def api_cartera_simular_venta():
     compras = [m["date"] for m in p["movements"]
                if m["ticker"] == tk and m["side"] == "buy" and m.get("date")]
     hoy = str(pd.Timestamp.today().normalize())[:10]
-    cotiza = "." in tk or not tk.startswith("0P")
+    # Cotizado o no lo decide `instrument_kind`, que es donde vive la regla.
+    # Una copia aquí se desviaba: `0P0001CLDK.F` lleva punto y SIGUE siendo un
+    # fondo no cotizado, y su ventana no es de dos meses sino de un año.
+    cotiza = _instrument_kind(tk, pos.get("kind") or "") != "Fondo"
     recompras = _repurchase_risk(hoy, compras, listed=cotiza) if sim["result"] < 0 else []
 
     return _json_response({

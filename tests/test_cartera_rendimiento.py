@@ -493,6 +493,28 @@ def test_una_posicion_que_no_se_puede_valorar_no_se_simula(libro, monkeypatch):
     assert r.status_code == 422
 
 
+def test_un_fondo_con_punto_en_el_simbolo_SIGUE_sin_cotizar(libro, monkeypatch):
+    """La ventana de recompra que bloquea una minusvalía son dos meses si el
+    valor cotiza y un AÑO si no. `0P0001CLDK.F` lleva punto y aun así es un
+    fondo no cotizado. La regla vive en `instrument_kind`; una copia en la ruta
+    se desviaba y dejaba la ventana en 60 días, así que una recompra del día 90
+    —que SÍ bloquea— no salía por pantalla."""
+    import datetime as dt
+
+    monkeypatch.setattr(D, "_last_price", lambda t: 50.0)      # se vende con pérdida
+    hoy = dt.date.today()
+    hace90 = (hoy - dt.timedelta(days=90)).isoformat()
+    _post(libro, ticker="0P0001CLDK.F", side="buy", quantity=10, price=100,
+          date=(hoy - dt.timedelta(days=400)).isoformat())
+    _post(libro, ticker="0P0001CLDK.F", side="buy", quantity=1, price=100, date=hace90)
+
+    d = libro.get("/api/cartera/simular-venta?ticker=0P0001CLDK.F&qty=10").get_json()
+
+    assert d["result"] < 0                                     # hay minusvalía
+    assert d["listed"] is False                                # no cotiza
+    assert hace90 in [r["date"] for r in d["repurchase"]]
+
+
 def test_un_instrumento_que_no_esta_en_cartera_da_404(libro):
     _post(libro, ticker="AAA", side="buy", quantity=10, price=100)
     assert libro.get("/api/cartera/simular-venta?ticker=ZZZ&qty=1").status_code == 404
