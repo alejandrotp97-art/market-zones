@@ -14,6 +14,12 @@ SuccessExitStatus=0 2
 
 # Sin red: una copia de un fichero local que abre un socket es una copia que no
 # entiendes. Y la cartera es el dato que menos debe salir de la máquina.
+#
+# OJO: en una unidad de USUARIO systemd suele NO poder aplicarlo y avisa en el
+# journal ("we lack privileges for network namespace, proceeding without"). Se
+# deja puesto porque no estorba y sí se aplica si algún día esto corre como
+# unidad de sistema, pero la garantía real no viene de aquí: `backup_cartera.py`
+# sólo importa argparse, hashlib, os, sqlite3, sys y time. No hay con qué salir.
 PrivateNetwork=true
 ProtectSystem=strict
 ProtectHome=read-only
