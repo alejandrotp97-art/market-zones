@@ -1848,8 +1848,10 @@ def abraham_page(filename: str = "index.html"):
 # ── Página de swing de zonas-v2, servida por este puerto ────────────────────
 # zonas-v2 corre en su propio servicio (:8775) y este panel en el :8771, que es
 # el único que cruza el túnel SSH. En vez de pedir un `-L` más, se reenvía la
-# página: es HTML autocontenido —sin scripts, sin peticiones externas, CSS y SVG
-# en línea—, así que reenviar el cuerpo es TODO el trabajo. Nada que reescribir.
+# página: es HTML autocontenido —CSS, SVG y su único script EN LÍNEA, cero
+# peticiones a fuera—, así que reenviar el cuerpo es TODO el trabajo. Lo que
+# sostiene este reenvío no es que no haya scripts, es que no haya una segunda
+# petición: un `src` cualquiera apuntaría a :8775, que no cruza el túnel.
 ZONAS_V2_URL = os.environ.get("ZONAS_V2_URL", "http://127.0.0.1:8775")
 ZONAS_V2_TIMEOUT = 30
 
