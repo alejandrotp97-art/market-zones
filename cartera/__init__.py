@@ -20,10 +20,23 @@ cambio, se lo tienen que pasar — por eso `positions.compute` pide un `market`
 en vez de ir a buscarlo, y por eso la regla de que un coste medio se calcula
 con el cambio del día de la compra se puede comprobar sin salir a Yahoo.
 """
-from .parsing import (CARTERA_EXPORT_COLS, COLSYN, FAR_FUTURE, clean_company_name,
-                      csv_num, instrument_kind, looks_like_isin, mov_key,
-                      name_from_meta, norm_col, norm_date, norm_side, num,
-                      sniff_sep, symbol_isin)
+from .parsing import (
+                      CARTERA_EXPORT_COLS,
+                      COLSYN,
+                      FAR_FUTURE,
+                      clean_company_name,
+                      csv_num,
+                      instrument_kind,
+                      looks_like_isin,
+                      mov_key,
+                      name_from_meta,
+                      norm_col,
+                      norm_date,
+                      norm_side,
+                      num,
+                      sniff_sep,
+                      symbol_isin,
+)
 from .positions import BASE_CCY
 from .positions import compute as compute_positions
 

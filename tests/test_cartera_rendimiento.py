@@ -5,10 +5,8 @@ donde se pierden: qué serie se les pasa, con qué signo viaja cada flujo, y qu�
 se enseña cuando no hay bastante historia para decir nada.
 """
 import os
-import sqlite3
 import sys
 
-import numpy as np
 import pandas as pd
 import pytest
 

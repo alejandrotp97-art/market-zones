@@ -9,8 +9,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from .normalize import (Z_MIN_PERIODS, expanding_pct_rank, expanding_z_to_100,
-                        pct_rank, z_to_100)
+from .normalize import Z_MIN_PERIODS, expanding_pct_rank, expanding_z_to_100, pct_rank, z_to_100
 
 
 def _scale(x: pd.Series, causal: bool, zmin: int) -> pd.Series:

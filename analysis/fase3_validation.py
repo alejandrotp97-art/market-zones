@@ -9,8 +9,12 @@
   Part 3 · Parameter insensitivity: rank-corr of each indicator under perturbed
            windows (SMA 180/220, vol 15/25, crosses 100/140). Fragile = overfit.
 """
-import sys, time
-import numpy as np, pandas as pd
+import sys
+import time
+
+import numpy as np
+import pandas as pd
+
 sys.path.insert(0, "/home/alex/bots/market-zones")
 from zones import fetch_daily
 
@@ -22,7 +26,7 @@ def build(df, sma=200, volw=20, crossw=120, atrw=14):
     h = df["high"].astype(float).reset_index(drop=True)
     l = df["low"].astype(float).reset_index(drop=True)
     lr = np.log(c).diff()
-    s200 = c.rolling(sma).mean(); s50 = c.rolling(50).mean()
+    s200 = c.rolling(sma).mean(); c.rolling(50).mean()
     tr = pd.concat([(h - l), (h - c.shift()).abs(), (l - c.shift()).abs()], axis=1).max(axis=1)
     atr = tr.ewm(alpha=1/atrw, adjust=False).mean()
     rv = lr.rolling(volw).std() * np.sqrt(252)
@@ -69,13 +73,13 @@ for a in ASSETS:
 
 # ── Part 1 · cross-era info stability ─────────────────────────────────────────
 cells = {n: [] for n in NAMES}
-for a, df in DATA.items():
+for _a, df in DATA.items():
     ind, c = build(df)
     fret = (c.shift(-20)/c - 1); fvol = (np.log(c).diff().rolling(20).std()*np.sqrt(252)).shift(-20)
     yr = pd.to_datetime(df["date"]).dt.year.reset_index(drop=True)
     d = ind.copy(); d["_fret"] = fret; d["_fvol"] = fvol; d["_era"] = (yr // 5) * 5
     d = d.replace([np.inf,-np.inf], np.nan)
-    for era, g in d.groupby("_era"):
+    for _era, g in d.groupby("_era"):
         g = g.dropna()
         if len(g) < 400: continue
         Hr, Hv = H(g["_fret"].to_numpy()), H(g["_fvol"].to_numpy())
@@ -94,7 +98,7 @@ print(f"     GANADOR estabilidad: {'ext_atr' if se/me < sm/mm else 'mayer'}")
 # ── Part 2 · incremental info beyond base {rvol, ext_atr, dd} ──────────────────
 BASE = ["rvol","ext_atr","dd"]; CAND = ["trend_dev","slope200","roc60","rsi14","crosses","mayer"]
 Xrows, yr_rows, yv_rows = [], [], []
-for a, df in DATA.items():
+for _a, df in DATA.items():
     ind, c = build(df)
     fret = (c.shift(-20)/c - 1); fvol = (np.log(c).diff().rolling(20).std()*np.sqrt(252)).shift(-20)
     d = ind.copy(); d["_fret"]=fret; d["_fvol"]=fvol
@@ -111,7 +115,7 @@ def resid(y, cols):
 
 rr, rv = resid(yr, BASE), resid(yv, BASE)
 print("\n===========  PART 2 · info incremental sobre base {rvol,ext_atr,dd}  ===========")
-print(f"  (MI del candidato con el RESIDUO del objetivo tras quitar la base; ~0 = no aporta)")
+print("  (MI del candidato con el RESIDUO del objetivo tras quitar la base; ~0 = no aporta)")
 print(f"{'candidato':11s} {'MI→ret|base':>12s} {'MI→vol|base':>12s} {'suma':>7s}")
 for n in CAND:
     a = mi(Z[n].to_numpy(), rr)/H(rr); b = mi(Z[n].to_numpy(), rv)/H(rv)
@@ -122,14 +126,14 @@ print("\n===========  PART 3 · sensibilidad a parámetros (Spearman vs base)  =
 def rankcorr(x, y):
     m = np.isfinite(x)&np.isfinite(y); return pd.Series(x[m]).corr(pd.Series(y[m]), method="spearman")
 rows = {}
-for a, df in DATA.items():
+for _a, df in DATA.items():
     base,_ = build(df)
-    for tag, kw, cols in [("SMA 200→180", dict(sma=180), ["ext_atr","mayer","trend_dev","crosses"]),
-                          ("SMA 200→220", dict(sma=220), ["ext_atr","mayer","trend_dev","crosses"]),
-                          ("vol 20→15",   dict(volw=15), ["rvol"]),
-                          ("vol 20→25",   dict(volw=25), ["rvol"]),
-                          ("cross 120→100",dict(crossw=100), ["crosses"]),
-                          ("cross 120→140",dict(crossw=140), ["crosses"])]:
+    for tag, kw, cols in [("SMA 200→180", {"sma": 180}, ["ext_atr","mayer","trend_dev","crosses"]),
+                          ("SMA 200→220", {"sma": 220}, ["ext_atr","mayer","trend_dev","crosses"]),
+                          ("vol 20→15",   {"volw": 15}, ["rvol"]),
+                          ("vol 20→25",   {"volw": 25}, ["rvol"]),
+                          ("cross 120→100",{"crossw": 100}, ["crosses"]),
+                          ("cross 120→140",{"crossw": 140}, ["crosses"])]:
         alt,_ = build(df, **kw)
         for col in cols:
             rows.setdefault((col, tag), []).append(rankcorr(base[col].to_numpy(), alt[col].to_numpy()))

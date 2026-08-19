@@ -53,8 +53,8 @@ def main() -> None:
         sys.exit(f"no encuentro zones/engine.py bajo {pre}")
     # el motor VIEJO tiene que ganar al del repo en la resolución de imports
     sys.path.insert(0, str(pre))
-    from zones.engine import analyze
     import zones.engine as eng
+    from zones.engine import analyze
     if hasattr(eng, "Windows"):
         sys.exit("ese árbol YA tiene Windows: no es pre-refactor, sería circular")
 

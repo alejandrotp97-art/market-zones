@@ -162,10 +162,11 @@ def test_pending_reference_reads_differently_from_a_broken_table():
 
 
 # ── discovery: which instruments the seeder can resolve on its own ────────
-import sys as _sys                                                    # noqa: E402
+import sys as _sys
+
 _sys.path.insert(0, os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "analysis"))
-import seed_country_weights as S                                      # noqa: E402
+import seed_country_weights as S
 
 
 def test_listed_etf_resolves_to_itself_not_a_proxy():

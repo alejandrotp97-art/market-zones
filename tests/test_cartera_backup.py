@@ -27,7 +27,7 @@ def _fresh_db():
     real = D.CARTERA_DB
     D.CARTERA_DB = path
     try:
-        with D._cartera_conn() as c:
+        with D._cartera_conn():
             pass
     finally:
         D.CARTERA_DB = real

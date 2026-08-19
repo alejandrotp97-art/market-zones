@@ -14,9 +14,9 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from zones import fetch_daily
 from regime import analyze
 from regime.dashboard import CURATED
+from zones import fetch_daily
 
 YEARS = 25
 AXES = ["score", "vol_p", "dd_p", "instab_p"]

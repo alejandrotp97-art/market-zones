@@ -9,10 +9,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import pytest
 
-from cartera.plan import (AVISO, INFO, attention, contribution_stats,
-                          goal_progress, monthly_flows)
+from cartera.plan import AVISO, INFO, attention, contribution_stats, goal_progress, monthly_flows
 
 
 def pos(tk, **kw):
@@ -201,7 +199,7 @@ def test_un_reparto_50_50_no_es_concentracion():
 def test_el_mismo_peso_SI_es_concentracion_con_muchas_posiciones():
     """50% entre dos es la mitad; 50% entre ocho es que siete no pintan nada."""
     otras = [pos(f"P{i}", weight=50.0 / 7, market_value=100.0) for i in range(7)]
-    a = attention(facts(positions=[pos("AAA", weight=50.0, market_value=700.0)] + otras,
+    a = attention(facts(positions=[pos("AAA", weight=50.0, market_value=700.0), *otras],
                         total=1400.0))
     assert "concentracion:AAA" in claves(a)
     x = [i for i in a if i["key"] == "concentracion:AAA"][0]

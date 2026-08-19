@@ -41,7 +41,7 @@ def test_path_traversal_is_refused():
                 "%2e%2e%2f", "..%2F"):
         try:
             safe_symbol(bad)
-            assert False, f"{bad!r} was accepted"
+            raise AssertionError(f"{bad!r} was accepted")
         except BadSymbol:
             pass
 
@@ -52,7 +52,7 @@ def test_query_and_fragment_injection_is_refused():
                 "SPY\nX", "SPY\r\nHost: x", "SPY\x00"):
         try:
             safe_symbol(bad)
-            assert False, f"{bad!r} was accepted"
+            raise AssertionError(f"{bad!r} was accepted")
         except BadSymbol:
             pass
 
@@ -64,7 +64,7 @@ def test_surrounding_whitespace_is_trimmed_but_embedded_is_not():
     for bad in ("^R UT", "A\tB", "A\nB"):
         try:
             safe_symbol(bad)
-            assert False, f"{bad!r} was accepted"
+            raise AssertionError(f"{bad!r} was accepted")
         except BadSymbol:
             pass
 
@@ -73,7 +73,7 @@ def test_empty_and_oversized_are_refused():
     for bad in ("", "   ", None, "A" * 33):
         try:
             safe_symbol(bad)
-            assert False, f"{bad!r} was accepted"
+            raise AssertionError(f"{bad!r} was accepted")
         except BadSymbol:
             pass
     assert safe_symbol("A" * 32) == "A" * 32     # the boundary itself is fine

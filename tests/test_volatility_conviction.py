@@ -7,9 +7,9 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from zones.indicators import realized_vol, volatility_score, volume_spike
 from zones.conviction import _level, compute, label
 from zones.engine import analyze
+from zones.indicators import realized_vol, volatility_score, volume_spike
 
 
 def test_volatility_score_orientation():

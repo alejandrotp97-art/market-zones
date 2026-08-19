@@ -66,7 +66,7 @@ def test_a_miss_past_the_budget_raises_instead_of_building():
     D._encoded("a", build, limited=True)
     try:
         D._encoded("b", build, limited=True)
-        assert False, "the second miss was built anyway"
+        raise AssertionError("the second miss was built anyway")
     except D.TooBusy:
         pass
     assert len(calls) == 1, "build ran despite the limiter"

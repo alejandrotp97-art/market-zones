@@ -27,16 +27,21 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import numpy as np
 import pandas as pd
-from flask import (Flask, Response, jsonify, redirect, render_template, request,
-                   send_from_directory)
+from flask import Flask, Response, jsonify, redirect, render_template, request, send_from_directory
 
 import geo
+from cartera.exposure import by_economic_currency as _ccy_economic
+from cartera.exposure import by_quote_currency as _ccy_quote
+from cartera.fiscal import TRAMOS_ANO as _TRAMOS_ANO
+from cartera.fiscal import loss_offset_note as _loss_note
+from cartera.fiscal import repurchase_risk as _repurchase_risk
+from cartera.fiscal import simulate_sale as _simulate_sale
+
 # El dominio de la cartera vive en su propio paquete: qué significa un
 # movimiento no depende de que haya un navegador delante. Aquí dentro siguen
 # siendo detalles internos, así que se reexportan con el guion bajo con el que
 # los llama el resto de este fichero.
-from cartera.parsing import CARTERA_EXPORT_COLS, COLSYN, FAR_FUTURE
-from cartera.parsing import clean_company_name as _clean_company_name
+from cartera.parsing import CARTERA_EXPORT_COLS, COLSYN
 from cartera.parsing import csv_num as _csv_num
 from cartera.parsing import instrument_kind as _instrument_kind
 from cartera.parsing import looks_like_isin as _looks_like_isin
@@ -49,39 +54,32 @@ from cartera.parsing import num as _num
 from cartera.parsing import side_es as _side_es
 from cartera.parsing import sniff_sep as _sniff_sep
 from cartera.parsing import symbol_isin as _symbol_isin
-from cartera.positions import BASE_CCY
-from cartera.fiscal import TRAMOS_ANO as _TRAMOS_ANO
-from cartera.fiscal import loss_offset_note as _loss_note
-from cartera.fiscal import repurchase_risk as _repurchase_risk
-from cartera.fiscal import simulate_sale as _simulate_sale
-from cartera.splits import cost_is_preserved as _cost_ok
-from cartera.splits import pending as _splits_pending
-from cartera.splits import preview as _splits_preview
 from cartera.plan import attention as _attention
 from cartera.plan import contribution_stats as _contrib_stats
 from cartera.plan import goal_progress as _goal_progress
 from cartera.plan import monthly_flows as _monthly_flows
+from cartera.positions import BASE_CCY
 from cartera.positions import compute as _compute_positions
-from cartera.returns import currency_split as _currency_split
-from cartera.exposure import by_economic_currency as _ccy_economic
-from cartera.exposure import by_quote_currency as _ccy_quote
 from cartera.returns import beta as _beta
 from cartera.returns import drawdown as _drawdown
 from cartera.returns import effective_n as _effective_n
 from cartera.returns import nav_series as _nav_series
 from cartera.returns import rebalance_with_cash as _rebalance
 from cartera.returns import sharpe as _sharpe
-from cartera.returns import volatility as _volatility
 from cartera.returns import twr as _twr
+from cartera.returns import volatility as _volatility
 from cartera.returns import xirr as _xirr
-from zones import (WEEKLY, BadSymbol, NoHistory, analyze, fetch_daily,
-                   safe_symbol, to_weekly)
-from zones.engine import VOL_W_DEFAULT
-from zones.target import compute as _compute_target
+from cartera.splits import cost_is_preserved as _cost_ok
+from cartera.splits import pending as _splits_pending
+from cartera.splits import preview as _splits_preview
+
 # The regime panel reuses its own builder + cache (import is side-effect-free;
 # its prewarm/run only fire under __main__, which we never trigger here).
 from regime.dashboard import CURATED as REGIME_CURATED
 from regime.dashboard import _get as regime_get
+from zones import WEEKLY, BadSymbol, NoHistory, analyze, fetch_daily, safe_symbol, to_weekly
+from zones.engine import VOL_W_DEFAULT
+from zones.target import compute as _compute_target
 
 app = Flask(__name__)
 # Long-lived static caching is only safe with content-addressed URLs, so the
@@ -558,7 +556,7 @@ def _build(symbol: str, vol_w: float, tf: str = "daily") -> dict:
          "drawdown": d, "trend_dev": e, "volatility": v,
          "climax": x}     # client derives conviction from this
         for t, c, s, z, st, rs, d, e, v, x in
-        zip(ts, close, score, zone, stretch, rsi, dd, td, vol, climax)
+        zip(ts, close, score, zone, stretch, rsi, dd, td, vol, climax, strict=True)
     ]
 
     # De paso, y sin coste: la cartera preguntará por esta misma zona.
@@ -912,7 +910,8 @@ def _yahoo_search(q: str, limit: int = 12) -> list:
         return hit[1]
     try:
         url = ("https://query2.finance.yahoo.com/v1/finance/search?q="
-               + urllib.parse.quote(q) + "&quotesCount=%d&newsCount=0&lang=es-ES&region=ES" % limit)
+               + urllib.parse.quote(q)
+               + f"&quotesCount={int(limit)}&newsCount=0&lang=es-ES&region=ES")
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=12) as r:
             quotes = json.load(r).get("quotes", [])
@@ -1202,7 +1201,7 @@ def _cartera_payload():
     with _cartera_conn() as c:
         cur = c.execute("SELECT id,date,ticker,name,kind,side,quantity,price,fee,note FROM movements ORDER BY date DESC, id DESC")
         cols = [d[0] for d in cur.description]
-        movs = [dict(zip(cols, r)) for r in cur.fetchall()]
+        movs = [dict(zip(cols, r, strict=True)) for r in cur.fetchall()]
     # Normalise on READ as well as on write: rows stored before the classifier
     # existed keep whatever Yahoo said that day, and `_positions` takes the type
     # from the most recent movement — so a single mislabelled entry re-badges the
@@ -1354,7 +1353,8 @@ def api_cartera_upload():
     with _cartera_conn() as c:
         seen = {}
         for r in c.execute("SELECT date,ticker,side,quantity,price FROM movements"):
-            k = _mov_key(dict(zip(("date", "ticker", "side", "quantity", "price"), r)))
+            k = _mov_key(dict(zip(("date", "ticker", "side", "quantity", "price"), r,
+                                  strict=True)))
             seen[k] = seen.get(k, 0) + 1
         fresh, dupes = [], []
         for r in rows:
@@ -1447,7 +1447,8 @@ def _cartera_returns(benchmark: str = "SPY", rango=None, desde=None, hasta=None)
     fechas = list(idx)
     # Convenio de `cartera.returns`: compra +, venta -, dividendo -. `flows` ya
     # trae compras en positivo y ventas en negativo; el dividendo se resta.
-    con_div = [float(f - d) for f, d in zip(r["flows"][i0:i1 + 1], r["divs"][i0:i1 + 1])]
+    con_div = [float(f - d) for f, d in zip(r["flows"][i0:i1 + 1],
+                                            r["divs"][i0:i1 + 1], strict=True)]
     sin_div = [float(f) for f in r["flows"][i0:i1 + 1]]
     vals = [float(v) for v in port]
 
@@ -1593,7 +1594,7 @@ def _cartera_correlacion(days: int = CORR_DAYS):
     if len(rets) < CORR_MIN_OBS:
         return {"n": len(abiertas), "matrix": [], "tickers": list(df.columns),
                 "eff_n_weights": None, "eff_n_corr": None,
-                "excluded": excluidas, "obs": int(len(rets)), "days": days,
+                "excluded": excluidas, "obs": len(rets), "days": days,
                 "why": f"sólo {len(rets)} sesiones en común; hacen falta {CORR_MIN_OBS}"}
 
     corr = rets.corr()
@@ -1626,7 +1627,7 @@ def _cartera_correlacion(days: int = CORR_DAYS):
             "eff_n_weights": (round(eff_w, 2) if eff_w is not None else None),
             "eff_n_corr": (round(eff_c, 2) if eff_c is not None else None),
             "most_correlated": peor,
-            "obs": int(len(rets)), "days": days, "excluded": excluidas}
+            "obs": len(rets), "days": days, "excluded": excluidas}
 
 
 @app.route("/api/cartera/correlacion")
@@ -1787,7 +1788,7 @@ def swing():
         req = urllib.request.Request(f"{ZONAS_V2_URL}/swing")
         with urllib.request.urlopen(req, timeout=ZONAS_V2_TIMEOUT) as r:
             body = r.read()
-    except Exception as exc:              # noqa: BLE001 — el detalle es el diagnóstico
+    except Exception as exc:
         return Response(
             "<h1>Swing intradía — servicio no disponible</h1>"
             f"<p>No he podido hablar con zonas-v2 en <code>{ZONAS_V2_URL}</code>: "
@@ -1832,7 +1833,7 @@ def api_cartera_edit(mid):
         if row is None:
             return jsonify({"error": "ese movimiento ya no existe"}), 404
         cols = ("id", "date", "ticker", "name", "kind", "side", "quantity", "price", "fee", "note")
-        cur = dict(zip(cols, row))
+        cur = dict(zip(cols, row, strict=True))
 
         upd = {}
         campo_es = {"quantity": "cantidad", "price": "precio", "fee": "comisión"}
@@ -2341,7 +2342,7 @@ def api_cartera_splits_resolver():
         cur = c.execute("SELECT id,date,ticker,side,quantity,price FROM movements "
                         "WHERE ticker=?", (tk,))
         cols = [x[0] for x in cur.description]
-        movs = [dict(zip(cols, r)) for r in cur.fetchall()]
+        movs = [dict(zip(cols, r, strict=True)) for r in cur.fetchall()]
 
     filas = _splits_preview(movs, split)
     if not filas:
@@ -2670,7 +2671,7 @@ def _reconstruct_portfolio(benchmark: str = "SPY"):
     with _cartera_conn() as c:
         cur = c.execute("SELECT date,ticker,side,quantity,price,fee FROM movements ORDER BY date")
         cols = [d[0] for d in cur.description]
-        movs = [dict(zip(cols, r)) for r in cur.fetchall()]
+        movs = [dict(zip(cols, r, strict=True)) for r in cur.fetchall()]
     movs = [m for m in movs if m["date"]]
     # Los dividendos salen del carril de la compraventa ANTES de cualquier
     # cuenta. Este bucle sólo sabe de dos cosas —títulos que entran y dinero que
@@ -2906,7 +2907,7 @@ def api_cartera_geo():
     it", which is the most misleading answer available.
     """
     clase = request.args.get("clase", "all")
-    if clase not in ("all",) + geo.ASSET_CLASSES:
+    if clase not in ("all", *geo.ASSET_CLASSES):
         return jsonify({"error": f"clase desconocida: {clase}"}), 400
     payload = _cartera_payload()
     open_pos = [p for p in payload["positions"] if p["qty"] > 1e-9]
@@ -2936,8 +2937,8 @@ def _prewarm() -> None:
     try:
         with _cartera_conn() as c:
             held = [r[0] for r in c.execute("SELECT DISTINCT ticker FROM movements")]
-        _prefetch(_close_series, held + ["SPY"])
-        _prefetch(_quote_meta, held + ["SPY"])
+        _prefetch(_close_series, [*held, "SPY"])
+        _prefetch(_quote_meta, [*held, "SPY"])
     except Exception:
         pass
     # Warm the ENCODED caches — the regime list first, since /screener and

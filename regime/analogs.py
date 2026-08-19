@@ -117,7 +117,7 @@ def conditional_stats(frame: pd.DataFrame, query: int = -1, method: str = "regim
     idx = _analog_indices(frame, q, method, k)
 
     out = {"method": method, "regime": frame["regime"].iloc[q],
-           "n_analogs": int(len(idx)), "horizons": {}}
+           "n_analogs": len(idx), "horizons": {}}
     for name, h in HORIZONS.items():
         adm = idx[idx + h <= q] if len(idx) else idx
         r = fret[h][adm]; r = r[np.isfinite(r)]
@@ -130,7 +130,7 @@ def conditional_stats(frame: pd.DataFrame, query: int = -1, method: str = "regim
             continue
         lo, hi = _block_boot_ci(r, block=h)
         out["horizons"][name] = {
-            "n": int(len(r)),
+            "n": len(r),
             "median": float(np.median(r)), "mean": float(np.mean(r)),
             "p10": float(np.percentile(r, 10)), "p90": float(np.percentile(r, 90)),
             "ci_lo": lo, "ci_hi": hi,

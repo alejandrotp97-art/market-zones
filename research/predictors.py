@@ -19,7 +19,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from research.data import AXES, SIGNAL_H, era_of
+from research.data import SIGNAL_H, era_of
 
 VARIANTS = ["A_discrete", "euclid_knn", "C_kernel", "B_mahalanobis"]
 K = 150

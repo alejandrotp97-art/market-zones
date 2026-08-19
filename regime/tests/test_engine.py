@@ -7,8 +7,15 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from regime import analyze
-from regime.regimes import (ALCISTA, CAPITULACION, CLIMAX, LATERAL, PANICO,
-                           classify_series, raw_regime)
+from regime.regimes import (
+    ALCISTA,
+    CAPITULACION,
+    CLIMAX,
+    LATERAL,
+    PANICO,
+    classify_series,
+    raw_regime,
+)
 
 
 def _frame(closes):
@@ -29,7 +36,7 @@ def test_engine_is_causal():
 
 
 def test_score_bounds_and_direction():
-    rng = np.random.default_rng(3)
+    np.random.default_rng(3)
     up = np.linspace(100, 400, 500)
     crash = np.linspace(400, 240, 120)
     frame, s = analyze(_frame(np.concatenate([up, crash])), min_periods=60)

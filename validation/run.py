@@ -13,7 +13,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from regime.analogs import conditional_stats, _forward, HORIZONS
+from regime.analogs import HORIZONS, _forward, conditional_stats
 from regime.dashboard import CURATED
 from validation import core
 
@@ -43,8 +43,8 @@ def shipped_scenarios(frame):
 def causality_check(sym="SPY"):
     """Hide the last 400 rows and confirm regime labels on the retained past are
     byte-identical — substantiates the causal claim empirically."""
-    from zones import fetch_daily
     from regime import analyze
+    from zones import fetch_daily
     df = fetch_daily(sym, years=core.YEARS)
     full, _ = analyze(df)
     cut = len(full) - 400

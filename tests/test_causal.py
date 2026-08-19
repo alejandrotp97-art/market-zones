@@ -19,10 +19,8 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from zones.engine import ZMIN_FULL, analyze
-from zones.indicators import (drawdown_score, stretch_score, trend_dev_score,
-                              volatility_score)
-from zones.normalize import (expanding_pct_rank, expanding_z_to_100, pct_rank,
-                             z_to_100)
+from zones.indicators import drawdown_score, stretch_score, volatility_score
+from zones.normalize import expanding_pct_rank, expanding_z_to_100, pct_rank, z_to_100
 
 
 def _series(n=2000, seed=5):

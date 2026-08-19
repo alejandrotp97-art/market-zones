@@ -14,8 +14,8 @@ import argparse
 import json
 import os
 
-from zones import analyze, fetch_daily
 from dashboard import _clean
+from zones import analyze, fetch_daily
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 

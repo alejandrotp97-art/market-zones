@@ -1,0 +1,67 @@
+# Reglas elegidas, no el catálogo entero.
+#
+# Un linter con todo activado sobre un proyecto que ya funciona produce
+# doscientos avisos, la mitad discutibles, y el resultado predecible es que se
+# silencie entero o se llene el código de `noqa`. Lo que se busca aquí es lo
+# contrario: pocas reglas, todas defendibles, y CERO excepciones — para que un
+# aviso nuevo signifique de verdad que algo va mal.
+line-length = 100
+target-version = "py311"          # el suelo que promete la GUIA, no el que corre
+
+[lint]
+select = [
+    "F",      # errores de verdad: nombres sin definir, variables e imports muertos
+    "E4",     # imports mal puestos
+    "E711", "E712", "E713", "E714",   # `== None`, `== True`, `not x in`, `not x is`
+    "E9",     # sintaxis y E999
+    "W",      # espacios en blanco al final, ficheros sin salto final
+    "I",      # orden de imports
+    "UP",     # sintaxis obsoleta para la versión de Python que se usa
+    "B",      # trampas conocidas: mutable por defecto, bucle que captura variable
+    "C4",     # comprensiones innecesarias
+    "RUF",    # las propias de ruff
+]
+
+ignore = [
+    # Este proyecto captura `Exception` a propósito en las fronteras de red y de
+    # disco, y siempre con un comentario que dice por qué: un fallo de Yahoo no
+    # puede tumbar una página, y una copia que no se puede hacer no debe
+    # impedir el resto. Esa decisión está documentada donde toca.
+    "BLE001",
+    # Mismo motivo: hay `try/except/pass` deliberados y explicados (chmod que no
+    # se puede aplicar, caché que no se puede rellenar).
+    "S110",
+    # `Optional[X]` frente a `X | None`: el código usa las dos formas y ninguna
+    # es incorrecta en 3.11+. Cambiarlas todas es ruido en el diff.
+    "UP045", "UP007",
+    # Desempaquetar el primer elemento con `[0]` se lee mejor que `next(iter(...))`
+    # en las tres o cuatro veces que aparece.
+    "RUF015",
+    # Los argumentos de función sin usar suelen ser parte de una firma que otro
+    # implementa (el contrato de `market`, los adaptadores).
+    "RUF059", "ARG002",
+    # Este código está escrito en español, con guiones largos y comillas
+    # angulares. RUF001/2/3 los marcan como «carácter unicode ambiguo», que es
+    # cierto en un fichero en inglés y falso aquí. Quitar la tipografía para
+    # callar al linter sería dejar que la herramienta escriba la prosa.
+    "RUF001", "RUF002", "RUF003",
+]
+
+[lint.per-file-ignores]
+# Los tests insertan la raíz en `sys.path` ANTES de importar el proyecto, así
+# que sus imports no pueden ir todos arriba. Es intencionado y necesario.
+"tests/*" = ["E402"]
+"regime/tests/*" = ["E402"]
+"*/tests/*" = ["E402"]
+# `zip(..., strict=True)` se ha aplicado donde las longitudes están garantizadas
+# Y hay tests que lo demuestran: `cartera/`, `dashboard.py`, `zones/`. En los
+# scripts de investigación no se exige, porque no están en el camino del dinero,
+# no tienen suite que lo respalde, y añadir `strict` a ciegas ahí convertiría un
+# truncado silencioso en una excepción sin que nadie lo haya comprobado.
+"analysis/*" = ["B905"]
+# Los cuadernos de investigación importan donde hace falta, junto al bloque que
+# lo usa: se leen de arriba abajo como un cuaderno, no como un módulo.
+"research/band_calibration/*" = ["B905", "E402"]
+"research/*" = ["B905"]
+"validation/*" = ["B905"]
+"regime/dashboard.py" = ["B905"]

@@ -6,14 +6,19 @@ aspecto de dato.
 """
 import os
 import sys
-from datetime import date
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
 
-from cartera.fiscal import (TRAMOS_AHORRO_2025, fifo_preview, loss_offset_note,
-                            repurchase_risk, simulate_sale, tax_on_gain)
+from cartera.fiscal import (
+    TRAMOS_AHORRO_2025,
+    fifo_preview,
+    loss_offset_note,
+    repurchase_risk,
+    simulate_sale,
+    tax_on_gain,
+)
 
 
 def lote(q, unit, fecha="2024-01-01"):

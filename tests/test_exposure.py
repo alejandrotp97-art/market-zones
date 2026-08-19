@@ -10,10 +10,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import pytest
 
-from cartera.exposure import (EUROZONA, by_economic_currency,
-                              by_quote_currency, moneda_de)
+from cartera.exposure import EUROZONA, by_economic_currency, by_quote_currency, moneda_de
 
 
 def pos(tk, ccy, mv, **kw):

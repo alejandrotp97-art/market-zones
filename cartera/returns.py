@@ -298,11 +298,11 @@ def xirr(flows, guess_lo=-0.999999, guess_hi=10.0, tol=1e-10, max_iter=300):
     # fuera del intervalo lo convertiría en un «no hay solución» que es
     # mentira. Quien lo pinta decide si tiene sentido anualizar tan poca
     # historia; este solucionador sólo tiene que encontrar la raíz.
-    hi = f_hi = None
+    hi = None
     for techo in (guess_hi, 100.0, 1e4, 1e6):
         v = npv(techo)
         if math.isfinite(v) and f_lo * v <= 0:
-            hi, f_hi = techo, v
+            hi = techo
             break
     if hi is None:
         return None
@@ -315,7 +315,7 @@ def xirr(flows, guess_lo=-0.999999, guess_hi=10.0, tol=1e-10, max_iter=300):
         if abs(f_mid) < 1e-9 or (hi - lo) < tol:
             return mid
         if f_lo * f_mid < 0:
-            hi, f_hi = mid, f_mid
+            hi = mid
         else:
             lo, f_lo = mid, f_mid
     return (lo + hi) / 2.0
@@ -519,7 +519,7 @@ def beta(nav_port, nav_bench):
     if n < 20:
         return None, None, n
     ma, mb = sum(a) / n, sum(b) / n
-    cov = sum((x - ma) * (y - mb) for x, y in zip(a, b)) / (n - 1)
+    cov = sum((x - ma) * (y - mb) for x, y in zip(a, b, strict=True)) / (n - 1)
     var_b = sum((y - mb) ** 2 for y in b) / (n - 1)
     var_a = sum((x - ma) ** 2 for x in a) / (n - 1)
     if var_b <= 1e-18 or var_a <= 1e-18:

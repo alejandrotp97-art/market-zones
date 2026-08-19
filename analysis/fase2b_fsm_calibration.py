@@ -6,12 +6,15 @@ risk-OFF. Measured across 8 assets, v1 vs v2, with no per-window tuning — the 
 change is structural (acute-spike gate on shocks, calm gate on Lateral).
 """
 import sys
-import numpy as np, pandas as pd
+
+import numpy as np
+import pandas as pd
+
 sys.path.insert(0, "/home/alex/bots/market-zones")
-from zones import fetch_daily
 from regime import analyze
-from regime.regimes import classify_series
 from regime import regimes as R
+from regime.regimes import classify_series
+from zones import fetch_daily
 
 ASSETS = ["SPY","QQQ","^RUT","^GDAXI","^N225","GLD","TLT","BTC-USD"]
 RISK_ON = {R.ALCISTA, R.SOBRECAL, R.RECUPERACION}

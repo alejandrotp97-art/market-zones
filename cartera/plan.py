@@ -31,8 +31,6 @@ terminado:
 """
 from __future__ import annotations
 
-import math
-
 # ── umbrales ──────────────────────────────────────────────────────────────
 # Un peso nunca cae exacto en su objetivo, así que sin banda muerta el panel
 # avisaría todos los días de todo y dejaría de leerse. Cinco puntos es lo que

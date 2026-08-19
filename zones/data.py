@@ -7,11 +7,11 @@ network — the scoring core never does.
 """
 from __future__ import annotations
 
+import datetime as dt
 import json
 import re
 import urllib.parse
 import urllib.request
-import datetime as dt
 
 import pandas as pd
 
@@ -85,7 +85,7 @@ def _parse_splits(events):
             ts = int(v.get("date") or 0)
             if den <= 0 or num <= 0 or not ts:
                 continue
-            out.append({"date": dt.datetime.fromtimestamp(ts, dt.timezone.utc)
+            out.append({"date": dt.datetime.fromtimestamp(ts, dt.UTC)
                         .date().isoformat(), "ratio": num / den})
         except (KeyError, TypeError, ValueError):
             continue
@@ -107,7 +107,7 @@ def fetch_daily(symbol: str, years: int = 25, drop_forming: bool = True) -> pd.D
     when `symbol` is not a ticker shape.
     """
     enc = safe_symbol(symbol)
-    now = int(dt.datetime.now(dt.timezone.utc).timestamp())
+    now = int(dt.datetime.now(dt.UTC).timestamp())
     p1 = now - years * 366 * 86400
     # `events=split` viaja en la MISMA respuesta y no cuesta una petición más.
     # La serie de precios no cambia por pedirlo —`quote.close` ya viene ajustada

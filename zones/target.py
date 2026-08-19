@@ -27,8 +27,15 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from .engine import (DAILY, VOL_W_DEFAULT, W_REDUCED, Windows, _full_weights,
-                     analyze, score_components)
+from .engine import (
+    DAILY,
+    VOL_W_DEFAULT,
+    W_REDUCED,
+    Windows,
+    _full_weights,
+    analyze,
+    score_components,
+)
 
 BUY_U, SELL_U = 20.0, 80.0            # Capitulación entry / Euforia entry
 
@@ -195,7 +202,7 @@ def compute(df: pd.DataFrame, symbol: str, vol_w: float = VOL_W_DEFAULT, *,
             return None
         lo, mid, hi = (float(np.nanquantile(m, q)) for q in (0.25, 0.50, 0.75))
         return {"lo": lo * ma_today, "mid": mid * ma_today, "hi": hi * ma_today,
-                "n": int(len(m)), "thr": used}
+                "n": len(m), "thr": used}
 
     a_buy, a_sell = analog(True), analog(False)
 

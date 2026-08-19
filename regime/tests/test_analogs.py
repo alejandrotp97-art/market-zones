@@ -50,6 +50,7 @@ def test_empty_analog_set_is_integer_indexed():
     Reachable whenever today's regime has never occurred before — it used to
     take the whole panel down with an IndexError."""
     import pandas as pd
+
     from regime.analogs import _analog_indices, conditional_stats
     n = 400
     rng = np.random.default_rng(0)
@@ -68,6 +69,7 @@ def test_horizon_needs_closed_forward_window():
     """An analogue whose forward window had not closed at q would answer 'what
     happened next?' with prices that, on day q, had not happened yet."""
     import pandas as pd
+
     from regime.analogs import HORIZONS, conditional_stats
     n = 900
     rng = np.random.default_rng(1)

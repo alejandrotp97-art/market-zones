@@ -19,8 +19,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from zones import fetch_daily
 from regime import analyze
+from zones import fetch_daily
 
 VAL_HORIZONS = {"1m": 21, "3m": 63, "6m": 126, "12m": 252, "24m": 504}
 MIN_ANALOG = 20
@@ -98,7 +98,7 @@ def walk_forward(frame) -> dict:
                 "lo": float(np.percentile(arr, 2.5)), "hi": float(np.percentile(arr, 97.5)),
                 "obs": float(fwd[t]), "base": base, "meanhist": float(np.mean(pool_all)),
                 "mom": (float(c[t] / c[t - h] - 1.0) if t - h >= 0 else float("nan")),
-                "pit": float(np.mean(arr <= fwd[t])), "nanalog": int(len(arr)),
+                "pit": float(np.mean(arr <= fwd[t])), "nanalog": len(arr),
             })
         out[hname] = recs
     return out
@@ -150,7 +150,7 @@ def calibration(recs) -> dict:
     # reliability by prediction deciles
     order = np.argsort(pred); k = 10
     bins = np.array_split(order, k)
-    rel = [{"pred": float(np.mean(pred[b])), "obs": float(np.mean(obs[b])), "n": int(len(b))}
+    rel = [{"pred": float(np.mean(pred[b])), "obs": float(np.mean(obs[b])), "n": len(b)}
            for b in bins if len(b)]
     # distributional calibration via PIT: empirical coverage vs nominal
     levels = [0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95]
@@ -221,7 +221,7 @@ def benjamini_hochberg(pvals, q=0.05):
     for rank, i in enumerate(order, 1):
         if pvals[i]["p"] <= q * rank / m:
             thresh = rank
-    survivors = set(order[i] for i in range(thresh))
+    survivors = {order[i] for i in range(thresh)}
     for rank, i in enumerate(order, 1):
         pvals[i]["bh_rank"] = rank
         pvals[i]["survives"] = i in survivors
@@ -248,7 +248,7 @@ def sensitivity(payload) -> dict:
     """Elasticity of Opportunity to +/-20% shocks in n_eff, IC width, excess.
     Operates on the shipped scenario rows (derived only)."""
     base_rows = []
-    for name, r in payload["scenarios"].items():
+    for _name, r in payload["scenarios"].items():
         if r.get("baseline") is None or r.get("excess") is None:
             continue
         base_rows.append({"excess": r["excess"], "n_eff": r["n_eff"],

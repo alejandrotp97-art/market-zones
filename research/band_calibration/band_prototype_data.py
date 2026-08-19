@@ -52,6 +52,7 @@ cal = pd.DataFrame(cal)
 
 # Spearman: ¿vol media ordena la perforación mediana igual?
 from scipy.stats import spearmanr
+
 rho_b, p_b = spearmanr(cal["avg_vol"], cal["med_b"], nan_policy="omit")
 rho_s, p_s = spearmanr(cal["avg_vol"], cal["med_s"], nan_policy="omit")
 

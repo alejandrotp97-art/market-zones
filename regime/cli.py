@@ -11,9 +11,9 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from zones import fetch_daily            # reuse the parent data adapter
 from regime import analyze
 from regime.analogs import HORIZONS, conditional_stats
+from zones import fetch_daily  # reuse the parent data adapter
 
 BAR = "─" * 58
 

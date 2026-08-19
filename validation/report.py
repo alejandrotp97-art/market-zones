@@ -310,7 +310,7 @@ idéntico. Todo este informe es análisis derivado y reproducible sobre el model
 
 def auto_conclusion(tl, skill, cov, slope, fdr, sens):
     parts = []
-    greens = sum(1 for v in tl.values() if v == "🟢")
+    sum(1 for v in tl.values() if v == "🟢")
     parts.append(f"El motor es {'causal y verificado' if tl['motor_causal']=='🟢' else 'de causalidad no confirmada'}, "
                  f"y la transparencia es alta.")
     if nn(cov):
@@ -332,8 +332,8 @@ def auto_conclusion(tl, skill, cov, slope, fdr, sens):
                      f"tras control de falsos positivos sobreviven {fdr.get('n_survive','?')} "
                      f"(esperadas por azar ≈ {fdr.get('expected_fp',0):.0f}), concentradas en horizontes largos.")
     if sens.get("dominant"):
-        parts.append(f"La puntuación es poco sensible a shocks de ±20% (elasticidades ≈ 0.02) y está gobernada por la "
-                     f"relación exceso/IC; el N efectivo casi no la mueve.")
+        parts.append("La puntuación es poco sensible a shocks de ±20% (elasticidades ≈ 0.02) y está gobernada por la "
+                     "relación exceso/IC; el N efectivo casi no la mueve.")
     parts.append("En conjunto: el motor es causal y transparente, y existe estructura transversal real a horizontes "
                  "largos; PERO como predictor de retorno o temporizador de mercado no supera a modelos ingenuos "
                  "(pierde frente a buy&hold en Sharpe) y sus intervalos son algo optimistas. "

@@ -10,7 +10,6 @@ o una pérdida de datos, no un error visible:
   * el resultado realizado se enseñaba con un solo criterio de coste sin decir
     cuál, y no es el que pide la declaración.
 """
-import json
 import os
 import sqlite3
 import sys

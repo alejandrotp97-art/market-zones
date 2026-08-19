@@ -13,6 +13,8 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import itertools
+
 from zones.engine import analyze
 from zones.target import BUY_U, SELL_U, compute, currency
 
@@ -63,7 +65,7 @@ def test_curve_is_monotone_up_to_the_vol_wiggle():
     t = compute(df, "TEST")
     ys = [p[1] for p in t["curve"]]
     # Volatility (10%, non-monotone by design) can dent one step; nothing more.
-    drops = sum(1 for a, b in zip(ys, ys[1:]) if b < a - 1e-6)
+    drops = sum(1 for a, b in itertools.pairwise(ys) if b < a - 1e-6)
     assert drops <= 1, f"curve not monotone: {drops} drops"
 
 

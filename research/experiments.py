@@ -8,8 +8,8 @@ from __future__ import annotations
 import numpy as np
 from scipy import stats
 
-from research.data import MIN_XS
 from research.criteria import COST_BPS
+from research.data import MIN_XS
 
 
 # ── E1 · Rank IC ─────────────────────────────────────────────────────────
@@ -31,7 +31,7 @@ def rank_ic(dfv):
     yrs = np.array([d.year for d in dates])
     eras = np.where(yrs < 2009, 0, np.where(yrs < 2017, 1, np.where(yrs < 2021, 2, 3)))
     era_pos = sum(1 for e in range(4) if (eras == e).any() and np.mean(ics[eras == e]) > 0)
-    return {"n": int(len(ics)), "rank_ic": float(np.mean(ics)), "ic_median": float(np.median(ics)),
+    return {"n": len(ics), "rank_ic": float(np.mean(ics)), "ic_median": float(np.median(ics)),
             "kendall": float(np.mean(taus)), "ic_std": float(np.std(ics, ddof=1)),
             "ic_tstat": tstat, "ic_hit": float(np.mean(ics > 0)),
             "ic_eras_positive": int(era_pos),
@@ -41,18 +41,18 @@ def rank_ic(dfv):
 # ── E2 · Portfolio by ranking ────────────────────────────────────────────
 def portfolio(dfv, q=0.2):
     d = dfv.dropna(subset=["obs_hold"])
-    rt, re, rb, dates, prev_top, prev_bot, turns = [], [], [], [], set(), set(), []
+    rt, re, rb, dates, prev_top, _prev_bot, turns = [], [], [], [], set(), set(), []
     for dt, g in d.groupby("date"):
         if len(g) < MIN_XS:
             continue
         g = g.sort_values("pred_excess")
-        n = len(g); k = max(1, int(round(n * q)))
+        n = len(g); k = max(1, round(n * q))
         bot = g.iloc[:k]; top = g.iloc[-k:]
         rt.append(top["obs_hold"].mean()); rb.append(bot["obs_hold"].mean())
         re.append(g["obs_hold"].mean()); dates.append(dt)
         ttop, tbot = set(top["sym"]), set(bot["sym"])
         turn = (len(ttop - prev_top) / max(1, len(ttop))) if prev_top else 1.0
-        turns.append(turn); prev_top, prev_bot = ttop, tbot
+        turns.append(turn); prev_top, _prev_bot = ttop, tbot
     rt, re, rb = np.array(rt), np.array(re), np.array(rb)
     turns = np.array(turns)
     if len(rt) < 12:
@@ -79,7 +79,7 @@ def portfolio(dfv, q=0.2):
     S["turnover"] = float(np.mean(turns))
     S["cost_drag_yr"] = float(np.mean(cost) * per_yr)
     S["monotonic"] = bool(np.mean(rt) >= np.mean(re) >= np.mean(rb))
-    S["n"] = int(len(rt))
+    S["n"] = len(rt)
     S["equity"] = {"top": np.cumprod(1 + rt_n).tolist(), "ew": np.cumprod(1 + re).tolist(),
                    "bottom": np.cumprod(1 + rb_n).tolist(),
                    "dates": [str(d.date()) for d in dates]}
@@ -107,7 +107,7 @@ def probability(dfv):
             pm, ym, w = float(np.mean(p[m])), float(np.mean(y[m])), float(np.mean(m))
             rel.append({"p": pm, "y": ym, "n": int(m.sum())})
             ece += w * abs(pm - ym)
-    return {"n": int(len(d)), "base_rate": base, "brier": brier, "brier_clim": brier_clim,
+    return {"n": len(d), "base_rate": base, "brier": brier, "brier_clim": brier_clim,
             "brier_skill": float(1 - brier / brier_clim) if brier_clim > 0 else float("nan"),
             "logloss": ll, "logloss_clim": ll_clim,
             "logloss_skill": float(1 - ll / ll_clim) if ll_clim and ll_clim > 0 else float("nan"),
@@ -127,7 +127,7 @@ def conformal(dfv, alpha=0.05):
     wid_b = float(np.mean(hi - lo))
     # pooled split-conformal in date order: use residuals strictly before current date
     uniq = np.unique(dates)
-    order = {dt: k for k, dt in enumerate(uniq)}
+    {dt: k for k, dt in enumerate(uniq)}
     by_date = {}
     for i in range(len(d)):
         by_date.setdefault(dates[i], []).append(i)
@@ -139,7 +139,7 @@ def conformal(dfv, alpha=0.05):
                 wid_c.append(2 * hw); n_c += 1
         for i in by_date[dt]:
             resid_buf.append(obs[i] - pred[i])
-    return {"n": int(len(d)),
+    return {"n": len(d),
             "cov_bootstrap": float(cov_b), "width_bootstrap": wid_b,
             "cov_conformal": (float(cov_c / n_c) if n_c else float("nan")),
             "width_conformal": (float(np.mean(wid_c)) if wid_c else float("nan")), "n_conformal": int(n_c)}

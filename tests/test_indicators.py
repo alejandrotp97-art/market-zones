@@ -7,9 +7,8 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from zones.indicators import drawdown_score, rsi_wilder, stretch_score, trend_dev_score
 from zones.normalize import pct_rank, z_to_100
-from zones.indicators import (drawdown_score, rsi_wilder, stretch_score,
-                             trend_dev_score)
 
 
 def test_z_to_100_bounds_and_center():

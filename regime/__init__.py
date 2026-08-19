@@ -3,7 +3,7 @@
 Score core = 3 causal axes {mayer, realized_vol, drawdown}, expanding-percentile
 normalized (no lookahead), equal-weight. Regime = region state machine.
 """
-from .engine import Reading, analyze
 from . import regimes
+from .engine import Reading, analyze
 
-__all__ = ["analyze", "Reading", "regimes"]
+__all__ = ["Reading", "analyze", "regimes"]

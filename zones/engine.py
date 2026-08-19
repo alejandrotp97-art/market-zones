@@ -26,8 +26,14 @@ import pandas as pd
 
 from . import classify as C
 from . import conviction as CV
-from .indicators import (drawdown_score, ema, rsi_wilder, stretch_score,
-                         trend_dev_score, volatility_score)
+from .indicators import (
+    drawdown_score,
+    ema,
+    rsi_wilder,
+    stretch_score,
+    trend_dev_score,
+    volatility_score,
+)
 
 # Base proportions of the four original legs. The volatility leg's weight is
 # tunable (`vol_weight`); the four are rescaled by (1 - vol_weight) so the whole

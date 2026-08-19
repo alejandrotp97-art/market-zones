@@ -7,7 +7,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from zones.classify import (NAMES, classify_series, dwell_days, raw_zone)
+from zones.classify import classify_series, dwell_days, raw_zone
 from zones.engine import analyze
 
 
@@ -57,7 +57,7 @@ def _frame(closes):
 
 def test_model_selection():
     # Legacy in-sample thresholds: 30 / 200 rows.
-    ins = dict(causal=False)
+    ins = {"causal": False}
     assert analyze(_frame(np.linspace(1, 2, 20)), **ins)[1].model == "none"
     assert analyze(_frame(np.linspace(1, 2, 100)), **ins)[1].model == "reduced"
     assert analyze(_frame(np.linspace(1, 2, 250)), **ins)[1].model == "full"

@@ -41,3 +41,7 @@ matplotlib>=3.7
 
 # Desarrollo
 pytest>=8.0
+
+# Linter. Va en requirements y no sólo en el CI para que se pueda pasar en
+# local antes de empujar, que es donde sale barato arreglar lo que encuentra.
+ruff>=0.16

@@ -13,7 +13,9 @@ For every candidate indicator, across a cross-asset panel, estimates:
 No lookahead is *deployed* here — this is a characterization of the feature set;
 out-of-sample stability is FASE 3.
 """
-import sys, time
+import sys
+import time
+
 import numpy as np
 import pandas as pd
 

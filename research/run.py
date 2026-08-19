@@ -14,13 +14,14 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from research import data as D
 from research import criteria as C
-from research.predictors import compute_signals, VARIANTS
+from research import data as D
 from research import experiments as E
+from research.predictors import VARIANTS, compute_signals
 
 HERE = os.path.dirname(__file__)
 FIGDIR = os.path.join(HERE, "figures")

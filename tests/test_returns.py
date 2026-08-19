@@ -15,9 +15,19 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
 
-from cartera.returns import (DAYS_YEAR, annualize, beta, currency_split,
-                             drawdown, effective_n, nav_series,
-                             rebalance_with_cash, sharpe, twr, volatility, xirr)
+from cartera.returns import (
+    annualize,
+    beta,
+    currency_split,
+    drawdown,
+    effective_n,
+    nav_series,
+    rebalance_with_cash,
+    sharpe,
+    twr,
+    volatility,
+    xirr,
+)
 
 
 # ── TIR contra el valor publicado ─────────────────────────────────────────
@@ -325,7 +335,6 @@ def test_un_tramo_no_medible_deja_el_nav_PLANO():
 def test_la_volatilidad_no_cuenta_los_dias_planos():
     """Un día plano es ausencia de dato, no un 0% de variación. Contarlo
     hundiría la desviación típica hacia abajo."""
-    import math
     base = [1.0]
     for _ in range(60):
         base.append(base[-1] * 1.01)

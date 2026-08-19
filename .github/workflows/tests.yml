@@ -59,6 +59,14 @@ jobs:
       - name: Versiones
         run: pip freeze
 
+      # Antes que los tests: si algo no compila o hay un nombre sin definir, el
+      # linter lo dice en dos segundos y con el fichero y la línea, en vez de
+      # aparecer como un error de importación a mitad de la suite.
+      - name: Linter
+        run: |
+          pip install ruff
+          ruff check .
+
       - name: Tests
         run: pytest
 

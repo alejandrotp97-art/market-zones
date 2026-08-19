@@ -29,7 +29,9 @@ def main() -> None:
         # Both are the caller's problem, not a crash: a symbol that is not a
         # ticker shape, or one Yahoo prices but will not chart.
         print(f"{BAR}\n {e}\n{BAR}", file=sys.stderr)
-        raise SystemExit(2)
+        # `from None` a propósito: quien usa la línea de comandos ve el mensaje
+        # que le hemos escrito, no un traceback de urllib debajo.
+        raise SystemExit(2) from None
     if args.since:
         df = df[df["date"] >= args.since].reset_index(drop=True)
     frame, s = analyze(df)
