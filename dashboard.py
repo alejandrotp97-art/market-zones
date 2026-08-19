@@ -52,7 +52,12 @@ from cartera.parsing import symbol_isin as _symbol_isin
 from cartera.positions import BASE_CCY
 from cartera.positions import compute as _compute_positions
 from cartera.returns import currency_split as _currency_split
+from cartera.returns import drawdown as _drawdown
 from cartera.returns import effective_n as _effective_n
+from cartera.returns import nav_series as _nav_series
+from cartera.returns import rebalance_with_cash as _rebalance
+from cartera.returns import sharpe as _sharpe
+from cartera.returns import volatility as _volatility
 from cartera.returns import twr as _twr
 from cartera.returns import xirr as _xirr
 from zones import (WEEKLY, BadSymbol, NoHistory, analyze, fetch_daily,
@@ -845,6 +850,9 @@ def _cartera_conn():
     # podrían declarar comisiones distintas y la cartera no sabría cuál creer.
     c.execute("""CREATE TABLE IF NOT EXISTS instrument_meta(
         ticker TEXT PRIMARY KEY, ter REAL)""")
+    meta = {r[1] for r in c.execute("PRAGMA table_info(instrument_meta)")}
+    if "target" not in meta:
+        c.execute("ALTER TABLE instrument_meta ADD COLUMN target REAL")
     return c
 
 
@@ -1165,10 +1173,19 @@ def _cartera_payload():
         m["kind"] = _instrument_kind(m.get("ticker"), m.get("kind"))
     positions = _positions(movs)
     with _cartera_conn() as c:
-        ters = {t: v for t, v in c.execute("SELECT ticker, ter FROM instrument_meta")
-                if v is not None}
+        meta = {t: {"ter": ter, "target": tgt}
+                for t, ter, tgt in c.execute("SELECT ticker, ter, target FROM instrument_meta")}
     for p in positions:
-        p["ter"] = ters.get(p["ticker"])
+        m = meta.get(p["ticker"]) or {}
+        p["ter"] = m.get("ter")
+        p["target"] = m.get("target")
+        # Cuánto ha aportado ESTA posición al resultado, en euros. No es el
+        # peso ni el porcentaje de subida: una posición del 5% que se dobló ha
+        # hecho más dinero que una del 40% que subió un 2%, y eso no se deducía
+        # de ninguna de las columnas que ya había.
+        piezas = [p.get("unreal"), p.get("realized"), p.get("income")]
+        p["contribution"] = (round(sum(x for x in piezas if x is not None), 2)
+                             if any(x is not None for x in piezas) else None)
         # Coste anual que se lleva la gestora del valor de HOY. Es el único
         # coste que no se ve nunca en un extracto: no se cobra, se descuenta del
         # valor liquidativo. Por eso es el que hay que escribir en una pantalla.
@@ -1363,7 +1380,7 @@ def api_cartera_export():
     return resp
 
 
-def _cartera_returns(benchmark: str = "SPY"):
+def _cartera_returns(benchmark: str = "SPY", rango=None, desde=None, hasta=None):
     """Rentabilidad de la cartera: TWR, TIR y desglose por año.
 
     Se calcula sobre la reconstrucción a resolución DIARIA, no sobre los puntos
@@ -1383,39 +1400,69 @@ def _cartera_returns(benchmark: str = "SPY"):
         return {"twr": None, "tir": None, "empty": True,
                 "benchmark_ticker": benchmark, "base": BASE_CCY}
 
-    idx, port = r["idx"], r["port"]
+    i0, i1 = _resolver_ventana(r["idx"], rango, desde, hasta)
+    if i1 - i0 < 2:
+        i0, i1 = 0, len(r["idx"]) - 1
+        rango = "all"
+    idx = r["idx"][i0:i1 + 1]
+    port = r["port"][i0:i1 + 1]
     fechas = list(idx)
     # Convenio de `cartera.returns`: compra +, venta -, dividendo -. `flows` ya
     # trae compras en positivo y ventas en negativo; el dividendo se resta.
-    con_div = [float(f - d) for f, d in zip(r["flows"], r["divs"])]
-    sin_div = [float(f) for f in r["flows"]]
+    con_div = [float(f - d) for f, d in zip(r["flows"][i0:i1 + 1], r["divs"][i0:i1 + 1])]
+    sin_div = [float(f) for f in r["flows"][i0:i1 + 1]]
     vals = [float(v) for v in port]
 
     t_total = _twr(vals, con_div, fechas)
     t_precio = _twr(vals, sin_div, fechas)
 
     # TIR: convenio de caja de quien invierte. Sale de su bolsillo = negativo.
+    # En una ventana, el capital que ya había el primer día se trata como una
+    # compra de ese día: es lo que "costó" tener la cartera al abrir el tramo.
+    # Sin eso, un rango de tres meses tendría rentabilidad infinita, porque
+    # habría cobros sin ninguna salida que los pagara.
     cf = []
-    for i, (fl, dv) in enumerate(zip(r["flows"], r["divs"])):
-        neto = -float(fl) + float(dv)
+    if i0 > 0 and vals and vals[0] > 1e-9:
+        cf.append((fechas[0].date(), -vals[0]))
+    arranque = 1 if i0 > 0 else 0
+    for k in range(arranque, len(fechas)):
+        neto = -float(r["flows"][i0 + k]) + float(r["divs"][i0 + k])
         if abs(neto) > 1e-9:
-            cf.append((fechas[i].date(), neto))
+            cf.append((fechas[k].date(), neto))
     if vals and vals[-1] > 1e-9:
         cf.append((fechas[-1].date(), vals[-1]))   # el valor de hoy, como cobro final
     tir = _xirr(cf)
 
+    # Caída máxima sobre el ÍNDICE DE RENDIMIENTO, nunca sobre los euros: el
+    # valor en euros sube cuando se aporta, y aportar no es recuperarse.
+    nav = _nav_series(vals, con_div)
+    caida = _drawdown(nav, fechas)
+    vol = _volatility(nav)
+
     bench = None
     if r["bench_val"] is not None:
-        bv = [float(v) for v in r["bench_val"]]
-        bench = _twr(bv, sin_div, fechas)
+        # El índice se compara sobre el MISMO tramo, resembrado igual que en el
+        # gráfico: si no, tres meses de cartera irían contra una posición del
+        # índice abierta hace años.
+        _i, _p, _inv, bval = _rebasar(r, i0, i1)
+        if bval is not None:
+            bench = _twr([float(v) for v in bval], sin_div, fechas)
 
-    aportado = float(sum(f for f in r["flows"] if f > 0))
-    retirado = float(-sum(f for f in r["flows"] if f < 0))
-    dividendos = float(sum(r["divs"]))
+    aportado = float(sum(f for f in r["flows"][i0:i1 + 1] if f > 0))
+    retirado = float(-sum(f for f in r["flows"][i0:i1 + 1] if f < 0))
+    dividendos = float(sum(r["divs"][i0:i1 + 1]))
     dias = t_total.get("days") or 0
+    anual = t_total.get("annualized")
     return {
         "empty": False,
         "twr": t_total, "twr_price_only": t_precio, "tir": tir,
+        "drawdown": caida, "volatility": vol,
+        # El tipo sin riesgo va EXPLÍCITO: un Sharpe sin decir contra qué se
+        # calcula no se puede comparar con ningún otro, y el cero por defecto
+        # de casi todas las pantallas no está escrito en ninguna parte.
+        "sharpe": _sharpe(anual, vol, 0.0), "risk_free": 0.0,
+        "range": (rango or "all"), "rebased": i0 > 0,
+        "from": str(idx[0])[:10], "to": str(idx[-1])[:10],
         # La TIR ya es una tasa ANUAL, así que por debajo de un año es la misma
         # extrapolación que `annualize` se niega a hacer. Una sola bandera para
         # las dos cifras, para que no puedan discrepar.
@@ -1550,7 +1597,9 @@ def api_cartera_correlacion():
 def api_cartera_rendimiento():
     bench = request.args.get("benchmark", "SPY")
     try:
-        return _json_response(_cartera_returns(bench), max_age=0)
+        return _json_response(_cartera_returns(
+            bench, rango=request.args.get("range"),
+            desde=request.args.get("from"), hasta=request.args.get("to")), max_age=0)
     except Exception as e:
         return jsonify({"error": str(e)}), 502
 
@@ -1816,6 +1865,80 @@ def api_cartera_ter():
     return jsonify(_cartera_payload())
 
 
+@app.route("/api/cartera/objetivo", methods=["POST"])
+def api_cartera_objetivo():
+    """Peso objetivo de un instrumento, en % de la cartera.
+
+    Vive en la misma tabla que el TER porque es lo mismo: una decisión sobre el
+    INSTRUMENTO que no se puede deducir de los movimientos. Los objetivos no
+    tienen que sumar 100 exacto — el reparto los normaliza — porque exigirlo
+    sería pedir una aritmética que nadie hace a mano.
+    """
+    d = request.get_json(force=True, silent=True) or {}
+    tk = str(d.get("ticker", "")).strip().upper()
+    if not tk:
+        return jsonify({"error": "falta el instrumento"}), 400
+    raw = d.get("target")
+    if raw in (None, ""):
+        tgt = None
+    else:
+        tgt = _num(raw)
+        if tgt is None or tgt < 0 or tgt > 100:
+            return jsonify({"error": "el peso objetivo va en % de la cartera (0–100)"}), 400
+    with _cartera_conn() as c:
+        c.execute("INSERT INTO instrument_meta(ticker,target) VALUES(?,?) "
+                  "ON CONFLICT(ticker) DO UPDATE SET target=excluded.target", (tk, tgt))
+        # Una fila que ya no dice nada se borra: si no, la tabla acumula
+        # instrumentos fantasma que nadie volverá a mirar.
+        c.execute("DELETE FROM instrument_meta WHERE ter IS NULL AND target IS NULL")
+    return jsonify(_cartera_payload())
+
+
+@app.route("/api/cartera/rebalanceo")
+def api_cartera_rebalanceo():
+    """Qué comprar con una aportación para acercarse a los pesos objetivo.
+
+    SIN VENDER NADA, y no por comodidad: en España cada venta con plusvalía es
+    un hecho imponible, así que rebalancear vendiendo lo que sobra paga
+    impuestos hoy para cuadrar unos decimales de peso. Comprar lo que falta con
+    dinero nuevo llega al mismo sitio sin pasar por Hacienda.
+    """
+    try:
+        cash = float(request.args.get("cash", 0) or 0)
+    except (TypeError, ValueError):
+        cash = 0.0
+    p = _cartera_payload()
+    abiertas = [x for x in p["positions"] if x["qty"] > 1e-9 and x.get("market_value")]
+    actual = {x["ticker"]: x["market_value"] for x in abiertas}
+    objetivos = {x["ticker"]: x["target"] for x in abiertas if x.get("target")}
+    total = sum(actual.values())
+    filas = []
+    if objetivos and total > 0:
+        suma_obj = sum(objetivos.values())
+        for x in abiertas:
+            tgt = objetivos.get(x["ticker"])
+            if tgt is None:
+                continue
+            obj_norm = tgt / suma_obj * 100
+            actual_pct = x["market_value"] / total * 100
+            filas.append({"ticker": x["ticker"], "name": x.get("name") or x["ticker"],
+                          "kind": x.get("kind") or "",
+                          "now_pct": round(actual_pct, 2), "target_pct": round(obj_norm, 2),
+                          "drift_pp": round(actual_pct - obj_norm, 2),
+                          "drift_eur": round(x["market_value"] - obj_norm / 100 * total, 2)})
+        filas.sort(key=lambda r: r["drift_pp"])
+    compras = _rebalance(actual, objetivos, cash) if cash > 0 else {}
+    sin_objetivo = [x["ticker"] for x in abiertas if not x.get("target")]
+    return _json_response({
+        "rows": filas, "buys": compras, "cash": cash,
+        "total": round(total, 2),
+        "targets_sum": round(sum(objetivos.values()), 2) if objetivos else 0.0,
+        # Las posiciones sin objetivo NO se reparten y NO se cuentan como cero:
+        # que algo no tenga peso asignado significa que nadie ha decidido, no
+        # que deba desaparecer de la cartera.
+        "untargeted": sin_objetivo, "base": BASE_CCY}, max_age=0)
+
+
 @app.route("/api/cartera/clear", methods=["POST"])
 def api_cartera_clear():
     with _cartera_conn() as c:
@@ -1885,7 +2008,105 @@ def _ffill_on(series, idx):
     return series.reindex(series.index.union(idx)).sort_index().ffill().reindex(idx).to_numpy(float)
 
 
-def _cartera_history(benchmark: str = "SPY", max_points: int = 800):
+# Los rangos del selector. `ytd` no es un número de días: es "desde el 1 de
+# enero", y resolverlo como 365 días daría otra cosa cada día del año.
+RANGOS = {"1m": 30, "3m": 91, "6m": 182, "1y": 365, "3y": 1095, "5y": 1825}
+
+
+def _resolver_ventana(idx, rango=None, desde=None, hasta=None):
+    """(i0, i1) sobre `idx`, o (0, len-1) para todo.
+
+    Las fechas se resuelven contra el ÚLTIMO día de la serie y no contra el
+    reloj: si Yahoo aún no ha publicado la barra de hoy, un "1 mes" medido
+    desde el reloj empezaría un día antes que el que se ve en la gráfica, y el
+    primer punto no coincidiría con el borde del rango.
+    """
+    n = len(idx)
+    if n == 0:
+        return 0, 0
+    fin = idx[-1]
+    ini = None
+    if desde:
+        try:
+            ini = pd.to_datetime(desde)
+        except Exception:
+            ini = None
+    if ini is None and rango:
+        r = str(rango).lower()
+        if r == "ytd":
+            ini = pd.Timestamp(year=fin.year, month=1, day=1)
+        elif r in RANGOS:
+            ini = fin - pd.Timedelta(days=RANGOS[r])
+    if hasta:
+        try:
+            fin = min(fin, pd.to_datetime(hasta))
+        except Exception:
+            pass
+    i1 = int(np.clip(idx.searchsorted(fin, side="right") - 1, 0, n - 1))
+    if ini is None:
+        return 0, i1
+    # El primer punto es el último cierre ESTRICTAMENTE ANTERIOR al inicio del
+    # tramo. Para medir lo que hizo enero hace falta el cierre del 31 de
+    # diciembre: sin él, el primer día de enero no tiene contra qué medirse y su
+    # rendimiento se pierde. `side="left"` y no `"right"` porque cuando la fecha
+    # de inicio CAE en día hábil —el 1 de enero lo es en media Europa— `"right"`
+    # se planta encima de ella en vez de en el cierre anterior, y el primer día
+    # del tramo volvía a quedarse sin referencia.
+    #
+    # De paso, "1 año" abarca de verdad 365 días o más, y no 364, que era justo
+    # el umbral por debajo del cual el panel se niega a anualizar — y dejaba el
+    # preset de un año entero sin cifra anual.
+    i0 = int(np.clip(idx.searchsorted(ini, side="left") - 1, 0, i1))
+    return i0, i1
+
+
+def _rebasar(r, i0, i1):
+    """Recorta la reconstrucción a [i0, i1] y REBASA las dos líneas de referencia.
+
+    Recortar sin más sería cosmético y engañoso. La línea del índice se
+    construye desde el PRIMER movimiento de la cartera: enseñar tres meses de
+    cartera contra una posición del índice sembrada hace dos años haría que la
+    diferencia visible fuese casi toda historia vieja arrastrada.
+
+    Lo que hace una ventana honesta:
+
+      * el índice se RESIEMBRA el primer día del tramo, comprando con el valor
+        que la cartera tenía ese día, y a partir de ahí recibe los mismos
+        flujos que la cartera dentro del tramo;
+      * "invertido" pasa a ser el capital que había al abrir la ventana más lo
+        aportado dentro, de forma que arranca pegado a la cartera y el hueco
+        entre las dos líneas es exactamente lo ganado EN ESE TRAMO.
+
+    Las tres líneas salen del mismo punto, que es lo que espera cualquiera que
+    elige un rango.
+    """
+    idx = r["idx"][i0:i1 + 1]
+    port = r["port"][i0:i1 + 1]
+    flujo = r["flows"][i0:i1 + 1]
+    if i0 == 0:
+        return idx, port, r["invested"][i0:i1 + 1], (
+            None if r["bench_val"] is None else r["bench_val"][i0:i1 + 1])
+
+    # El flujo del día i0 ya está dentro de port[i0], así que no vuelve a sumar.
+    aport = np.concatenate([[0.0], np.cumsum(flujo[1:])]) if len(flujo) > 1 else np.zeros(1)
+    invested = port[0] + aport
+
+    bench = None
+    bp = r.get("bprice_eur")
+    if bp is not None:
+        bp = bp[i0:i1 + 1]
+        if np.isfinite(bp[0]) and bp[0] > 0:
+            part = np.zeros(len(bp))
+            part[0] = port[0] / bp[0]
+            for k in range(1, len(bp)):
+                extra = (flujo[k] / bp[k]) if (np.isfinite(bp[k]) and bp[k] > 0) else 0.0
+                part[k] = part[k - 1] + extra
+            bench = part * bp
+    return idx, port, invested, bench
+
+
+def _cartera_history(benchmark: str = "SPY", max_points: int = 800,
+                     rango=None, desde=None, hasta=None):
     """El gráfico: la misma reconstrucción, submuestreada a `max_points`.
 
     El submuestreo es SÓLO para pintar. Cualquier cuenta —rentabilidad, riesgo—
@@ -1896,8 +2117,11 @@ def _cartera_history(benchmark: str = "SPY", max_points: int = 800):
     r = _reconstruct_portfolio(benchmark)
     if r.get("empty"):
         return r["payload"]
-    idx, port, invested = r["idx"], r["port"], r["invested"]
-    bench_val = r["bench_val"]
+    i0, i1 = _resolver_ventana(r["idx"], rango, desde, hasta)
+    if i1 - i0 < 1:                      # ventana sin dos puntos: no hay línea
+        i0, i1 = 0, len(r["idx"]) - 1
+        rango = "all"
+    idx, port, invested, bench_val = _rebasar(r, i0, i1)
     step = max(1, len(idx) // max_points)
     sl = slice(None, None, step)
 
@@ -1909,6 +2133,12 @@ def _cartera_history(benchmark: str = "SPY", max_points: int = 800):
         "portfolio": clean(port), "invested": clean(invested),
         "benchmark": (clean(bench_val) if bench_val is not None else None),
         "benchmark_ticker": benchmark, "base": BASE_CCY,
+        "range": (rango or "all"),
+        # Un tramo recortado lleva el índice RESEMBRADO en su primer día, así
+        # que el cliente tiene que poder decir que lo que compara empieza ahí y
+        # no en la primera compra de la cartera.
+        "rebased": i0 > 0,
+        "first": str(r["idx"][0])[:10], "last": str(r["idx"][-1])[:10],
         # Which holdings this chart does NOT represent, so the UI can say so
         # instead of drawing a shortfall that is really a missing data feed.
         "excluded": r["excluded"], "covered": not r["excluded"],
@@ -2089,7 +2319,8 @@ def _reconstruct_portfolio(benchmark: str = "SPY"):
         div_c[pos] += (m["quantity"] * m["price"] - (m["fee"] or 0.0)) * rate
 
     return {"empty": False, "idx": idx, "port": port, "invested": invested,
-            "bench_val": bench_val, "flows": inv_c, "divs": div_c,
+            "bench_val": bench_val, "bprice_eur": bprice_eur,
+            "flows": inv_c, "divs": div_c,
             "excluded": excluded, "proxied": proxied, "refused": refused,
             "tickers": tickers}
 
@@ -2098,7 +2329,9 @@ def _reconstruct_portfolio(benchmark: str = "SPY"):
 def api_cartera_history():
     bench = request.args.get("benchmark", "SPY")
     try:
-        return _json_response(_cartera_history(bench), max_age=0)
+        return _json_response(_cartera_history(
+            bench, rango=request.args.get("range"),
+            desde=request.args.get("from"), hasta=request.args.get("to")), max_age=0)
     except Exception as e:
         return jsonify({"error": str(e)}), 502
 

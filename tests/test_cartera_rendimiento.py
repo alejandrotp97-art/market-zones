@@ -240,3 +240,145 @@ def test_con_pocas_sesiones_en_comun_no_se_publica_una_correlacion(libro, monkey
 
     assert c["eff_n_corr"] is None
     assert "sesiones en común" in c["why"]
+
+
+# ── temporalidades: recortar no basta, hay que resembrar ──────────────────
+def _libro_largo(cli, monkeypatch, n=800):
+    serie = _serie("2023-01-02", [100 * (1.0008 ** i) for i in range(n)])
+    monkeypatch.setattr(D, "_close_series", lambda t: serie)
+    monkeypatch.setattr(D, "_quote_meta", lambda t: (100.0, "EUR"))
+    monkeypatch.setattr(D, "_prefetch", lambda fn, ts: None)
+    _post(cli, ticker="AAA", side="buy", quantity=10, price=100, date="2023-01-02")
+    return serie
+
+
+def test_una_ventana_resiembra_el_indice_en_su_primer_dia(libro, monkeypatch):
+    """Recortar el array sin más compararía tres meses de cartera contra una
+    posición del índice sembrada hace dos años: la diferencia visible sería
+    casi toda historia vieja arrastrada, no lo que ha pasado en el tramo."""
+    _libro_largo(libro, monkeypatch)
+
+    h = D._cartera_history("AAA", rango="3m")
+
+    assert h["rebased"] is True
+    # Las tres líneas parten del MISMO punto el primer día del tramo.
+    assert h["portfolio"][0] == pytest.approx(h["invested"][0], abs=0.02)
+    assert h["portfolio"][0] == pytest.approx(h["benchmark"][0], abs=0.02)
+
+
+def test_sin_ventana_no_se_resiembra_nada(libro, monkeypatch):
+    """OJO al montar el caso: el PRIMER día invertido y cartera coinciden por
+    definición si se compró al precio de cierre. Lo que distingue una serie sin
+    resembrar es que «invertido» se queda plano en el capital aportado mientras
+    la cartera se mueve con el mercado."""
+    _libro_largo(libro, monkeypatch)
+    h = D._cartera_history("AAA")
+    assert h["rebased"] is False
+    assert h["invested"][-1] == pytest.approx(h["invested"][0], abs=0.02)
+    assert h["portfolio"][-1] > h["invested"][-1] * 1.1
+
+
+def test_el_tramo_empieza_en_el_cierre_ANTERIOR(libro, monkeypatch):
+    """Para medir lo que hizo enero hace falta el cierre del 31 de diciembre.
+    Sin él, el primer día del tramo no tiene contra qué medirse y su
+    rendimiento se pierde — y «1 año» abarcaría 364 días, justo por debajo del
+    umbral a partir del cual el panel anualiza."""
+    _libro_largo(libro, monkeypatch)
+    r = D._cartera_returns("AAA", rango="1y")
+    assert r["twr"]["days"] >= 365
+    assert r["annualizable"] is True
+
+
+def test_en_una_ventana_corta_no_se_anualiza(libro, monkeypatch):
+    _libro_largo(libro, monkeypatch)
+    r = D._cartera_returns("AAA", rango="3m")
+    assert r["annualizable"] is False
+    assert r["twr"]["annualized"] is None
+
+
+def test_la_tir_de_una_ventana_cuenta_el_capital_que_YA_habia(libro, monkeypatch):
+    """En un tramo, el capital del primer día se trata como una compra de ese
+    día: es lo que costó tener la cartera al abrirlo. Sin eso habría cobros sin
+    ninguna salida que los pagara y la TIR se dispararía."""
+    _libro_largo(libro, monkeypatch)
+    r = D._cartera_returns("AAA", rango="6m")
+    assert r["tir"] is not None
+    assert -0.9 < r["tir"] < 5.0                 # una tasa, no un disparate
+
+
+def test_ytd_arranca_en_el_cierre_del_ano_anterior(libro, monkeypatch):
+    _libro_largo(libro, monkeypatch)
+    r = D._cartera_returns("AAA", rango="ytd")
+    assert r["from"][:4] == str(int(r["to"][:4]) - 1)
+
+
+def test_una_ventana_sin_dos_puntos_cae_a_todo(libro, monkeypatch):
+    """Una fecha fuera de rango no puede dejar el gráfico en blanco."""
+    _libro_largo(libro, monkeypatch)
+    h = D._cartera_history("AAA", desde="2099-01-01")
+    assert h["range"] == "all" and len(h["dates"]) > 2
+
+
+# ── caída máxima ──────────────────────────────────────────────────────────
+def test_la_caida_se_mide_sobre_el_rendimiento_y_no_sobre_el_saldo(libro, monkeypatch):
+    """Una aportación sube el saldo y no recupera nada. Si la caída saliera de
+    los euros, la transferencia la daría por superada."""
+    serie = _serie("2024-01-01", [100, 100, 70, 70, 70])
+    monkeypatch.setattr(D, "_close_series", lambda t: serie)
+    monkeypatch.setattr(D, "_quote_meta", lambda t: (100.0, "EUR"))
+    monkeypatch.setattr(D, "_prefetch", lambda fn, ts: None)
+    _post(libro, ticker="AAA", side="buy", quantity=10, price=100, date="2024-01-01")
+    _post(libro, ticker="AAA", side="buy", quantity=10, price=70, date="2024-01-04")
+
+    r = D._cartera_returns("AAA")
+
+    assert r["drawdown"]["max"] == pytest.approx(-0.30, abs=1e-6)
+    assert r["drawdown"]["recovered"] is None
+    assert r["drawdown"]["at_high"] is False
+
+
+# ── rebalanceo ────────────────────────────────────────────────────────────
+def test_la_aportacion_va_a_lo_que_esta_por_debajo(libro):
+    _post(libro, ticker="AAA", side="buy", quantity=80, price=100)
+    _post(libro, ticker="BBB", side="buy", quantity=20, price=100)
+    for tk, tgt in (("AAA", 50), ("BBB", 50)):
+        libro.post("/api/cartera/objetivo", json={"ticker": tk, "target": tgt},
+                   headers={D.CSRF_HEADER: "1"})
+
+    d = libro.get("/api/cartera/rebalanceo?cash=1000").get_json()
+
+    assert d["buys"] == {"BBB": 1000.0}
+    fila = {r["ticker"]: r for r in d["rows"]}
+    assert fila["AAA"]["drift_pp"] > 0 and fila["BBB"]["drift_pp"] < 0
+
+
+def test_una_posicion_sin_objetivo_no_se_cuenta_como_cero(libro):
+    """Que nadie haya decidido su peso no significa que deba desaparecer de la
+    cartera. Se queda fuera del reparto y se dice cuál es."""
+    _post(libro, ticker="AAA", side="buy", quantity=50, price=100)
+    _post(libro, ticker="BBB", side="buy", quantity=50, price=100)
+    libro.post("/api/cartera/objetivo", json={"ticker": "AAA", "target": 100},
+               headers={D.CSRF_HEADER: "1"})
+
+    d = libro.get("/api/cartera/rebalanceo?cash=500").get_json()
+
+    assert d["untargeted"] == ["BBB"]
+    assert "BBB" not in d["buys"]
+
+
+def test_un_objetivo_fuera_de_rango_se_rechaza(libro):
+    _post(libro, ticker="AAA", side="buy", quantity=10, price=100)
+    r = libro.post("/api/cartera/objetivo", json={"ticker": "AAA", "target": 140},
+                   headers={D.CSRF_HEADER: "1"})
+    assert r.status_code == 400
+
+
+# ── quién ha puesto el dinero ─────────────────────────────────────────────
+def test_la_contribucion_suma_las_tres_piezas_de_cada_posicion(libro):
+    _post(libro, ticker="AAA", side="buy", quantity=10, price=100, date="2024-01-01")
+    _post(libro, ticker="AAA", side="div", price=25, date="2024-02-01")
+    p = _post(libro, ticker="AAA", side="sell", quantity=4, price=110, date="2024-03-01")
+
+    pos = p["positions"][0]
+    assert pos["contribution"] == pytest.approx(
+        pos["unreal"] + pos["realized"] + pos["income"], abs=0.01)
