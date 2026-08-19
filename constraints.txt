@@ -21,21 +21,24 @@
 # ATENCIÓN: en este servidor el servicio NO usa un venv propio — reutiliza el de
 # btc-poly, compartido por ~60 servicios, varios de trading REAL. NO ejecutes un
 # `pip install` contra ese venv para cuadrarlo con este fichero: actualizar
-# pandas ahí le cambia el suelo a bots que mueven dinero. Este fichero está para
-# LEERLO y para instalaciones nuevas, no para imponerlo sobre lo que ya corre.
+# AVISO HISTÓRICO, ya resuelto: este panel corría sobre el venv de btc-poly,
+# compartido por 105 servicios (varios de ellos bots de trading real), así que
+# un `pip install` aquí le cambiaba el suelo a ellos. Desde el 2026-08-19
+# market-zones tiene el SUYO en `.venv/`, con su propio intérprete, y ya se
+# puede actualizar sin pedirle permiso a nadie. El venv de btc-poly no se toca.
 #
-# Actualizar: `pip freeze` en el intérprete que use el servicio, y traer aquí
-# las líneas de abajo. Última toma: 2026-08-18, Python 3.12.3.
+# Python 3.14.7. Estas son las versiones EXACTAS con las que corre en
+# producción y con las que los goldens de la suite son ciertos.
 
-numpy==2.4.4
-pandas==3.0.3
+numpy==2.5.2
+pandas==3.0.5
 
 flask==3.1.3
 Werkzeug==3.1.8
 Jinja2==3.1.6
 MarkupSafe==3.0.3
 itsdangerous==2.2.0
-click==8.3.3
+click==8.4.2
 blinker==1.9.0
 
 # Instalado con `pip install --target=./vendor`, no en el venv, así que no sale
@@ -43,9 +46,9 @@ blinker==1.9.0
 waitress==3.0.2
 
 # Sólo research/ y analysis/. El panel no los importa.
-scipy==1.17.1
-matplotlib==3.10.9
+scipy==1.18.0
+matplotlib==3.11.1
 
 python-dateutil==2.9.0.post0
 six==1.17.0
-packaging==26.2
+packaging==26.3

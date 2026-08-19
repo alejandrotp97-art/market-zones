@@ -24,9 +24,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Los dos extremos de lo que promete la GUIA. El 3.12 es el que corre en
-        # producción; el 3.11 está aquí para que esa promesa se compruebe en vez
-        # de suponerse.
+        # Los dos extremos de lo que promete la GUIA, más el que corre en
+        # producción. El 3.11 está para que el suelo prometido se compruebe en
+        # vez de suponerse; el 3.14 es el que sirve el panel desde que tiene
+        # venv propio, así que es el que de verdad tiene que estar verde.
         #
         # 3.10 SE CAYÓ DE LA LISTA, y no por capricho: pandas 3 exige Python
         # >=3.11, así que en 3.10 pip instala pandas 2.3.3, que etiqueta los
@@ -34,7 +35,7 @@ jobs:
         # pandas 3, que es lo que hay en producción— no cuadran. La GUIA
         # prometía "3.10 o más alto" y nadie lo había comprobado nunca; este
         # workflow lo comprobó en su primera ejecución y era falso.
-        python: ["3.11", "3.12"]
+        python: ["3.11", "3.12", "3.14"]
 
     steps:
       - uses: actions/checkout@v4

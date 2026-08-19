@@ -117,7 +117,7 @@ dashboard's range). Same asset (NLR), same code, different `--since`:
 ## Usage
 
 ```bash
-PY=/home/alex/bots/btc-poly/.venv/bin/python   # any interpreter with numpy+pandas
+PY=./.venv/bin/python                          # any interpreter with numpy+pandas
 
 $PY cli.py NLR                      # full history
 $PY cli.py NLR --since 2023-02-03   # reproduce the dashboard window
@@ -299,11 +299,18 @@ pytest tests/test_cartera_dividendos_edicion.py   # dividends, editing, per-posi
 pytest tests/test_returns.py            # TWR/XIRR, checked against Excel's published example
 ```
 
-CI runs the same suite on every push and once a week on Python 3.11 and 3.12,
+CI runs the same suite on every push and once a week on Python 3.11, 3.12 and
+3.14 — the floor the guide promises, and the one production actually serves on —
 installing `requirements.txt` exactly as `GUIA.md` tells a reader to. The weekly
 run is the one that matters: nothing here changes for months, but numpy and
 pandas do. `constraints.txt` records the exact versions production runs on, so
 "did I break it or did pandas?" is an answerable question.
+
+**The panel has its own virtualenv** (`.venv/`, Python 3.14) since 2026-08-19.
+It used to borrow `btc-poly/.venv`, shared by 105 systemd units — several of
+them live trading bots — which meant a `pip install` here changed the ground
+under them, and the interpreter could never move. It can now, and that shared
+venv is left alone.
 
 **3.10 is not supported, and the CI is what found out.** `GUIA.md` promised
 "3.10 or higher" and nobody had ever checked. pandas 3 requires Python >= 3.11,

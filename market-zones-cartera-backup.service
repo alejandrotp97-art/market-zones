@@ -5,7 +5,7 @@ Description=market-zones - copia de seguridad de cartera.db (SQLite online backu
 Type=oneshot
 WorkingDirectory=/home/alex/bots/market-zones
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/home/alex/bots/btc-poly/.venv/bin/python /home/alex/bots/market-zones/backup_cartera.py --quiet
+ExecStart=/home/alex/bots/market-zones/.venv/bin/python /home/alex/bots/market-zones/backup_cartera.py --quiet
 
 # El 2 es "sin cambios desde la última copia" o "todavía no hay cartera".
 # Ninguno de los dos es un incidente, y marcar la unidad como fallida por eso

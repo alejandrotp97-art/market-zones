@@ -60,6 +60,11 @@ python3 --version
 **Deberías ver:** algo como `Python 3.12.3`. El número puede cambiar, pero
 **tiene que empezar por 3.11 o más alto**.
 
+> ¿Por qué 3.11 y no 3.10? Porque `pandas` —la pieza que hace todas las cuentas
+> de este panel— dejó de funcionar en 3.10 a partir de su versión 3. Si tienes
+> 3.10, el programa instalará una `pandas` vieja y los números no serán los
+> mismos. En el servidor donde vive el panel original corre **Python 3.14**.
+
 **Si dice que no encuentra el comando**, no lo tienes instalado:
 
 1. Entra en <https://www.python.org/downloads/>

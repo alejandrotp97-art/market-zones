@@ -49,7 +49,7 @@ Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONPATH=%h/bots/market-zones/vendor
 # MZ_PORT y CARTERA_DB — uno por persona, nunca compartidos.
 EnvironmentFile=%h/etc/carteras/%i.env
-ExecStart=/home/alex/bots/btc-poly/.venv/bin/python %h/bots/market-zones/dashboard.py
+ExecStart=%h/bots/market-zones/.venv/bin/python %h/bots/market-zones/dashboard.py
 Restart=always
 RestartSec=10
 
