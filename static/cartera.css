@@ -295,3 +295,13 @@ table.fi-lots td,table.fi-lots th{padding:4px 8px;}
   border-radius:6px;color:var(--text);font-family:var(--mono);text-align:right;font-size:12px;}
 @media(max-width:900px){.fi-two{grid-template-columns:1fr;}
   .fi-est{border-left:none;border-top:1px solid var(--border);}}
+
+/* ── exposición por divisa ────────────────────────────────────────────────*/
+.ccy-bar{display:flex;height:14px;border-radius:5px;overflow:hidden;margin:6px 0 10px;background:var(--panel2);}
+.ccy-seg{min-width:2px;}
+.ccy-list{display:grid;grid-template-columns:1fr 1fr;gap:3px 16px;font-size:12px;}
+.ccy-row{display:grid;grid-template-columns:9px 42px 1fr auto;gap:8px;align-items:center;
+  font-variant-numeric:tabular-nums;}
+.ccy-row i{width:9px;height:9px;border-radius:2px;}
+.ccy-n{font-family:var(--mono);font-size:11px;}
+@media(max-width:760px){.ccy-list{grid-template-columns:1fr;}}

@@ -500,6 +500,38 @@ en los dos meses anteriores: con una recompra así de cerca, la minusvalía **no
 se puede computar todavía**. Hacia delante no puede saber si vas a recomprar, y
 te lo dice en vez de callárselo.
 
+### De qué divisas dependes (y por qué hay dos listas)
+
+Dos lecturas, y **ninguna sobra**:
+
+- **En qué moneda compras y vendes** — exacta, sale de tus movimientos. Sirve
+  para una cosa: saber en qué moneda te van a cobrar.
+- **Dónde está el negocio** — abre cada fondo y mira en qué países invierte de
+  verdad, igual que hace el mapa.
+
+La diferencia suele sorprender. Un fondo indexado mundial **cotizado en euros**
+aparece abajo al 100% en euros, y arriba lleva dos tercios en dólares. Tú no
+compras dólares en ningún momento, y sin embargo más de la mitad de tu dinero
+depende de lo que haga el dólar.
+
+> La divisa se asigna por el **país del negocio**. Una empresa alemana que
+> factura la mitad en dólares aparece entera en euros: afinar eso exigiría la
+> cuenta de resultados de cada compañía. Y lo que no está en la tabla de
+> monedas se dice aparte — no se reparte entre las demás, porque eso inflaría
+> todas y haría parecer completa una foto que no lo está.
+
+### Beta: cuánto te mueve el mercado
+
+En «Diversificación real» aparecen dos números juntos, y van juntos a propósito:
+
+- **Beta** — cuánto se ha movido tu cartera por cada 1% que se movió el índice.
+- **Correlación** — cuánto de lo que hace tu cartera explica el índice.
+
+**La beta sola engaña.** Una beta de 1,2 con correlación 0,3 no significa «me
+muevo un 20% más que el mercado»: significa que el mercado explica muy poco de
+lo que hace tu cartera y que ese 1,2 es casi ruido. Por eso el panel las enseña
+siempre las dos y te dice cuál de las dos lecturas toca.
+
 ### Qué te cuesta, y el coste que nunca ves
 
 Tres cifras, y la tercera es la que cambia decisiones:

@@ -64,7 +64,7 @@
 
   // Estado que NO viene del payload de la cartera: las zonas llegan por su
   // propia ruta (son lentas) y el criterio de coste lo elige quien mira.
-  let ZONES = {}, ZONE_TRIES = 0, REALMODE = "avg", ESTADO = null, APORT = null;
+  let ZONES = {}, ZONE_TRIES = 0, REALMODE = "avg", ESTADO = null, APORT = null, PERF = null;
 
   // La temporalidad la comparten la gráfica y la sección de rentabilidad: son
   // la misma pregunta mirada de dos formas, y verlas contestar a rangos
@@ -196,7 +196,7 @@
     renderFx(p);
     renderContrib(p);
     if (dataChanged) loadRebal();
-    if (dataChanged) { loadZones(); loadPerf(); loadCorr(); loadEstado(); loadAport(); }
+    if (dataChanged) { loadZones(); loadPerf(); loadCorr(); loadEstado(); loadAport(); loadCcy(); }
     else paintZones();
     if (reloadHistory) loadHistory();     // skipped on first load: already in flight
   }
@@ -428,6 +428,7 @@
       box.innerHTML = `<div class="mut">Aún no hay historia suficiente para medir una rentabilidad.</div>`;
       return;
     }
+    PERF = d;
     const t = d.twr, anual = d.annualizable;
     leg.innerHTML = `${t.days} días · ${t.periods} sesiones`
       + (t.skipped ? ` · <b class="warn-txt">${t.skipped} excluidas</b>` : "");
@@ -510,7 +511,8 @@
         <div class="perf-kpi"><div class="ex-h">Caída máxima</div>
           <div class="perf-big" style="color:${NEG}">${pct(dd.max, 1)}</div>
           <div class="mut small">De <b>${esc(dd.peak || "—")}</b> a <b>${esc(dd.trough || "—")}</b>; ${rec}.
-            Medida sobre lo que valía 1 € invertido, no sobre el saldo: aportar no es recuperarse.</div></div>
+            Medida sobre lo que valía 1 € invertido, no sobre el saldo: aportar no es recuperarse.
+            ${enEuros(dd.max)}</div></div>
         <div class="perf-kpi"><div class="ex-h">Ahora mismo</div>
           <div class="perf-big" style="${dd.at_high ? `color:${POS}` : `color:${NEG}`}">${
             dd.at_high ? "en máximos" : pct(dd.current, 1)}</div>
@@ -720,6 +722,81 @@
     });
   }
 
+  // Un porcentaje de caída no duele hasta que se ve en euros. La traducción va
+  // sobre el patrimonio de HOY y se dice — no es lo que se perdió entonces, que
+  // fue sobre una cartera más pequeña; es lo que ese mismo golpe costaría ahora.
+  const enEuros = (frac) => {
+    const v = (ESTADO && ESTADO.value) || (P && P.summary && P.summary.market_value);
+    if (frac == null || !v) return "";
+    return `<b>Sobre tu patrimonio de hoy, un golpe así son ${eur(Math.abs(frac) * v)}.</b>`;
+  };
+
+  // Beta y correlación SIEMPRE juntas. Una beta de 1,2 con correlación 0,3 no
+  // dice «se mueve un 20% más que el índice»: dice que el índice explica muy
+  // poco de lo que hace esta cartera, y que ese 1,2 es casi ruido. Publicar la
+  // beta sola invita justo a la lectura equivocada.
+  function betaBloque() {
+    const d = PERF;
+    if (!d || d.beta == null) return "";
+    const c = d.beta_corr, flojo = c != null && c < 0.5;
+    return `<div class="vs-row" style="margin-top:12px">
+        <span>Beta contra ${esc(d.benchmark_ticker)}</span><b>${d.beta}</b></div>
+      <div class="vs-row"><span>Correlación con el índice</span><b>${c}</b></div>
+      <p class="mut small">${flojo
+        ? `Con una correlación de ${c}, el índice explica <b>poco</b> de lo que hace tu cartera:
+           esa beta de ${d.beta} describe una relación débil y conviene no leerla como
+           «se mueve un ${Math.round(Math.abs(d.beta - 1) * 100)}% distinto que el índice».`
+        : `Por cada 1% que se mueve ${esc(d.benchmark_ticker)}, tu cartera se ha movido
+           históricamente un ${d.beta}% en la misma dirección. Con correlación ${c},
+           la relación es lo bastante estrecha para leerlo así.`}
+        Medido sobre ${d.beta_obs} sesiones y sobre el índice de rendimiento, no sobre
+        el saldo: si no, el salto del día de una aportación entraría como movimiento
+        de mercado.</p>`;
+  }
+
+  // ══ de qué divisas dependes ═══════════════════════════════════════════
+  // Dos lecturas, porque cada una engaña por su lado si va sola. La de
+  // cotización es exacta y dice poco; la económica abre cada fondo y es la que
+  // contesta de qué depende el patrimonio de verdad.
+  async function loadCcy() {
+    const box = $("ccy"), leg = $("ccy-legend");
+    let d;
+    try { d = await (await fetch("/api/cartera/divisa")).json(); }
+    catch (e) { box.innerHTML = `<div class="mut">No pude calcularlo.</div>`; return; }
+    if (d.error) { box.innerHTML = `<div class="mut">${esc(d.error)}</div>`; return; }
+    const eco = d.economic || {}, q = d.quote || {};
+    const barra = (rows, tot) => rows.length ? `<div class="ccy-bar">${rows.map((r, i) => `
+      <span class="ccy-seg" style="flex:${r.pct || 0};background:${CCYCOL(i)}"
+        title="${esc(r.ccy)} ${r.pct}%"></span>`).join("")}</div>` : "";
+    const lista = (rows) => `<div class="ccy-list">${rows.slice(0, 8).map((r, i) => `
+      <div class="ccy-row"><i style="background:${CCYCOL(i)}"></i>
+        <span class="ccy-n">${esc(r.ccy)}</span>
+        <b>${r.pct == null ? "—" : r.pct + "%"}</b>
+        <span class="mut">${eur(r.eur)}</span></div>`).join("")}</div>`;
+
+    leg.textContent = eco.coverage_pct != null ? `transparencia sobre el ${eco.coverage_pct}%` : "";
+    box.innerHTML = `
+      ${(eco.rows || []).length ? `
+        <div class="ex-h">Dónde está el negocio · abriendo cada fondo</div>
+        ${barra(eco.rows)}${lista(eco.rows)}
+        ${eco.unmapped > 0 ? `<p class="mut small">${eur(eco.unmapped)} en países sin moneda
+          en la tabla (${eco.unmapped_countries.map(esc).join(", ")}): no se reparten entre
+          las demás, porque hacerlo inflaría en proporción todas las divisas conocidas.</p>` : ""}`
+      : `<p class="mut">Todavía no hay transparencia por países con la que calcular esto.</p>`}
+
+      <div class="ex-h" style="margin-top:16px">En qué moneda compras y vendes</div>
+      ${barra(q.rows)}${lista(q.rows || [])}
+      <p class="mut small">Las dos lecturas <b>no dicen lo mismo, y ninguna sobra</b>.
+        Un fondo indexado mundial cotizado en euros aparece abajo al 100% en euros y
+        arriba lleva dos tercios de dólares: abajo se ve en qué moneda te cobran,
+        arriba de qué depende tu dinero.
+        La divisa se asigna por el PAÍS del negocio — una empresa alemana que factura
+        en dólares sale entera en euros; afinarlo exigiría la cuenta de resultados de
+        cada compañía.</p>`;
+  }
+  const CCYCOL = (i) => ["#4a90d9", "#3fae6b", "#d99a2b", "#8a63d2", "#cf5b3a",
+                         "#4a9e8f", "#b0873f", "#7c828e"][i % 8];
+
   // ══ qué cuesta ════════════════════════════════════════════════════════
   function renderCostes(p) {
     const s = p.summary || {}, box = $("costes");
@@ -840,6 +917,7 @@
       <p class="mut small">Tienes <b>${n}</b> posiciones que se comportan como
         <b>${d.eff_n_corr}</b> apuestas independientes. Contar líneas no es diversificar:
         cinco fondos del mismo índice son una sola apuesta repartida en cinco filas.</p>
+      ${betaBloque()}
       ${mc ? `<p class="perf-note">Lo que más se parece: <b>${esc(mc.a)}</b> y <b>${esc(mc.b)}</b>,
         correlación <b>${mc.rho}</b>.${mc.rho > 0.8 ? " A ese nivel, son prácticamente el mismo activo." : ""}</p>` : ""}
       <div class="scroll"><table class="tbl corr-tbl">

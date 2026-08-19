@@ -15,9 +15,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
 
-from cartera.returns import (DAYS_YEAR, annualize, currency_split, drawdown,
-                             effective_n, nav_series, rebalance_with_cash,
-                             sharpe, twr, volatility, xirr)
+from cartera.returns import (DAYS_YEAR, annualize, beta, currency_split,
+                             drawdown, effective_n, nav_series,
+                             rebalance_with_cash, sharpe, twr, volatility, xirr)
 
 
 # ── TIR contra el valor publicado ─────────────────────────────────────────
@@ -373,3 +373,76 @@ def test_los_objetivos_se_normalizan_aunque_no_sumen_cien():
 def test_sin_dinero_o_sin_objetivos_no_se_propone_nada():
     assert rebalance_with_cash({"A": 100}, {"A": 100}, 0) == {}
     assert rebalance_with_cash({"A": 100}, {}, 500) == {}
+
+
+# ── beta contra el índice ─────────────────────────────────────────────────
+def test_una_cartera_que_replica_al_indice_tiene_beta_uno():
+    import math
+    nav = [1.0]
+    for i in range(120):
+        nav.append(nav[-1] * (1 + 0.01 * math.sin(i)))
+    b, r, n = beta(nav, nav)
+    assert b == pytest.approx(1.0, abs=1e-9)
+    assert r == pytest.approx(1.0, abs=1e-9)
+    assert n == 120
+
+
+def test_una_cartera_que_amplifica_al_indice_tiene_beta_dos():
+    import math
+    ib, ip = [1.0], [1.0]
+    for i in range(120):
+        r = 0.005 * math.sin(i)
+        ib.append(ib[-1] * (1 + r))
+        ip.append(ip[-1] * (1 + 2 * r))
+    b, c, _n = beta(ip, ib)
+    assert b == pytest.approx(2.0, rel=0.02)
+    assert c == pytest.approx(1.0, abs=1e-6)
+
+
+def test_la_beta_no_se_calcula_sobre_los_euros(monkeypatch):
+    """Si se midiera sobre el saldo, el salto del día de una aportación entraría
+    como un movimiento de mercado y la beta saldría inflada por transferencias.
+    `beta` recibe NAV, así que la prueba es que dos carteras con la misma
+    trayectoria y distinto calendario de aportaciones dan la misma beta."""
+    import math
+    idx = [1.0]
+    for i in range(120):
+        idx.append(idx[-1] * (1 + 0.004 * math.sin(i)))
+    vals_a = [1000 * x for x in idx]
+    flows_a = [1000.0] + [0.0] * 120
+    vals_b, flows_b = [1000 * idx[0]], [1000.0]
+    for i in range(1, 121):
+        extra = 500.0 if i == 60 else 0.0
+        vals_b.append((vals_b[-1] / idx[i - 1]) * idx[i] + extra)
+        flows_b.append(extra)
+    ba = beta(nav_series(vals_a, flows_a), idx)[0]
+    bb = beta(nav_series(vals_b, flows_b), idx)[0]
+    assert ba == pytest.approx(bb, rel=1e-6)
+
+
+def test_sin_muestra_suficiente_no_se_publica_beta():
+    assert beta([1.0, 1.01, 1.02], [1.0, 1.01, 1.02]) == (None, None, 2)
+
+
+def test_contra_un_indice_plano_la_beta_es_none_y_no_infinito():
+    """Dividir entre una varianza de cero no da un número grande: no da nada."""
+    b, c, _ = beta([1.0 + 0.001 * i for i in range(60)], [1.0] * 60)
+    assert b is None and c is None
+
+
+def test_un_dia_plano_en_UNA_serie_no_desalinea_las_dos():
+    """`_nav_returns` descarta los días sin variación, y una serie puede tener
+    uno donde la otra no. Emparejar dos listas de distinta longitud alineándolas
+    por el final juntaría el lunes de una con el martes de la otra: la beta
+    saldría de comparar días que no se corresponden, y sin dar ningún error."""
+    import math
+    ib, ip = [1.0], [1.0]
+    for i in range(1, 121):
+        r = 0.004 * math.sin(i)
+        ib.append(ib[-1] * (1 + r))
+        # la cartera se queda EXACTAMENTE plana un día suelto
+        ip.append(ip[-1] if i == 40 else ip[-1] * (1 + r))
+    b, c, n = beta(ip, ib)
+    assert n == 120                       # ni un par se pierde por el hueco
+    assert c == pytest.approx(1.0, abs=0.05)
+    assert b == pytest.approx(1.0, abs=0.05)

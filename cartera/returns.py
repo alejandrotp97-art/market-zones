@@ -428,6 +428,19 @@ def sharpe(annualized_return, vol, risk_free=0.0):
     return (annualized_return - risk_free) / vol
 
 
+def _paired_returns(x, y):
+    """Rendimientos diarios de dos series, sólo los días utilizables EN AMBAS."""
+    n = min(len(x), len(y))
+    a, b = [], []
+    for i in range(1, n):
+        x0, x1, y0, y1 = x[i - 1], x[i], y[i - 1], y[i]
+        if min(x0, x1, y0, y1) <= 0:
+            continue
+        a.append(x1 / x0 - 1.0)
+        b.append(y1 / y0 - 1.0)
+    return a, b
+
+
 def _nav_returns(nav):
     """Rendimientos diarios del NAV, saltándose los tramos planos."""
     out = []
@@ -478,3 +491,38 @@ def rebalance_with_cash(current, targets, cash):
     sobra = cash - suma_def
     return {k: round(deficit[k] + sobra * w[k], 2) for k in w
             if deficit[k] + sobra * w[k] > 1e-9}
+
+
+def beta(nav_port, nav_bench):
+    """Beta de la cartera contra el índice, sobre ÍNDICES DE RENDIMIENTO.
+
+    Nunca sobre la serie de euros, y por la misma razón que la caída máxima: el
+    valor en euros pega un salto el día de una aportación, y ese salto no es un
+    movimiento de mercado. Una cartera a la que se aporta todos los meses
+    saldría con una beta inflada por sus propias transferencias.
+
+    Devuelve `(beta, correlación, n)` o `(None, None, n)` si no hay muestra. La
+    beta y la correlación se dan JUNTAS a propósito: una beta de 1,2 con
+    correlación 0,3 no significa «se mueve un 20% más que el índice», significa
+    que el índice explica muy poco de lo que hace la cartera y que ese 1,2 es
+    casi ruido. Publicar la beta sola invita justo a esa lectura.
+    """
+    # Los pares se construyen recorriendo las DOS series a la vez, y no
+    # calculando los rendimientos de cada una por su cuenta para luego
+    # emparejarlos por posición. `_nav_returns` se salta los días planos, y una
+    # serie puede tener un día plano donde la otra no: emparejar dos listas de
+    # longitudes distintas alineándolas por el final juntaría el lunes de una
+    # con el martes de la otra, y la beta saldría de comparar días que no se
+    # corresponden. Un desajuste así no da error: da un número plausible.
+    a, b = _paired_returns(nav_port, nav_bench)
+    n = len(a)
+    if n < 20:
+        return None, None, n
+    ma, mb = sum(a) / n, sum(b) / n
+    cov = sum((x - ma) * (y - mb) for x, y in zip(a, b)) / (n - 1)
+    var_b = sum((y - mb) ** 2 for y in b) / (n - 1)
+    var_a = sum((x - ma) ** 2 for x in a) / (n - 1)
+    if var_b <= 1e-18 or var_a <= 1e-18:
+        return None, None, n
+    return cov / var_b, cov / math.sqrt(var_a * var_b), n
+

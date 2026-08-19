@@ -169,6 +169,9 @@ cartera/returns.py    TWR, XIRR, drawdown, volatility, Sharpe, effective N,
 cartera/plan.py       the investor's own plan: contribution calendar, goal
                       progress, and the attention rules. Today's date arrives
                       as a parameter so a test can stand on any day.
+cartera/exposure.py   currency exposure, two readings: quotation currency
+                      (exact, uninformative) and economic currency, derived
+                      from the same country look-through the map uses.
 cartera/fiscal.py     what a sale would leave: non-destructive FIFO preview,
                       progressive savings-base tax, loss offsetting, and the
                       two-month repurchase rule. Brackets are a parameter, not
@@ -256,6 +259,19 @@ Two details that are easy to get wrong:
   Reimplementing a per-year FIFO would be a second copy of the most delicate
   rule in the project, and two copies drift apart.
 
+### Beta is never published without its correlation
+
+A beta of 1.2 alongside a correlation of 0.3 does not mean "moves 20% more than
+the index" — it means the index explains very little of what the portfolio does
+and that 1.2 is mostly noise. `beta()` returns both plus the sample size, and
+the UI picks its wording from the correlation.
+
+It runs on the return index, not the euro balance, for the same reason drawdown
+does. And the daily pairs are built by walking both series together: computing
+each side's returns independently and zipping them would pair one series'
+Monday with the other's Tuesday whenever one had a flat day the other did not —
+a misalignment that produces a plausible number and no error.
+
 ### Effective number of bets
 
 ```
@@ -315,7 +331,7 @@ the two is how a holding silently disappears from a chart while its cost stays i
 
 ## Tests
 
-435 tests, hermetic — every outbound call is stubbed, so the suite never touches
+444 tests, hermetic — every outbound call is stubbed, so the suite never touches
 the network and never depends on Yahoo being up.
 
 ```bash

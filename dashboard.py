@@ -60,6 +60,9 @@ from cartera.plan import goal_progress as _goal_progress
 from cartera.plan import monthly_flows as _monthly_flows
 from cartera.positions import compute as _compute_positions
 from cartera.returns import currency_split as _currency_split
+from cartera.exposure import by_economic_currency as _ccy_economic
+from cartera.exposure import by_quote_currency as _ccy_quote
+from cartera.returns import beta as _beta
 from cartera.returns import drawdown as _drawdown
 from cartera.returns import effective_n as _effective_n
 from cartera.returns import nav_series as _nav_series
@@ -1464,7 +1467,7 @@ def _cartera_returns(benchmark: str = "SPY", rango=None, desde=None, hasta=None)
     caida = _drawdown(nav, fechas)
     vol = _volatility(nav)
 
-    bench = None
+    bench = beta_val = corr_b = n_b = None
     if r["bench_val"] is not None:
         # El índice se compara sobre el MISMO tramo, resembrado igual que en el
         # gráfico: si no, tres meses de cartera irían contra una posición del
@@ -1472,6 +1475,11 @@ def _cartera_returns(benchmark: str = "SPY", rango=None, desde=None, hasta=None)
         _i, _p, _inv, bval = _rebasar(r, i0, i1)
         if bval is not None:
             bench = _twr([float(v) for v in bval], sin_div, fechas)
+            # La beta va sobre ÍNDICES DE RENDIMIENTO, los dos construidos con
+            # los mismos flujos: sobre la serie de euros, el salto del día de
+            # una aportación entraría como movimiento de mercado y la inflaría.
+            beta_val, corr_b, n_b = _beta(nav, _nav_series([float(v) for v in bval],
+                                                           sin_div))
 
     aportado = float(sum(f for f in r["flows"][i0:i1 + 1] if f > 0))
     retirado = float(-sum(f for f in r["flows"][i0:i1 + 1] if f < 0))
@@ -1493,6 +1501,12 @@ def _cartera_returns(benchmark: str = "SPY", rango=None, desde=None, hasta=None)
         # las dos cifras, para que no puedan discrepar.
         "annualizable": dias >= 365,
         "benchmark_ticker": benchmark, "benchmark_twr": bench,
+        # Beta y correlación SIEMPRE juntas: una beta de 1,2 con correlación 0,3
+        # no dice «se mueve un 20% más», dice que el índice explica muy poco de
+        # lo que hace esta cartera y que ese 1,2 es casi ruido.
+        "beta": (round(beta_val, 3) if beta_val is not None else None),
+        "beta_corr": (round(corr_b, 3) if corr_b is not None else None),
+        "beta_obs": n_b,
         "flows": {"aportado": round(aportado, 2), "retirado": round(retirado, 2),
                   "dividendos": round(dividendos, 2),
                   "valor_hoy": round(vals[-1], 2) if vals else 0.0},
@@ -2209,6 +2223,33 @@ def api_cartera_simular_venta():
         "repurchase": recompras, "listed": cotiza,
         "base": BASE_CCY,
     }, max_age=0)
+
+
+@app.route("/api/cartera/divisa")
+def api_cartera_divisa():
+    """Exposición por divisa, en sus dos lecturas.
+
+    La de COTIZACIÓN es exacta y dice poco: un fondo mundial cotizado en euros
+    sale aquí al 100% en euros y dentro lleva dos tercios de dólares. La
+    ECONÓMICA se deriva de la transparencia por países que ya hace el mapa, y
+    es la que responde de qué depende el patrimonio de verdad.
+
+    Se devuelven las dos porque cada una engaña por su lado si va sola.
+    """
+    p = _cartera_payload()
+    cotiza = _ccy_quote(p["positions"], base=BASE_CCY)
+    try:
+        abiertas = [x for x in p["positions"] if x["qty"] > 1e-9]
+        res = geo.country_exposure(abiertas, geo.load_table())
+        economica = _ccy_economic(res.get("countries") or [],
+                                  mapped_eur=res.get("mapped_eur"),
+                                  base=BASE_CCY)
+        economica["portfolio_eur"] = p["summary"]["market_value"]
+        economica["no_geography_eur"] = res.get("no_geography_eur")
+    except Exception as e:
+        economica = {"error": str(e)}
+    return _json_response({"quote": cotiza, "economic": economica,
+                           "base": BASE_CCY}, max_age=0)
 
 
 @app.route("/api/cartera/rebalanceo")
