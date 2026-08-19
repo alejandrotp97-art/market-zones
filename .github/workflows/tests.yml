@@ -17,13 +17,24 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # Sin esto, un paso colgado se come el límite del job entero. Pasó: un
+    # `iptables -P OUTPUT DROP` dejó al runner sin poder hablar con GitHub y el
+    # job estuvo 45 minutos aparentando trabajar, para una suite de 27 segundos.
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        # Los dos extremos de lo que promete la GUIA ("tiene que empezar por
-        # 3.10 o más alto"). El 3.12 es el que corre en producción; el 3.10
-        # está aquí para que esa promesa se compruebe en vez de suponerse.
-        python: ["3.10", "3.12"]
+        # Los dos extremos de lo que promete la GUIA. El 3.12 es el que corre en
+        # producción; el 3.11 está aquí para que esa promesa se compruebe en vez
+        # de suponerse.
+        #
+        # 3.10 SE CAYÓ DE LA LISTA, y no por capricho: pandas 3 exige Python
+        # >=3.11, así que en 3.10 pip instala pandas 2.3.3, que etiqueta los
+        # NaN y resuelve las fechas de otra forma. Los golden —generados con
+        # pandas 3, que es lo que hay en producción— no cuadran. La GUIA
+        # prometía "3.10 o más alto" y nadie lo había comprobado nunca; este
+        # workflow lo comprobó en su primera ejecución y era falso.
+        python: ["3.11", "3.12"]
 
     steps:
       - uses: actions/checkout@v4
@@ -53,8 +64,15 @@ jobs:
       # La suite no toca la red (todas las llamadas van mockeadas). Si alguien
       # añade un test que sí la toca, se vuelve intermitente y contamina al
       # resto; este paso lo detecta el día que pasa, no meses después.
+      #
+      # El guardia vive en `conftest.py` y no en el cortafuegos. Aquí había un
+      # `sudo iptables -P OUTPUT DROP`: la idea era correcta y el mecanismo no,
+      # porque esa regla corta TODO el tráfico saliente de la máquina —incluida
+      # la conexión del runner con GitHub—, así que el job se quedaba sin poder
+      # reportar y aparentaba estar colgado hasta agotar el tiempo. Un guardia
+      # dentro de pytest comprueba lo mismo, no necesita root, y cuando salta
+      # dice el test y el host al que se intentó salir.
       - name: La suite no debe depender de la red
-        run: |
-          sudo iptables -P OUTPUT DROP
-          sudo iptables -A OUTPUT -o lo -j ACCEPT
-          pytest
+        env:
+          MZ_NO_NETWORK: "1"
+        run: pytest

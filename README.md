@@ -299,8 +299,21 @@ pytest tests/test_cartera_dividendos_edicion.py   # dividends, editing, per-posi
 pytest tests/test_returns.py            # TWR/XIRR, checked against Excel's published example
 ```
 
-CI runs the same suite on every push and once a week on Python 3.10 and 3.12,
+CI runs the same suite on every push and once a week on Python 3.11 and 3.12,
 installing `requirements.txt` exactly as `GUIA.md` tells a reader to. The weekly
 run is the one that matters: nothing here changes for months, but numpy and
 pandas do. `constraints.txt` records the exact versions production runs on, so
 "did I break it or did pandas?" is an answerable question.
+
+**3.10 is not supported, and the CI is what found out.** `GUIA.md` promised
+"3.10 or higher" and nobody had ever checked. pandas 3 requires Python >= 3.11,
+so on 3.10 pip installs pandas 2.3.3, which labels NaN differently and defaults
+datetimes to nanosecond rather than second resolution — the goldens, generated
+under the pandas 3 that production runs, do not match. The first run of this
+workflow said so.
+
+Hermeticity is enforced by a socket guard in `conftest.py`, gated on
+`MZ_NO_NETWORK=1`, not by a firewall rule. The original step ran
+`sudo iptables -P OUTPUT DROP` and re-ran the suite; that also severs the
+runner's own link to GitHub, so the job cannot report and hangs until timeout —
+45 minutes for a 27-second suite, with no message saying why.

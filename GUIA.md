@@ -58,7 +58,7 @@ python3 --version
 ```
 
 **Deberías ver:** algo como `Python 3.12.3`. El número puede cambiar, pero
-**tiene que empezar por 3.10 o más alto**.
+**tiene que empezar por 3.11 o más alto**.
 
 **Si dice que no encuentra el comando**, no lo tienes instalado:
 
