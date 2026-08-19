@@ -15,8 +15,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
 
-from cartera.returns import (DAYS_YEAR, annualize, currency_split, effective_n,
-                             twr, xirr)
+from cartera.returns import (DAYS_YEAR, annualize, currency_split, drawdown,
+                             effective_n, nav_series, rebalance_with_cash,
+                             sharpe, twr, volatility, xirr)
 
 
 # ── TIR contra el valor publicado ─────────────────────────────────────────
@@ -264,3 +265,111 @@ def test_una_matriz_que_no_encaja_no_devuelve_un_numero():
     assert effective_n([0.5, 0.5], [[1.0]]) is None
     assert effective_n([]) is None
     assert effective_n([0.0, 0.0]) is None
+
+
+# ── caída máxima: por qué NO se mide sobre los euros ──────────────────────
+def test_una_aportacion_no_puede_hacer_pasar_por_recuperada_una_caida():
+    """EL caso que justifica medir sobre el índice de rendimiento.
+
+    Cae un 30% y al día siguiente entran 300 € que devuelven el valor en euros
+    a su máximo anterior. Sobre euros, la serie dice «recuperada». Pero el euro
+    invertido sigue valiendo 0,70: los 300 no recuperaron nada, taparon el
+    agujero con dinero nuevo. Con aportaciones mensuales, una bajada larga
+    puede no llegar a verse NUNCA sobre la serie de euros.
+    """
+    import pandas as pd
+    fechas = list(pd.to_datetime(["2024-01-01", "2024-02-01", "2024-03-01", "2024-04-01"]))
+    vals = [1000, 700, 1000, 1000]
+    flows = [1000, 0, 300, 0]
+
+    d = drawdown(nav_series(vals, flows), fechas)
+
+    assert d["max"] == pytest.approx(-0.30, abs=1e-9)
+    assert d["recovered"] is None                 # sobre euros diría 2024-03-01
+    assert d["current"] == pytest.approx(-0.30, abs=1e-9)
+    assert d["at_high"] is False
+
+
+def test_la_caida_se_marca_recuperada_cuando_el_MERCADO_la_recupera():
+    import pandas as pd
+    fechas = list(pd.to_datetime(["2024-01-01", "2024-02-01", "2024-03-01"]))
+    d = drawdown(nav_series([1000, 700, 1000], [1000, 0, 0]), fechas)
+    assert d["recovered"] == "2024-03-01"
+    assert d["at_high"] is True
+    assert d["current"] == pytest.approx(0.0, abs=1e-9)
+
+
+def test_una_cartera_que_solo_sube_no_tiene_caida():
+    d = drawdown(nav_series([100, 110, 120], [100, 0, 0]))
+    assert d["max"] == 0.0 and d["at_high"] is True
+
+
+def test_el_nav_empieza_en_uno_y_encadena_los_mismos_tramos_que_el_twr():
+    """Si el NAV y el TWR no encadenasen exactamente los mismos factores, la
+    caída máxima no se correspondería con la rentabilidad que hay al lado."""
+    vals, flows = [100, 110, 210, 231], [100, 0, 100, 0]
+    nav = nav_series(vals, flows)
+    assert nav[0] == 1.0
+    assert nav[-1] - 1.0 == pytest.approx(twr(vals, flows)["total"], abs=1e-12)
+
+
+def test_un_tramo_no_medible_deja_el_nav_PLANO():
+    """No se sabe qué pasó, y eso no es lo mismo que decir que no pasó nada:
+    inventar un 0% ahí bajaría la volatilidad y taparía una caída."""
+    nav = nav_series([0.0, 0.0, 1000.0, 1100.0], [0, 0, 1000, 0])
+    assert nav[:3] == [1.0, 1.0, 1.0]
+    assert nav[-1] == pytest.approx(1.10, abs=1e-12)
+
+
+# ── volatilidad y Sharpe ──────────────────────────────────────────────────
+def test_la_volatilidad_no_cuenta_los_dias_planos():
+    """Un día plano es ausencia de dato, no un 0% de variación. Contarlo
+    hundiría la desviación típica hacia abajo."""
+    import math
+    base = [1.0]
+    for _ in range(60):
+        base.append(base[-1] * 1.01)
+    v_limpia = volatility(base)
+    con_planos = base + [base[-1]] * 60          # 60 días sin dato
+    assert volatility(con_planos) == pytest.approx(v_limpia, rel=1e-9)
+
+
+def test_sin_muestra_suficiente_no_se_publica_una_volatilidad():
+    assert volatility([1.0, 1.01, 1.02]) is None
+
+
+def test_el_sharpe_necesita_las_dos_piezas_y_el_tipo_sin_riesgo_es_explicito():
+    assert sharpe(0.10, 0.20) == pytest.approx(0.5, abs=1e-12)
+    assert sharpe(0.10, 0.20, risk_free=0.02) == pytest.approx(0.4, abs=1e-12)
+    assert sharpe(0.10, None) is None
+    assert sharpe(None, 0.2) is None
+    assert sharpe(0.10, 0.0) is None             # dividir por cero no es infinito útil
+
+
+# ── rebalanceo comprando, sin vender ──────────────────────────────────────
+def test_el_dinero_nuevo_va_a_lo_que_esta_por_debajo_del_objetivo():
+    """Rebalancear vendiendo lo que sobra es la versión cara: en España cada
+    venta con plusvalía es un hecho imponible. Comprar lo que falta llega al
+    mismo sitio sin pasar por Hacienda."""
+    r = rebalance_with_cash({"A": 8000, "B": 2000}, {"A": 50, "B": 50}, 1000)
+    assert r == {"B": 1000.0}                    # A ya está por encima: no recibe nada
+
+
+def test_si_el_dinero_llega_para_cuadrar_el_resto_va_segun_el_objetivo():
+    r = rebalance_with_cash({"A": 5000, "B": 3000}, {"A": 50, "B": 50}, 4000)
+    assert sum(r.values()) == pytest.approx(4000, abs=0.02)
+    # deja las dos en 6000: 5000+1000 y 3000+3000
+    assert r["B"] > r["A"]
+
+
+def test_los_objetivos_se_normalizan_aunque_no_sumen_cien():
+    """Exigir que sumen 100 exacto sería pedir una aritmética que nadie hace a
+    mano; lo que expresa la intención es la proporción entre ellos."""
+    a = rebalance_with_cash({"A": 100, "B": 100}, {"A": 30, "B": 60}, 900)
+    b = rebalance_with_cash({"A": 100, "B": 100}, {"A": 33.333, "B": 66.667}, 900)
+    assert a["A"] == pytest.approx(b["A"], abs=1.0)
+
+
+def test_sin_dinero_o_sin_objetivos_no_se_propone_nada():
+    assert rebalance_with_cash({"A": 100}, {"A": 100}, 0) == {}
+    assert rebalance_with_cash({"A": 100}, {}, 500) == {}

@@ -77,18 +77,8 @@ def twr(values, flows, dates=None):
                 "periods": 0, "days": 0}
 
     chain, skipped, per_year = 1.0, 0, {}
-    for i in range(1, n):
-        v0, v1, cf = values[i - 1], values[i], flows[i]
-        floor = max(MIN_CAPITAL, MIN_CAPITAL_VS_FLOW * abs(cf))
-        if v0 <= floor:
-            skipped += 1
-            continue
-        f = (v1 - cf) / v0
-        if f <= 0:
-            # Un factor no positivo significaría -100% o peor en un día. En una
-            # cartera real eso es un dato incoherente, no una ruina: se excluye
-            # y se cuenta, porque encadenar un cero deja la serie clavada a cero
-            # para siempre y borra toda la historia posterior.
+    for i, f in factors(values, flows):
+        if f is None:
             skipped += 1
             continue
         chain *= f
@@ -140,6 +130,100 @@ def _mmdd(d):
     except AttributeError:
         s = str(d)[:10]
         return (int(s[5:7]), int(s[8:10]))
+
+
+def factors(values, flows):
+    """Genera `(i, factor)` para cada día, con `factor=None` si no es medible.
+
+    Un solo sitio decide qué tramo cuenta. Antes esta lógica vivía dentro del
+    TWR, y la serie de NAV —que tiene que encadenar exactamente los mismos
+    tramos— la habría reimplementado: dos copias de la misma regla es como una
+    caída máxima acaba sin corresponderse con la rentabilidad que hay al lado.
+    """
+    n = len(values)
+    for i in range(1, n):
+        v0, v1, cf = values[i - 1], values[i], flows[i]
+        floor = max(MIN_CAPITAL, MIN_CAPITAL_VS_FLOW * abs(cf))
+        if v0 <= floor:
+            yield i, None
+            continue
+        f = (v1 - cf) / v0
+        # Un factor no positivo significaría -100% o peor en un día. En una
+        # cartera real eso es un dato incoherente, no una ruina: se excluye,
+        # porque encadenar un cero deja la serie clavada a cero para siempre y
+        # borra toda la historia posterior.
+        yield i, (f if f > 0 else None)
+
+
+def nav_series(values, flows):
+    """Cuánto vale 1 € invertido el primer día. Empieza en 1,0.
+
+    ESTA es la serie sobre la que se mide una caída, y no la de euros.
+
+    El valor en euros de una cartera sube cuando se aporta, y aportar no es
+    recuperarse de nada. Medir la caída máxima sobre los euros hace que una
+    transferencia de 10.000 € tape un desplome del 30% y lo convierta en un
+    máximo nuevo: la cartera aparecería como si nunca hubiera caído. Al revés
+    también: retirar dinero se leería como una pérdida.
+
+    El índice de rendimiento no tiene ese problema porque los flujos ya están
+    neutralizados tramo a tramo. Un día no medible deja la serie PLANA, que es
+    lo único honesto: no se sabe qué pasó, y no es que no pasara nada.
+    """
+    nav = [1.0]
+    for _i, f in factors(values, flows):
+        nav.append(nav[-1] * f if f is not None else nav[-1])
+    return nav
+
+
+def drawdown(nav, dates=None):
+    """Caída máxima desde máximos, sobre el índice de rendimiento.
+
+    Devuelve el peor tramo con sus fechas, si se recuperó y cuánto tardó, y la
+    caída en la que se está AHORA. Esa última es la que suele importar: una
+    caída máxima del 30% en 2020 no dice nada de si hoy estás por debajo de tu
+    mejor momento.
+    """
+    if not nav:
+        return None
+    pico, pico_i = nav[0], 0
+    peor, p_i, v_i = 0.0, 0, 0
+    for i, v in enumerate(nav):
+        if v > pico:
+            pico, pico_i = v, i
+        caida = v / pico - 1.0 if pico > 0 else 0.0
+        if caida < peor:
+            peor, p_i, v_i = caida, pico_i, i
+
+    # ¿Volvió a tocar el pico del que se cayó?
+    rec_i = None
+    if peor < 0:
+        objetivo = nav[p_i]
+        for i in range(v_i + 1, len(nav)):
+            if nav[i] >= objetivo:
+                rec_i = i
+                break
+
+    maximo = max(nav)
+    actual = nav[-1] / maximo - 1.0 if maximo > 0 else 0.0
+
+    def fecha(i):
+        return str(dates[i])[:10] if (dates is not None and i is not None) else None
+
+    def dias(a, b):
+        if dates is None or a is None or b is None:
+            return None
+        try:
+            return int((dates[b] - dates[a]).days)
+        except Exception:
+            return None
+
+    return {"max": peor, "peak": fecha(p_i), "trough": fecha(v_i),
+            "recovered": fecha(rec_i),
+            "days_down": dias(p_i, v_i),
+            "days_to_recover": dias(v_i, rec_i),
+            "current": actual,
+            "at_high": actual > -1e-9}
 
 
 def annualize(total, days):
@@ -307,3 +391,90 @@ def effective_n(weights, corr=None):
             for j in range(n):
                 q += w[i] * w[j] * float(corr[i][j])
     return (1.0 / q) if q > 1e-12 else None
+
+
+def volatility(nav, per_year=252):
+    """Volatilidad anualizada de la serie de rendimiento, o None.
+
+    Se mide sobre el NAV y no sobre los euros por la misma razón que la caída
+    máxima: el día de una aportación, el valor en euros pega un salto que no es
+    un movimiento de mercado, y ese salto entraría en la desviación típica como
+    si lo fuera. Una cartera a la que se aporta todos los meses saldría mucho
+    más volátil de lo que es.
+
+    Los días PLANOS —los tramos que no se pudieron medir— se descartan en vez de
+    contarse como un 0% de variación: un cero es un dato, y aquí lo que hay es
+    la ausencia de dato. Contarlos hundiría la volatilidad hacia abajo.
+    """
+    rets = _nav_returns(nav)
+    n = len(rets)
+    if n < 20:
+        return None
+    media = sum(rets) / n
+    var = sum((r - media) ** 2 for r in rets) / (n - 1)      # muestral, no poblacional
+    return math.sqrt(var) * math.sqrt(per_year)
+
+
+def sharpe(annualized_return, vol, risk_free=0.0):
+    """Rentabilidad por unidad de riesgo. None si falta cualquiera de las dos.
+
+    `risk_free` va explícito y por defecto a cero: un Sharpe sin decir contra
+    qué tipo sin riesgo se calcula no se puede comparar con ningún otro, y el
+    valor por defecto de casi todas las pantallas es cero sin que lo pongan.
+    Aquí quien lo pinta tiene que escribirlo al lado.
+    """
+    if annualized_return is None or vol is None or vol <= 1e-9:
+        return None
+    return (annualized_return - risk_free) / vol
+
+
+def _nav_returns(nav):
+    """Rendimientos diarios del NAV, saltándose los tramos planos."""
+    out = []
+    for i in range(1, len(nav)):
+        a, b = nav[i - 1], nav[i]
+        if a <= 0 or b <= 0 or b == a:
+            continue
+        out.append(b / a - 1.0)
+    return out
+
+
+def rebalance_with_cash(current, targets, cash):
+    """Cómo repartir una aportación para acercarse al objetivo SIN VENDER NADA.
+
+    `current` y `targets` son dicts por instrumento: valor actual en euros y
+    peso objetivo en tanto por ciento. Devuelve cuánto comprar de cada uno.
+
+    Rebalancear vendiendo lo que sobra es lo que hace todo el mundo y es la
+    versión cara: en España cada venta con plusvalía es un hecho imponible, y
+    pagar impuestos hoy para cuadrar unos decimales de peso destruye más valor
+    del que corrige. Comprar lo que falta con dinero nuevo llega al mismo sitio
+    sin pasar por Hacienda.
+
+    El reparto: se calcula el valor que DEBERÍA tener cada posición sobre el
+    total futuro, y el dinero va primero a cubrir los déficits. Si no llega
+    para todos, se reparte en proporción al déficit —el que más lejos está
+    recibe más—; si sobra, el resto va según los pesos objetivo.
+    """
+    cash = float(cash or 0.0)
+    if cash <= 0 or not targets:
+        return {}
+    total_obj = sum(float(v) for v in targets.values() if v)
+    if total_obj <= 0:
+        return {}
+    # Los objetivos se normalizan: si suman 90 o 110, la intención sigue siendo
+    # la proporción entre ellos, y fallar por no sumar 100 exacto sería exigir
+    # una aritmética que nadie hace a mano.
+    w = {k: float(v) / total_obj for k, v in targets.items() if v}
+    futuro = sum(float(v) for v in current.values()) + cash
+    deficit = {k: max(0.0, w[k] * futuro - float(current.get(k, 0.0))) for k in w}
+    suma_def = sum(deficit.values())
+
+    if suma_def <= 1e-9:
+        return {k: round(cash * w[k], 2) for k in w}
+    if suma_def >= cash:
+        # No llega para cuadrar del todo: proporcional al déficit.
+        return {k: round(cash * d / suma_def, 2) for k, d in deficit.items() if d > 1e-9}
+    sobra = cash - suma_def
+    return {k: round(deficit[k] + sobra * w[k], 2) for k in w
+            if deficit[k] + sobra * w[k] > 1e-9}
