@@ -215,3 +215,48 @@ def test_un_split_sin_resolver_es_AVISO_y_explica_que_rompe():
     assert x["level"] == AVISO
     assert "divididos por 10" in x["why"]
     assert "no se puede deducir del número" in x["missing"]
+
+
+# ── diario de cartera ─────────────────────────────────────────────────────
+def test_el_diario_mezcla_movimientos_e_hitos_y_va_del_mas_reciente():
+    from cartera.plan import diary
+    movs = [{"date": "2024-01-15", "side": "buy", "ticker": "AAA", "name": "AAA",
+             "quantity": 10, "price": 100}]
+    d = diary(movs, nav=[1.0, 1.2], dates=["2024-01-10", "2024-06-01"],
+              drawdown={"max": -0.3, "peak": "2024-02-01", "trough": "2024-03-01",
+                        "recovered": None, "days_down": 29})
+    assert [x["date"] for x in d] == sorted([x["date"] for x in d], reverse=True)
+    assert {x["kind"] for x in d} == {"mov", "high", "dd"}
+
+
+def test_un_maximo_solo_merece_linea_si_es_un_ESCALON():
+    """Una cartera en subida hace máximo casi todas las sesiones, y deduplicar
+    por mes tampoco basta: sigue habiendo uno cada mes, y el diario acaba siendo
+    once líneas de «máximo» y dos de todo lo demás. Un máximo cuenta cuando es
+    un salto sobre el último contado, no cuando es un céntimo más que ayer."""
+    from cartera.plan import diary
+    nav = [1.0 + i * 0.01 for i in range(40)]        # sube un 1% cada sesión
+    fechas = [f"2024-01-{d:02d}" for d in range(1, 32)] + [f"2024-02-{d:02d}" for d in range(1, 10)]
+    d = [x for x in diary([], nav=nav, dates=fechas) if x["kind"] == "high"]
+    assert 2 <= len(d) <= 4                  # los escalones, no las 39 sesiones
+    # y cada uno está al menos un 10% por encima del anterior
+    vals = [float(x["detail"].split("vale ")[1].split(" ")[0].replace(",", ".")) for x in d]
+    for a, b in zip(sorted(vals), sorted(vals)[1:]):
+        assert b >= a * 1.09
+
+
+def test_una_cartera_sin_nada_que_contar_devuelve_un_diario_vacio():
+    from cartera.plan import diary
+    assert diary([], nav=None, dates=None) == []
+
+
+def test_un_movimiento_sin_fecha_no_entra_en_la_cronologia():
+    from cartera.plan import diary
+    assert diary([{"date": "", "side": "buy", "ticker": "AAA"}]) == []
+
+
+def test_una_caida_sin_recuperar_no_inventa_la_linea_de_recuperacion():
+    from cartera.plan import diary
+    d = diary([], drawdown={"max": -0.2, "peak": "2024-01-01",
+                            "trough": "2024-03-01", "recovered": None})
+    assert "rec" not in {x["kind"] for x in d}

@@ -123,3 +123,55 @@ def by_economic_currency(countries, mapped_eur=None, base="EUR"):
             "coverage_pct": (round(mapeado / mapped_eur * 100, 1)
                              if (mapped_eur and mapped_eur > 1e-9) else None),
             "base": base}
+
+
+# ── clase de activo ───────────────────────────────────────────────────────
+CLASES_ES = {"equity": "Renta variable", "bond": "Renta fija",
+             "commodity": "Materias primas", "cash": "Liquidez"}
+
+
+def by_asset_class(positions, instruments, base="EUR"):
+    """Reparto por clase de activo, usando la MISMA tabla que el mapa.
+
+    Reusar esa clasificación y no inventar otra es la mitad del valor: dos
+    taxonomías en la misma aplicación acaban discrepando, y entonces hay que
+    decidir cuál vale cada vez que se mira.
+
+    Lo que no está clasificado sale como `unclassified` con su importe y sus
+    instrumentos, y NO se reparte ni se mete en un cajón «otros». La regla del
+    mapa: nunca suponer una categoría para completar el gráfico. Un 78% de
+    renta variable calculado sobre la mitad de la cartera se lee como el 78% de
+    la cartera entera, que es la lectura tranquilizadora y falsa.
+    """
+    acc, total, sin_clase, tickers_sin = {}, 0.0, 0.0, []
+    for p in positions:
+        if p.get("qty", 0) <= 1e-9 or not p.get("valued"):
+            continue
+        v = float(p.get("market_value") or 0.0)
+        if v <= 0:
+            continue
+        total += v
+        spec = (instruments or {}).get(p["ticker"]) or {}
+        cl = spec.get("asset_class")
+        if not cl:
+            sin_clase += v
+            tickers_sin.append(p["ticker"])
+            continue
+        a = acc.setdefault(cl, {"class": cl, "name": CLASES_ES.get(cl, cl),
+                                "eur": 0.0, "tickers": []})
+        a["eur"] += v
+        a["tickers"].append(p["ticker"])
+
+    filas = sorted(acc.values(), key=lambda r: -r["eur"])
+    for r in filas:
+        r["eur"] = round(r["eur"], 2)
+        # El porcentaje va sobre el TOTAL, no sobre lo clasificado: si no, tres
+        # clases sumarían 100% dejando fuera un tercio del dinero sin que se vea.
+        r["pct"] = round(r["eur"] / total * 100, 2) if total > 1e-9 else None
+    return {"rows": filas, "total": round(total, 2),
+            "unclassified": round(sin_clase, 2),
+            "unclassified_tickers": sorted(tickers_sin),
+            "unclassified_pct": (round(sin_clase / total * 100, 2)
+                                 if total > 1e-9 else None),
+            "base": base}
+

@@ -315,3 +315,19 @@ table.fi-lots td,table.fi-lots th{padding:4px 8px;}
   border:1px solid var(--border);background:var(--panel);color:var(--muted);}
 .av-acts .sp-apply{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600;}
 .av-acts button:hover{filter:brightness(1.08);}
+
+/* ── diario ───────────────────────────────────────────────────────────────
+   Una rejilla y no una lista con viñetas: las fechas alineadas en columna se
+   leen de un vistazo, y en una cronología la fecha es la mitad del dato. */
+.diario{display:flex;flex-direction:column;gap:1px;max-height:420px;overflow-y:auto;}
+.dia-fila{display:grid;grid-template-columns:88px 18px 1fr auto;gap:10px;align-items:baseline;
+  padding:5px 8px;border-radius:6px;font-size:12.5px;}
+.dia-fila:hover{background:var(--panel2);}
+.dia-f{font-family:var(--mono);font-size:11px;color:var(--muted);}
+.dia-i{text-align:center;color:var(--faint);}
+.dia-fila.high .dia-i{color:#3fae6b;}
+.dia-fila.dd .dia-i{color:#cf5b3a;}
+.dia-fila.rec .dia-i{color:#4a9e8f;}
+.dia-fila.high .dia-t,.dia-fila.dd .dia-t,.dia-fila.rec .dia-t{font-weight:600;}
+.dia-d{font-size:11.5px;text-align:right;}
+@media(max-width:760px){.dia-fila{grid-template-columns:78px 16px 1fr;}.dia-d{display:none;}}

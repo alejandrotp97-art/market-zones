@@ -196,7 +196,8 @@
     renderFx(p);
     renderContrib(p);
     if (dataChanged) loadRebal();
-    if (dataChanged) { loadZones(); loadPerf(); loadCorr(); loadEstado(); loadAport(); loadCcy(); }
+    if (dataChanged) { loadZones(); loadPerf(); loadCorr(); loadEstado(); loadAport();
+                       loadCcy(); loadClases(); loadDiario(); }
     else paintZones();
     if (reloadHistory) loadHistory();     // skipped on first load: already in flight
   }
@@ -397,6 +398,7 @@
       ${campo("g-capital", "Capital objetivo (€)", g && g.capital, "100000")}
       ${campo("g-monthly", "Aportación mensual (€)", g && g.monthly, "500")}
       ${campo("g-horizon", "Horizonte (años)", g && g.horizon_years, "15")}
+      ${campo("g-losses", "Minusvalías pendientes (€)", g && g.pending_losses, "0")}
       <button type="submit" class="primary-mini">Guardar</button>
     </form>`;
 
@@ -426,7 +428,8 @@
     $("plan-form").addEventListener("submit", async (e) => {
       e.preventDefault();
       const body = { capital: $("g-capital").value, monthly: $("g-monthly").value,
-                     horizon_years: $("g-horizon").value };
+                     horizon_years: $("g-horizon").value,
+                     pending_losses: $("g-losses").value };
       const r = await send("/api/cartera/plan", { method: "POST",
         headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const dd = await r.json();
@@ -781,6 +784,63 @@
         de mercado.</p>`;
   }
 
+  // ══ en qué tipo de activo estás ═══════════════════════════════════════
+  async function loadClases() {
+    const box = $("clase"), leg = $("clase-legend");
+    let d;
+    try { d = await (await fetch("/api/cartera/clases")).json(); }
+    catch (e) { box.innerHTML = `<div class="mut">No pude calcularlo.</div>`; return; }
+    if (d.error || !(d.rows || []).length) {
+      leg.textContent = "";
+      box.innerHTML = `<div class="mut">Todavía no hay clasificación para tus posiciones.</div>`;
+      return;
+    }
+    const COL = { equity: "#3fae6b", bond: "#4a90d9", commodity: "#b0873f", cash: "#7c828e" };
+    leg.textContent = d.unclassified_pct ? `${d.unclassified_pct}% sin clasificar` : "";
+    box.innerHTML = `
+      <div class="ccy-bar">${d.rows.map((r) => `<span class="ccy-seg"
+        style="flex:${r.pct};background:${COL[r.class] || "#7c828e"}"
+        title="${esc(r.name)} ${r.pct}%"></span>`).join("")}
+        ${d.unclassified_pct ? `<span class="ccy-seg" style="flex:${d.unclassified_pct};background:var(--panel2)"></span>` : ""}</div>
+      <div class="ccy-list">${d.rows.map((r) => `<div class="ccy-row">
+        <i style="background:${COL[r.class] || "#7c828e"}"></i>
+        <span class="ccy-n">${esc(r.name)}</span><b>${r.pct}%</b>
+        <span class="mut">${eur(r.eur)}</span></div>`).join("")}</div>
+      ${d.unclassified ? `<p class="mut small">⚠ <b>${eur(d.unclassified)}</b>
+        (${d.unclassified_pct}%) sin clasificar: ${d.unclassified_tickers.map(esc).join(", ")}.
+        No se reparte entre las clases conocidas ni cae en un cajón «otros» —
+        un 85% de renta variable calculado sobre parte de la cartera se leería
+        como el 85% de toda ella.</p>` : ""}
+      <p class="mut small">Misma clasificación que usa el mapa de países. Dos
+        taxonomías en la misma aplicación acaban discrepando, y entonces hay que
+        decidir cuál vale cada vez que se mira.</p>`;
+  }
+
+  // ══ diario ════════════════════════════════════════════════════════════
+  const DIARIO_ICO = { mov: "•", high: "▲", dd: "▼", rec: "↩" };
+  async function loadDiario() {
+    const box = $("diario");
+    let d;
+    try { d = await (await fetch("/api/cartera/diario")).json(); }
+    catch (e) { box.innerHTML = `<div class="mut">No pude construirlo.</div>`; return; }
+    const ev = (d.events || []);
+    if (!ev.length) {
+      box.innerHTML = `<div class="mut">Todavía no hay nada que contar. Aparecerán
+        aquí tus movimientos y los hitos de la cartera: máximos nuevos, la peor
+        caída y su recuperación.</div>`;
+      return;
+    }
+    box.innerHTML = `<div class="diario">${ev.map((e) => `
+      <div class="dia-fila ${esc(e.kind)}">
+        <span class="dia-f">${esc(e.date)}</span>
+        <span class="dia-i">${DIARIO_ICO[e.kind] || "•"}</span>
+        <span class="dia-t">${esc(e.title)}</span>
+        <span class="dia-d mut">${esc(e.detail || "")}</span>
+      </div>`).join("")}</div>
+      <p class="mut small">Sólo hechos tuyos y de tu serie de rendimiento. Ni
+        noticias ni pronósticos: un diario que interpreta deja de ser un diario.</p>`;
+  }
+
   // ══ de qué divisas dependes ═══════════════════════════════════════════
   // Dos lecturas, porque cada una engaña por su lado si va sola. La de
   // cotización es exacta y dice poco; la económica abre cada fondo y es la que
@@ -836,6 +896,7 @@
         data-ticker="${esc(r.ticker)}" value="${r.ter == null ? "" : r.ter}"
         placeholder="—" title="Gastos corrientes anuales en %, del folleto (KID/DFI)"></td>
       <td class="num">${r.ter_year != null ? eur(r.ter_year) : `<span class="mut" title="Sin TER declarado: este coste no está contado en ningún total">sin declarar</span>`}</td>
+      <td class="mut small">${r.ter_date ? `${esc(r.ter_source || "")} · ${esc(r.ter_date)}` : ""}</td>
     </tr>`).join("");
 
     // Lo que el TER se lleva a 20 años del valor de HOY, sin contar crecimiento.
@@ -867,8 +928,9 @@
         se descuenta del valor liquidativo todos los días.</span></p>` : ""}
       <div class="scroll"><table class="tbl">
         <thead><tr><th>Activo</th><th class="num">Comisiones</th>
-          <th class="num">TER %</th><th class="num">Coste anual</th></tr></thead>
-        <tbody>${filas || `<tr><td colspan="4" class="mut">Sin posiciones abiertas.</td></tr>`}</tbody>
+          <th class="num">TER %</th><th class="num">Coste anual</th>
+          <th title="De dónde salió el TER y cuándo. Un número sin procedencia envejece sin avisar.">Origen</th></tr></thead>
+        <tbody>${filas || `<tr><td colspan="5" class="mut">Sin posiciones abiertas.</td></tr>`}</tbody>
       </table></div>`;
 
     box.querySelectorAll(".ter-in").forEach((el) => {
@@ -945,6 +1007,15 @@
         <b>${d.eff_n_corr}</b> apuestas independientes. Contar líneas no es diversificar:
         cinco fondos del mismo índice son una sola apuesta repartida en cinco filas.</p>
       ${betaBloque()}
+      ${d.vs_benchmark ? `<div class="ex-h" style="margin-top:14px">Cada posición contra ${esc(d.benchmark_ticker)}</div>
+        <div class="ccy-list">${Object.entries(d.vs_benchmark)
+          .sort((a, b) => b[1] - a[1]).map(([t, v]) => `<div class="ccy-row">
+            <i style="background:${v >= 0.7 ? "#cf5b3a" : v >= 0.4 ? "#d99a2b" : "#3fae6b"}"></i>
+            <span class="ccy-n">${esc(t.slice(0, 12))}</span><b>${v}</b>
+            <span class="mut">${v >= 0.7 ? "va con el mercado" : v >= 0.4 ? "a medias" : "va por su cuenta"}</span>
+          </div>`).join("")}</div>
+        <p class="mut small">La beta describe el conjunto y no señala a ninguna.
+          Esto dice <b>cuál</b> de tus posiciones te ata al mercado.</p>` : ""}
       ${mc ? `<p class="perf-note">Lo que más se parece: <b>${esc(mc.a)}</b> y <b>${esc(mc.b)}</b>,
         correlación <b>${mc.rho}</b>.${mc.rho > 0.8 ? " A ese nivel, son prácticamente el mismo activo." : ""}</p>` : ""}
       <div class="scroll"><table class="tbl corr-tbl">

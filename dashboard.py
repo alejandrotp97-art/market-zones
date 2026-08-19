@@ -30,6 +30,7 @@ import pandas as pd
 from flask import Flask, Response, jsonify, redirect, render_template, request, send_from_directory
 
 import geo
+from cartera.exposure import by_asset_class as _by_asset_class
 from cartera.exposure import by_economic_currency as _ccy_economic
 from cartera.exposure import by_quote_currency as _ccy_quote
 from cartera.fiscal import TRAMOS_ANO as _TRAMOS_ANO
@@ -56,6 +57,7 @@ from cartera.parsing import sniff_sep as _sniff_sep
 from cartera.parsing import symbol_isin as _symbol_isin
 from cartera.plan import attention as _attention
 from cartera.plan import contribution_stats as _contrib_stats
+from cartera.plan import diary as _diary
 from cartera.plan import goal_progress as _goal_progress
 from cartera.plan import monthly_flows as _monthly_flows
 from cartera.positions import BASE_CCY
@@ -865,6 +867,14 @@ def _cartera_conn():
     meta = {r[1] for r in c.execute("PRAGMA table_info(instrument_meta)")}
     if "target" not in meta:
         c.execute("ALTER TABLE instrument_meta ADD COLUMN target REAL")
+    # De dónde salió el TER y cuándo. Un número sin procedencia envejece sin
+    # avisar: dentro de dos años nadie sabrá si sigue vigente ni de qué ficha
+    # se copió, y el coste anual de la cartera se calculará sobre un dato que
+    # puede llevar mucho tiempo siendo falso.
+    if "ter_source" not in meta:
+        c.execute("ALTER TABLE instrument_meta ADD COLUMN ter_source TEXT")
+    if "ter_date" not in meta:
+        c.execute("ALTER TABLE instrument_meta ADD COLUMN ter_date TEXT")
     # El plan de quien invierte: una fila, porque es una cartera. `id=1` fijo y
     # no autoincremental — un plan nuevo SUSTITUYE al anterior, y una tabla que
     # acumula planes viejos obliga a decidir cuál vale cada vez que se lee.
@@ -878,6 +888,12 @@ def _cartera_conn():
     c.execute("""CREATE TABLE IF NOT EXISTS portfolio_goal(
         id INTEGER PRIMARY KEY CHECK (id = 1),
         capital REAL, horizon_years REAL, monthly REAL)""")
+    goal_cols = {r[1] for r in c.execute("PRAGMA table_info(portfolio_goal)")}
+    # Minusvalías pendientes de compensar de ejercicios anteriores. Se guardan
+    # porque el simulador fiscal las necesita en CADA simulación, y volver a
+    # teclearlas cada vez garantiza que un día se teclee otra cifra distinta.
+    if "pending_losses" not in goal_cols:
+        c.execute("ALTER TABLE portfolio_goal ADD COLUMN pending_losses REAL")
     return c
 
 
@@ -885,11 +901,12 @@ def _portfolio_goal():
     """El plan declarado, o None. Nunca un plan a cero: no haber decidido un
     objetivo y haberse puesto uno de cero euros no son lo mismo."""
     with _cartera_conn() as c:
-        row = c.execute("SELECT capital, horizon_years, monthly "
+        row = c.execute("SELECT capital, horizon_years, monthly, pending_losses "
                         "FROM portfolio_goal WHERE id=1").fetchone()
     if not row or all(v is None for v in row):
         return None
-    return {"capital": row[0], "horizon_years": row[1], "monthly": row[2]}
+    return {"capital": row[0], "horizon_years": row[1], "monthly": row[2],
+            "pending_losses": row[3]}
 
 
 # ── Búsqueda de instrumentos (ETFs, fondos, acciones) vía Yahoo Finance ──
@@ -1210,11 +1227,14 @@ def _cartera_payload():
         m["kind"] = _instrument_kind(m.get("ticker"), m.get("kind"))
     positions = _positions(movs)
     with _cartera_conn() as c:
-        meta = {t: {"ter": ter, "target": tgt}
-                for t, ter, tgt in c.execute("SELECT ticker, ter, target FROM instrument_meta")}
+        meta = {t: {"ter": ter, "target": tgt, "ter_source": src_, "ter_date": fecha}
+                for t, ter, tgt, src_, fecha in c.execute(
+                    "SELECT ticker, ter, target, ter_source, ter_date FROM instrument_meta")}
     for p in positions:
         m = meta.get(p["ticker"]) or {}
         p["ter"] = m.get("ter")
+        p["ter_source"] = m.get("ter_source")
+        p["ter_date"] = m.get("ter_date")
         p["target"] = m.get("target")
         # Cuánto ha aportado ESTA posición al resultado, en euros. No es el
         # peso ni el porcentaje de subida: una posición del 5% que se dobló ha
@@ -1534,7 +1554,7 @@ CORR_DAYS = 252
 CORR_MIN_OBS = 60
 
 
-def _cartera_correlacion(days: int = CORR_DAYS):
+def _cartera_correlacion(days: int = CORR_DAYS, benchmark: str = "SPY"):
     """Correlación entre las posiciones abiertas y diversificación REAL.
 
     El «N efectivo» que enseñaba el comité sale sólo de los pesos: cuenta dos
@@ -1581,12 +1601,44 @@ def _cartera_correlacion(days: int = CORR_DAYS):
                 excluidas.append({"ticker": t, "why": "sin tipo de cambio"})
                 continue
             eur = s * fx.reindex(s.index.union(fx.index)).sort_index().ffill().reindex(s.index)
+        # El índice se NORMALIZA a fecha antes de guardarlo. `_close_series`
+        # conserva la hora de la barra, y esa hora no es la misma para todos:
+        # un ETF de Nueva York indexa a las 13:30 UTC y un fondo europeo
+        # valorado a NAV, a las 06:00. Intersecar marcas de tiempo daba CERO
+        # sesiones en común entre ellos donde por fecha hay más de dos mil, así
+        # que esta matriz se negaba a publicarse en cuanto la cartera mezclaba
+        # una plaza americana con una europea — y decía «faltan sesiones», que
+        # suena a poca historia y era otra cosa.
         series[t] = eur.dropna()
+        series[t].index = series[t].index.normalize()
+        series[t] = series[t][~series[t].index.duplicated(keep="last")]
 
     if len(series) < 2:
         return {"n": len(abiertas), "matrix": [], "tickers": [],
                 "eff_n_weights": None, "eff_n_corr": None,
                 "excluded": excluidas, "obs": 0, "days": days}
+
+    # El índice entra como una columna MÁS, no en un cálculo aparte: así comparte
+    # exactamente el mismo calendario común que las posiciones. Correlacionarlo
+    # por su cuenta lo dejaría sobre otro conjunto de sesiones, y dos números
+    # medidos sobre días distintos no se pueden poner en la misma tabla.
+    bench_col = None
+    bs = _close_series(benchmark)
+    if bs is not None and len(bs):
+        bcu = _instrument_ccy(benchmark)
+        if bcu:
+            base, f = _ccy_base_factor(bcu)
+            if base == BASE_CCY:
+                bser = bs * f
+            else:
+                bfx = _fx_series_eur(bcu)
+                bser = (bs * bfx.reindex(bs.index.union(bfx.index)).sort_index()
+                        .ffill().reindex(bs.index)) if bfx is not None else None
+            if bser is not None:
+                bench_col = f"__{benchmark}"
+                s = bser.dropna()
+                s.index = s.index.normalize()
+                series[bench_col] = s[~s.index.duplicated(keep="last")]
 
     df = pd.DataFrame(series).dropna()          # calendario COMÚN, no rellenado
     df = df.tail(days + 1)
@@ -1598,12 +1650,19 @@ def _cartera_correlacion(days: int = CORR_DAYS):
                 "why": f"sólo {len(rets)} sesiones en común; hacen falta {CORR_MIN_OBS}"}
 
     corr = rets.corr()
+    # Contra el índice, posición a posición: dice CUÁL de ellas ata la cartera
+    # al mercado. La beta lo dice del conjunto y no señala a ninguna.
+    vs_bench = None
+    if bench_col is not None and bench_col in corr.columns:
+        vs_bench = {c: round(float(corr.loc[c, bench_col]), 3)
+                    for c in corr.columns if c != bench_col}
+        corr = corr.drop(index=bench_col, columns=bench_col)
     tk = list(corr.columns)
     peso = {p["ticker"]: p["market_value"] for p in abiertas}
     # Los pesos se RENORMALIZAN sobre lo que entra en la matriz. Usar el peso
     # sobre la cartera entera repartiría entre las incluidas un capital que no
     # está aquí, y el N efectivo saldría más alto de lo que es.
-    total = sum(peso[t] for t in tk)
+    total = sum(peso[t] for t in tk)   # `tk` ya no incluye el índice
     w = np.array([peso[t] / total for t in tk])
     R = corr.to_numpy(float)
     pesos = [float(x) for x in w]
@@ -1627,6 +1686,7 @@ def _cartera_correlacion(days: int = CORR_DAYS):
             "eff_n_weights": (round(eff_w, 2) if eff_w is not None else None),
             "eff_n_corr": (round(eff_c, 2) if eff_c is not None else None),
             "most_correlated": peor,
+            "vs_benchmark": vs_bench, "benchmark_ticker": benchmark,
             "obs": len(rets), "days": days, "excluded": excluidas}
 
 
@@ -1637,8 +1697,9 @@ def api_cartera_correlacion():
     except (TypeError, ValueError):
         d = CORR_DAYS
     d = max(CORR_MIN_OBS, min(2520, d))
+    bench = request.args.get("benchmark", "SPY")
     try:
-        return _json_response(_cartera_correlacion(d), max_age=0)
+        return _json_response(_cartera_correlacion(d, bench), max_age=0)
     except Exception as e:
         return jsonify({"error": str(e)}), 502
 
@@ -1908,10 +1969,16 @@ def api_cartera_ter():
                                      "Fuera del rango 0–10 no es un TER."}), 400
     with _cartera_conn() as c:
         if ter is None:
-            c.execute("DELETE FROM instrument_meta WHERE ticker=?", (tk,))
+            c.execute("UPDATE instrument_meta SET ter=NULL, ter_source=NULL, "
+                      "ter_date=NULL WHERE ticker=?", (tk,))
+            c.execute("DELETE FROM instrument_meta WHERE ter IS NULL AND target IS NULL")
         else:
-            c.execute("INSERT INTO instrument_meta(ticker,ter) VALUES(?,?) "
-                      "ON CONFLICT(ticker) DO UPDATE SET ter=excluded.ter", (tk, ter))
+            fuente = str(d.get("source", "")).strip() or "declarado a mano"
+            hoy = time.strftime("%Y-%m-%d")
+            c.execute("INSERT INTO instrument_meta(ticker,ter,ter_source,ter_date) "
+                      "VALUES(?,?,?,?) ON CONFLICT(ticker) DO UPDATE SET "
+                      "ter=excluded.ter, ter_source=excluded.ter_source, "
+                      "ter_date=excluded.ter_date", (tk, ter, fuente, hoy))
     return jsonify(_cartera_payload())
 
 
@@ -1983,9 +2050,9 @@ def api_cartera_plan():
     """
     d = request.get_json(force=True, silent=True) or {}
     campos, limites = {}, {"capital": (0, 1e12), "horizon_years": (0, 100),
-                           "monthly": (0, 1e9)}
+                           "monthly": (0, 1e9), "pending_losses": (0, 1e9)}
     es = {"capital": "capital objetivo", "horizon_years": "horizonte",
-          "monthly": "aportación mensual"}
+          "monthly": "aportación mensual", "pending_losses": "minusvalías pendientes"}
     for k, (lo, hi) in limites.items():
         if k not in d:
             continue
@@ -2008,7 +2075,8 @@ def api_cartera_plan():
         # devuelve None y la pantalla vuelve a ofrecer declararlo, en vez de
         # enseñar una ficha vacía que parece rota.
         c.execute("DELETE FROM portfolio_goal WHERE capital IS NULL "
-                  "AND horizon_years IS NULL AND monthly IS NULL")
+                  "AND horizon_years IS NULL AND monthly IS NULL "
+                  "AND pending_losses IS NULL")
     return jsonify(_cartera_estado())
 
 
@@ -2215,7 +2283,8 @@ def api_cartera_simular_venta():
             ya = max(0.0, _realized_this_year(p["movements"], year))
         except Exception:
             ya = 0.0
-    pendientes = num("pending_losses", 0.0)
+    guardadas = (_portfolio_goal() or {}).get("pending_losses") or 0.0
+    pendientes = num("pending_losses", guardadas)
 
     sim = _simulate_sale(lots, qty, pos["last"], fee=num("fee", 0.0),
                          fx=pos.get("fx") or 1.0,
@@ -2235,6 +2304,7 @@ def api_cartera_simular_venta():
         "price": pos.get("last"), "fx": pos.get("fx"),
         "held": pos["qty"], "all_lots": pos.get("lots") or [],
         "other_gains_auto": auto, "year": year, "brackets_year": _TRAMOS_ANO,
+        "losses_stored": round(float(guardadas), 2),
         "loss_note": _loss_note(sim["result"]),
         "repurchase": recompras, "listed": cotiza,
         "base": BASE_CCY,
@@ -2379,6 +2449,48 @@ def api_cartera_splits_resolver():
     out["split_applied"] = {"ticker": tk, "date": fecha, "ratio": split["ratio"],
                             "n": len(filas), "backup": copia}
     return jsonify(out)
+
+
+@app.route("/api/cartera/clases")
+def api_cartera_clases():
+    """Reparto por clase de activo, con la MISMA tabla que usa el mapa.
+
+    Reusar esa clasificación y no inventar otra es la mitad del valor: dos
+    taxonomías en la misma aplicación acaban discrepando, y a partir de ahí hay
+    que decidir cuál vale cada vez que se mira.
+    """
+    p = _cartera_payload()
+    try:
+        tabla = (geo.load_table() or {}).get("instruments") or {}
+    except Exception:
+        tabla = {}
+    return _json_response(_by_asset_class(p["positions"], tabla, base=BASE_CCY),
+                          max_age=0)
+
+
+@app.route("/api/cartera/diario")
+def api_cartera_diario():
+    """Cronología de hechos PROPIOS: ni noticias, ni mercado, ni pronósticos.
+
+    Dos fuentes y ninguna más: los movimientos, que apuntó una persona, y los
+    hitos de la serie de rendimiento —máximos, la peor caída y su recuperación—,
+    que se derivan de precios. Que un mes no tenga nada que contar es una
+    respuesta válida y no un fallo del diario.
+    """
+    p = _cartera_payload()
+    nav = fechas = caida = None
+    try:
+        r = _reconstruct_portfolio("SPY")
+        if not r.get("empty"):
+            con_div = [float(f - d) for f, d in zip(r["flows"], r["divs"], strict=True)]
+            nav = _nav_series([float(v) for v in r["port"]], con_div)
+            fechas = [str(d)[:10] for d in r["idx"]]
+            caida = _drawdown(nav, list(r["idx"]))
+    except Exception:
+        nav = fechas = caida = None
+    return _json_response({"events": _diary(p["movements"], nav=nav, dates=fechas,
+                                            drawdown=caida),
+                           "base": BASE_CCY}, max_age=0)
 
 
 @app.route("/api/cartera/rebalanceo")

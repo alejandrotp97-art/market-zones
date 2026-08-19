@@ -306,3 +306,88 @@ def goal_progress(goal, value, contributed_12m=None):
         out["real_12m"] = round(contributed_12m, 2)
         out["plan_pct"] = round(contributed_12m / plan * 100, 1) if plan > 1e-9 else None
     return out
+
+
+# ── diario de cartera ─────────────────────────────────────────────────────
+# Un diario de HECHOS PROPIOS. Nada de noticias, nada de mercado: sólo lo que
+# ha pasado con este dinero. Que no haya nada que contar un mes es una respuesta
+# perfectamente válida y no un fallo del diario.
+SIDE_TXT = {"buy": "Compra", "sell": "Venta", "div": "Dividendo"}
+# Salto mínimo sobre el último máximo contado para que otro merezca una línea.
+HIGH_STEP = 0.10
+
+
+def diary(movements, nav=None, dates=None, drawdown=None, limit=120):
+    """Cronología de lo que le ha pasado a esta cartera.
+
+    Dos fuentes y ninguna más:
+
+      * los MOVIMIENTOS, que son hechos apuntados por una persona;
+      * los HITOS de la serie de rendimiento — máximos nuevos, el principio de
+        la peor caída, su suelo y su recuperación—, que son hechos derivados
+        de precios.
+
+    Los máximos se deduplican por MES. Una cartera en subida hace máximo casi
+    todas las sesiones, y un diario con cuarenta líneas iguales seguidas no es
+    una cronología: es ruido con fechas.
+    """
+    ev = []
+    for m in movements or []:
+        d = str(m.get("date") or "")[:10]
+        if not d:
+            continue
+        ev.append({"date": d, "kind": "mov", "side": m.get("side"),
+                   "title": f"{SIDE_TXT.get(m.get('side'), 'Movimiento')} de "
+                            f"{m.get('name') or m.get('ticker')}",
+                   "detail": _mov_detail(m), "ticker": m.get("ticker")})
+
+    if nav and dates and len(nav) == len(dates):
+        pico = ultimo_contado = nav[0]
+        for i in range(1, len(nav)):
+            if nav[i] <= pico + 1e-12:
+                continue
+            pico = nav[i]
+            # Deduplicar por MES no basta: una cartera que sube hace máximo casi
+            # todos los meses, y el diario acababa siendo once líneas de «máximo
+            # histórico» y dos de todo lo demás. Un máximo merece una línea
+            # cuando es un ESCALÓN —un salto sobre el último que se contó—, no
+            # cuando es un céntimo más que ayer.
+            if pico < ultimo_contado * (1 + HIGH_STEP):
+                continue
+            ultimo_contado = pico
+            ev.append({"date": str(dates[i])[:10], "kind": "high",
+                       "title": "Nuevo máximo de la cartera",
+                       "detail": f"1 € invertido al principio vale {pico:.3f} €",
+                       "ticker": None})
+
+    if drawdown and drawdown.get("max", 0) < -1e-9:
+        d = drawdown
+        if d.get("peak"):
+            ev.append({"date": d["peak"], "kind": "dd",
+                       "title": "Empieza la mayor caída",
+                       "detail": "Desde aquí la cartera perdió "
+                                 f"{abs(d['max']) * 100:.1f}%", "ticker": None})
+        if d.get("trough"):
+            ev.append({"date": d["trough"], "kind": "dd",
+                       "title": "Suelo de la mayor caída",
+                       "detail": (f"{d['days_down']} días desde el máximo"
+                                  if d.get("days_down") else ""), "ticker": None})
+        if d.get("recovered"):
+            ev.append({"date": d["recovered"], "kind": "rec",
+                       "title": "Caída recuperada",
+                       "detail": (f"{d['days_to_recover']} días desde el suelo"
+                                  if d.get("days_to_recover") else ""), "ticker": None})
+
+    ev.sort(key=lambda e: (e["date"], e["kind"]), reverse=True)
+    return ev[:limit]
+
+
+def _mov_detail(m):
+    q, px = m.get("quantity"), m.get("price")
+    if m.get("side") == "div":
+        bruto = (q or 0) * (px or 0)
+        return f"{bruto:,.2f} € brutos".replace(",", ".")
+    if q is None or px is None:
+        return ""
+    return f"{q:g} a {px:g}"
+

@@ -568,3 +568,53 @@ def test_un_instrumento_sin_consultar_no_se_da_por_limpio(libro, monkeypatch):
     _post(libro, ticker="AAA", side="buy", quantity=10, price=400, date="2023-05-01")
     d = D._cartera_splits()
     assert d["unchecked"] == ["AAA"] and d["n"] == 0
+
+
+# ── correlación: el bug de las horas ──────────────────────────────────────
+def test_dos_plazas_con_HORA_distinta_siguen_teniendo_sesiones_en_comun(libro, monkeypatch):
+    """BUG REAL, preexistente. `_close_series` conserva la hora de la barra, y
+    no es la misma para todos: un ETF de Nueva York indexa a las 13:30 UTC y un
+    fondo europeo a NAV, a las 06:00. Intersecar marcas de tiempo daba CERO
+    sesiones donde por fecha hay miles, así que la matriz se negaba a publicarse
+    en cuanto la cartera mezclaba una plaza americana con una europea — y decía
+    «faltan sesiones», que suena a poca historia y era otra cosa.
+    """
+    import numpy as np
+    idx_us = pd.bdate_range("2024-01-01", periods=300) + pd.Timedelta(hours=13, minutes=30)
+    idx_eu = pd.bdate_range("2024-01-01", periods=300) + pd.Timedelta(hours=6)
+    rng = np.random.default_rng(7)
+    us = pd.Series(100 * np.cumprod(1 + rng.normal(0, 0.01, 300)), index=idx_us)
+    eu = pd.Series(100 * np.cumprod(1 + rng.normal(0, 0.01, 300)), index=idx_eu)
+    monkeypatch.setattr(D, "_close_series", lambda t: us if t in ("USA", "SPY") else eu)
+    _post(libro, ticker="USA", side="buy", quantity=10, price=100)
+    _post(libro, ticker="EUR0", side="buy", quantity=10, price=100)
+
+    c = D._cartera_correlacion()
+
+    assert c["obs"] > 200, "las dos plazas comparten fechas aunque no la hora"
+    assert c["eff_n_corr"] is not None
+
+
+def test_la_correlacion_contra_el_indice_va_posicion_a_posicion(libro, monkeypatch):
+    """La beta describe el conjunto y no señala a ninguna. Esto dice CUÁL de
+    tus posiciones es la que ata la cartera al mercado."""
+    import numpy as np
+    idx = pd.bdate_range("2024-01-01", periods=300)
+    rng = np.random.default_rng(11)
+    base = np.cumprod(1 + rng.normal(0, 0.01, 300))
+    bench = pd.Series(100 * base, index=idx)
+    clon = pd.Series(50 * base, index=idx)                     # replica al índice
+    otro = pd.Series(100 * np.cumprod(1 + rng.normal(0, 0.01, 300)), index=idx)
+    monkeypatch.setattr(D, "_close_series",
+                        lambda t: bench if t == "SPY" else (clon if t == "CLON" else otro))
+    _post(libro, ticker="CLON", side="buy", quantity=10, price=100)
+    _post(libro, ticker="OTRO", side="buy", quantity=10, price=100)
+
+    c = D._cartera_correlacion()
+
+    assert c["benchmark_ticker"] == "SPY"
+    assert c["vs_benchmark"]["CLON"] == pytest.approx(1.0, abs=1e-6)
+    assert abs(c["vs_benchmark"]["OTRO"]) < 0.5
+    # y el índice NO se cuela como una posición más de la matriz
+    assert "__SPY" not in c["tickers"]
+    assert len(c["tickers"]) == 2

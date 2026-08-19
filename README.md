@@ -334,7 +334,7 @@ the two is how a holding silently disappears from a chart while its cost stays i
 
 ## Tests
 
-462 tests, hermetic — every outbound call is stubbed, so the suite never touches
+483 tests, hermetic — every outbound call is stubbed, so the suite never touches
 the network and never depends on Yahoo being up.
 
 ```bash
@@ -345,6 +345,11 @@ pytest tests/test_daily_golden.py       # the score is byte-identical to the gol
 pytest tests/test_cartera_dividendos_edicion.py   # dividends, editing, per-position zone
 pytest tests/test_returns.py            # TWR/XIRR, checked against Excel's published example
 ```
+
+CI runs `ruff check` before the suite — a name that does not exist is reported
+in two seconds with file and line, rather than surfacing as an import error
+halfway through the tests. The rule set is curated and carries zero exceptions,
+so a new warning always means something is actually wrong.
 
 CI runs the same suite on every push and once a week on Python 3.11, 3.12 and
 3.14 — the floor the guide promises, and the one production actually serves on —

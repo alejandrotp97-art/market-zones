@@ -93,3 +93,32 @@ def test_una_cartera_en_euros_puede_depender_del_dolar():
                               {"iso2": "DE", "eur": 2000}], mapped_eur=10000)
     assert q["rows"][0]["ccy"] == "EUR" and q["rows"][0]["pct"] == 100.0
     assert e["rows"][0]["ccy"] == "USD" and e["rows"][0]["pct"] == 65.0
+
+
+# ── clase de activo ───────────────────────────────────────────────────────
+def test_lo_no_clasificado_no_se_reparte_ni_se_mete_en_otros():
+    """Un 78% de renta variable calculado sobre la mitad de la cartera se lee
+    como el 78% de la cartera entera: la lectura tranquilizadora y falsa."""
+    from cartera.exposure import by_asset_class
+    r = by_asset_class([pos("A", "EUR", 5000), pos("B", "EUR", 3000),
+                        pos("C", "EUR", 2000)],
+                       {"A": {"asset_class": "equity"}, "B": {"asset_class": "bond"}})
+    d = {x["class"]: x["pct"] for x in r["rows"]}
+    assert d["equity"] == 50.0 and d["bond"] == 30.0
+    assert r["unclassified"] == 2000.0 and r["unclassified_pct"] == 20.0
+    assert r["unclassified_tickers"] == ["C"]
+    # y los porcentajes NO suman 100 entre las clases conocidas
+    assert sum(x["pct"] for x in r["rows"]) == 80.0
+
+
+def test_las_clases_llevan_su_nombre_en_castellano():
+    from cartera.exposure import by_asset_class
+    r = by_asset_class([pos("A", "EUR", 100)], {"A": {"asset_class": "commodity"}})
+    assert r["rows"][0]["name"] == "Materias primas"
+
+
+def test_una_posicion_sin_valorar_no_entra_en_el_reparto():
+    from cartera.exposure import by_asset_class
+    r = by_asset_class([pos("A", "EUR", 100), pos("B", "EUR", None, valued=False)],
+                       {"A": {"asset_class": "equity"}, "B": {"asset_class": "bond"}})
+    assert r["total"] == 100.0 and len(r["rows"]) == 1

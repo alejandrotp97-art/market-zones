@@ -527,6 +527,30 @@ botones:
 > El panel **no puede adivinar** cuál de las dos es tu caso: «10 títulos» es el
 > mismo número antes y después del split. Por eso te pregunta en vez de decidir.
 
+### En qué tipo de activo estás
+
+Renta variable, renta fija, materias primas. Usa **la misma clasificación que
+el mapa de países**: dos taxonomías en la misma aplicación acaban discrepando, y
+entonces hay que decidir cuál vale cada vez que se mira.
+
+> Lo que no está clasificado **no se reparte** entre las clases conocidas ni cae
+> en un cajón «otros»: sale con su nombre y su importe. Un «85% en renta
+> variable» calculado sobre parte de la cartera se leería como el 85% de toda
+> ella.
+
+### Diario de tu cartera
+
+Una cronología de **hechos tuyos**: cada compra, venta y dividendo, más los
+hitos de tu propia serie — nuevos máximos, el principio de la peor caída, su
+suelo y el día que se recuperó.
+
+Ni noticias, ni mercado, ni pronósticos. Un diario que interpreta deja de ser un
+diario.
+
+> Los máximos sólo aparecen cuando son un **escalón** sobre el anterior. Una
+> cartera que sube hace máximo casi todos los meses, y una lista de once
+> «máximo histórico» seguidos no es una cronología: es ruido con fechas.
+
 ### De qué divisas dependes (y por qué hay dos listas)
 
 Dos lecturas, y **ninguna sobra**:
