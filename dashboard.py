@@ -51,6 +51,10 @@ from cartera.parsing import sniff_sep as _sniff_sep
 from cartera.parsing import symbol_isin as _symbol_isin
 from cartera.positions import BASE_CCY
 from cartera.positions import compute as _compute_positions
+from cartera.returns import currency_split as _currency_split
+from cartera.returns import effective_n as _effective_n
+from cartera.returns import twr as _twr
+from cartera.returns import xirr as _xirr
 from zones import (WEEKLY, BadSymbol, NoHistory, analyze, fetch_daily,
                    safe_symbol, to_weekly)
 from zones.engine import VOL_W_DEFAULT
@@ -834,6 +838,13 @@ def _cartera_conn():
         c.execute("ALTER TABLE movements ADD COLUMN name TEXT")
     if "kind" not in have:
         c.execute("ALTER TABLE movements ADD COLUMN kind TEXT")
+    # El TER no lo publica el endpoint de cotizaciones que usa este panel, y no
+    # se inventa: lo escribe quien tiene el folleto delante. Tabla aparte y no
+    # una columna en `movements` porque es una propiedad del INSTRUMENTO, no de
+    # la operación: si viviera en el movimiento, dos compras del mismo fondo
+    # podrían declarar comisiones distintas y la cartera no sabría cuál creer.
+    c.execute("""CREATE TABLE IF NOT EXISTS instrument_meta(
+        ticker TEXT PRIMARY KEY, ter REAL)""")
     return c
 
 
@@ -1153,6 +1164,16 @@ def _cartera_payload():
     for m in movs:
         m["kind"] = _instrument_kind(m.get("ticker"), m.get("kind"))
     positions = _positions(movs)
+    with _cartera_conn() as c:
+        ters = {t: v for t, v in c.execute("SELECT ticker, ter FROM instrument_meta")
+                if v is not None}
+    for p in positions:
+        p["ter"] = ters.get(p["ticker"])
+        # Coste anual que se lleva la gestora del valor de HOY. Es el único
+        # coste que no se ve nunca en un extracto: no se cobra, se descuenta del
+        # valor liquidativo. Por eso es el que hay que escribir en una pantalla.
+        p["ter_year"] = (round(p["market_value"] * p["ter"] / 100, 2)
+                         if (p["ter"] and p.get("market_value")) else None)
     open_pos = [p for p in positions if p["qty"] > 1e-9]
     # invested / market_value / unreal are summed over the SAME set — the
     # positions that could actually be valued. Mixing a partial numerator with
@@ -1163,6 +1184,15 @@ def _cartera_payload():
     unreal = sum(p["unreal"] for p in valued)
     realized = sum(p["realized"] for p in positions if p["realized"] is not None)
     realized_fifo = sum(p["realized_fifo"] for p in positions if p["realized_fifo"] is not None)
+    fees = sum(p["fees"] for p in positions)
+    withheld = sum(p["withheld"] for p in positions)
+    n_ops = sum(p["n_ops"] for p in positions)
+    ter_year = sum(p["ter_year"] for p in positions if p.get("ter_year") is not None)
+    # Sobre qué parte del dinero se conoce el TER. Sin esto, un 0,12% anual
+    # calculado sobre un tercio de la cartera se lee como el coste de la
+    # cartera entera, que es la lectura tranquilizadora y falsa.
+    ter_cov = sum(p["market_value"] for p in positions
+                  if p.get("ter") is not None and p.get("market_value"))
     income = sum(p["income"] for p in positions if p["income"] is not None)
     currencies = sorted({p["ccy"] for p in open_pos if p.get("ccy") and p["ccy"] != "?"})
     unvalued = [{"ticker": p["ticker"], "why": p["why"]} for p in open_pos if not p["valued"]]
@@ -1183,6 +1213,13 @@ def _cartera_payload():
                # ni baja el coste.
                "income": round(income, 2),
                "n_dividends": sum(1 for m in movs if m.get("side") == "div"),
+               # Lo que cuesta tener esta cartera, que estaba guardado y sin
+               # sumar en ningún sitio.
+               "fees": round(fees, 2), "withheld": round(withheld, 2),
+               "n_ops": n_ops,
+               "ter_year": round(ter_year, 2),
+               "ter_coverage": (round(ter_cov / mval * 100, 1) if mval > 1e-9 else 0.0),
+               "ter_pct": (round(ter_year / ter_cov * 100, 3) if ter_cov > 1e-9 else None),
                # Rentabilidad total = lo que la posición aún no ha soltado + lo
                # que ya soltó + lo que pagó por el camino. Es la única de las
                # tres cifras que responde «¿cuánto he ganado?».
@@ -1324,6 +1361,198 @@ def api_cartera_export():
     # outcome the host guard and the 0600 chmod are built to prevent.
     resp.headers["Cache-Control"] = "no-store"
     return resp
+
+
+def _cartera_returns(benchmark: str = "SPY"):
+    """Rentabilidad de la cartera: TWR, TIR y desglose por año.
+
+    Se calcula sobre la reconstrucción a resolución DIARIA, no sobre los puntos
+    submuestreados del gráfico: encadenar tramos de uno de cada cuatro días
+    coloca los flujos en el día que no es.
+
+    DOS TWR, y no es redundancia. El de arriba incluye los dividendos, que es
+    la rentabilidad de verdad. El segundo los deja fuera, y existe SÓLO para
+    comparar con el índice: `zones/data.py` pide el cierre crudo de Yahoo, no el
+    ajustado, así que la serie del benchmark tampoco lleva sus propios
+    dividendos. Comparar un total return contra un price return regala al que
+    mira la rentabilidad por dividendo del índice —cerca de un 1,5% anual en un
+    S&P 500— y la comparación deja de significar nada.
+    """
+    r = _reconstruct_portfolio(benchmark)
+    if r.get("empty"):
+        return {"twr": None, "tir": None, "empty": True,
+                "benchmark_ticker": benchmark, "base": BASE_CCY}
+
+    idx, port = r["idx"], r["port"]
+    fechas = list(idx)
+    # Convenio de `cartera.returns`: compra +, venta -, dividendo -. `flows` ya
+    # trae compras en positivo y ventas en negativo; el dividendo se resta.
+    con_div = [float(f - d) for f, d in zip(r["flows"], r["divs"])]
+    sin_div = [float(f) for f in r["flows"]]
+    vals = [float(v) for v in port]
+
+    t_total = _twr(vals, con_div, fechas)
+    t_precio = _twr(vals, sin_div, fechas)
+
+    # TIR: convenio de caja de quien invierte. Sale de su bolsillo = negativo.
+    cf = []
+    for i, (fl, dv) in enumerate(zip(r["flows"], r["divs"])):
+        neto = -float(fl) + float(dv)
+        if abs(neto) > 1e-9:
+            cf.append((fechas[i].date(), neto))
+    if vals and vals[-1] > 1e-9:
+        cf.append((fechas[-1].date(), vals[-1]))   # el valor de hoy, como cobro final
+    tir = _xirr(cf)
+
+    bench = None
+    if r["bench_val"] is not None:
+        bv = [float(v) for v in r["bench_val"]]
+        bench = _twr(bv, sin_div, fechas)
+
+    aportado = float(sum(f for f in r["flows"] if f > 0))
+    retirado = float(-sum(f for f in r["flows"] if f < 0))
+    dividendos = float(sum(r["divs"]))
+    dias = t_total.get("days") or 0
+    return {
+        "empty": False,
+        "twr": t_total, "twr_price_only": t_precio, "tir": tir,
+        # La TIR ya es una tasa ANUAL, así que por debajo de un año es la misma
+        # extrapolación que `annualize` se niega a hacer. Una sola bandera para
+        # las dos cifras, para que no puedan discrepar.
+        "annualizable": dias >= 365,
+        "benchmark_ticker": benchmark, "benchmark_twr": bench,
+        "flows": {"aportado": round(aportado, 2), "retirado": round(retirado, 2),
+                  "dividendos": round(dividendos, 2),
+                  "valor_hoy": round(vals[-1], 2) if vals else 0.0},
+        "excluded": r["excluded"], "covered": not r["excluded"],
+        "base": BASE_CCY,
+    }
+
+
+# Ventana de la correlación. Un año de sesiones: suficiente para que la
+# estimación no sea ruido y corto para que describa la cartera de HOY. Con diez
+# años, dos activos que hace tiempo no se parecen salen correlacionados por lo
+# que hicieron en 2020.
+CORR_DAYS = 252
+CORR_MIN_OBS = 60
+
+
+def _cartera_correlacion(days: int = CORR_DAYS):
+    """Correlación entre las posiciones abiertas y diversificación REAL.
+
+    El «N efectivo» que enseñaba el comité sale sólo de los pesos: cuenta dos
+    ETFs correlacionados al 0,95 como dos apuestas distintas cuando son una.
+    El propio comité ya lo advertía por escrito y no lo medía.
+
+        N efectivo (pesos)        1 / SUM(w_i^2)
+        N efectivo (correlación)  1 / SUM_ij(w_i w_j rho_ij)
+
+    La segunda generaliza la primera: con correlaciones cero devuelve
+    exactamente la primera, y con todo correlacionado a 1 devuelve 1, que es la
+    verdad —una sola apuesta repartida en varias líneas.
+
+    Se calcula sobre rendimientos EN EUROS, no en divisa nativa: dos activos
+    que no se parecen en nada pueden moverse juntos para quien mide en euros
+    simplemente porque los dos cotizan en dólares.
+    """
+    payload = _cartera_payload()
+    abiertas = [p for p in payload["positions"]
+                if p["qty"] > 1e-9 and p.get("market_value")]
+    if len(abiertas) < 2:
+        return {"n": len(abiertas), "matrix": [], "tickers": [],
+                "eff_n_weights": (1.0 if abiertas else 0.0),
+                "eff_n_corr": (1.0 if abiertas else 0.0),
+                "excluded": [], "obs": 0, "days": days}
+
+    series, excluidas = {}, []
+    for p in abiertas:
+        t = p["ticker"]
+        s = _close_series(t)
+        if s is None or not len(s):
+            excluidas.append({"ticker": t, "why": "sin histórico"})
+            continue
+        cu = p.get("ccy")
+        if not cu or cu == "?":
+            excluidas.append({"ticker": t, "why": "sin divisa"})
+            continue
+        base, f = _ccy_base_factor(cu)
+        if base == BASE_CCY:
+            eur = s * f
+        else:
+            fx = _fx_series_eur(cu)
+            if fx is None or not len(fx):
+                excluidas.append({"ticker": t, "why": "sin tipo de cambio"})
+                continue
+            eur = s * fx.reindex(s.index.union(fx.index)).sort_index().ffill().reindex(s.index)
+        series[t] = eur.dropna()
+
+    if len(series) < 2:
+        return {"n": len(abiertas), "matrix": [], "tickers": [],
+                "eff_n_weights": None, "eff_n_corr": None,
+                "excluded": excluidas, "obs": 0, "days": days}
+
+    df = pd.DataFrame(series).dropna()          # calendario COMÚN, no rellenado
+    df = df.tail(days + 1)
+    rets = np.log(df / df.shift(1)).dropna()
+    if len(rets) < CORR_MIN_OBS:
+        return {"n": len(abiertas), "matrix": [], "tickers": list(df.columns),
+                "eff_n_weights": None, "eff_n_corr": None,
+                "excluded": excluidas, "obs": int(len(rets)), "days": days,
+                "why": f"sólo {len(rets)} sesiones en común; hacen falta {CORR_MIN_OBS}"}
+
+    corr = rets.corr()
+    tk = list(corr.columns)
+    peso = {p["ticker"]: p["market_value"] for p in abiertas}
+    # Los pesos se RENORMALIZAN sobre lo que entra en la matriz. Usar el peso
+    # sobre la cartera entera repartiría entre las incluidas un capital que no
+    # está aquí, y el N efectivo saldría más alto de lo que es.
+    total = sum(peso[t] for t in tk)
+    w = np.array([peso[t] / total for t in tk])
+    R = corr.to_numpy(float)
+    pesos = [float(x) for x in w]
+    eff_w = _effective_n(pesos)
+    eff_c = _effective_n(pesos, R.tolist())
+
+    # El par que más se parece: es lo accionable de toda esta sección.
+    peor = None
+    for i in range(len(tk)):
+        for j in range(i + 1, len(tk)):
+            r = float(R[i, j])
+            if peor is None or r > peor["rho"]:
+                peor = {"a": tk[i], "b": tk[j], "rho": round(r, 3)}
+
+    nombre = {p["ticker"]: (p.get("name") or p["ticker"]) for p in abiertas}
+    return {"n": len(abiertas), "tickers": tk,
+            "names": [nombre.get(t, t) for t in tk],
+            "weights": [round(float(x) * 100, 2) for x in w],
+            "matrix": [[round(float(R[i, j]), 3) for j in range(len(tk))]
+                       for i in range(len(tk))],
+            "eff_n_weights": (round(eff_w, 2) if eff_w is not None else None),
+            "eff_n_corr": (round(eff_c, 2) if eff_c is not None else None),
+            "most_correlated": peor,
+            "obs": int(len(rets)), "days": days, "excluded": excluidas}
+
+
+@app.route("/api/cartera/correlacion")
+def api_cartera_correlacion():
+    try:
+        d = int(request.args.get("days", CORR_DAYS))
+    except (TypeError, ValueError):
+        d = CORR_DAYS
+    d = max(CORR_MIN_OBS, min(2520, d))
+    try:
+        return _json_response(_cartera_correlacion(d), max_age=0)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
+
+
+@app.route("/api/cartera/rendimiento")
+def api_cartera_rendimiento():
+    bench = request.args.get("benchmark", "SPY")
+    try:
+        return _json_response(_cartera_returns(bench), max_age=0)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
 
 
 @app.route("/api/cartera/zonas")
@@ -1554,6 +1783,39 @@ def api_cartera_edit(mid):
     return jsonify(_cartera_payload())
 
 
+@app.route("/api/cartera/ter", methods=["POST"])
+def api_cartera_ter():
+    """Declarar el TER de un instrumento, en porcentaje anual.
+
+    Se guarda en su propia tabla y sobrevive a que se borren todos los
+    movimientos de ese activo: el folleto de un fondo no cambia porque tú lo
+    vendas, y volver a teclearlo al recomprarlo sería trabajo repetido para un
+    dato que no ha variado.
+    """
+    d = request.get_json(force=True, silent=True) or {}
+    tk = str(d.get("ticker", "")).strip().upper()
+    if not tk:
+        return jsonify({"error": "falta el instrumento"}), 400
+    raw = d.get("ter")
+    if raw in (None, ""):
+        ter = None                                  # borrar es declarar que no se sabe
+    else:
+        ter = _num(raw)
+        if ter is None or ter < 0 or ter > 10:
+            # Un TER por encima del 10% anual no existe; casi siempre es un
+            # 0,12 tecleado como 12. Rechazarlo evita que el coste proyectado
+            # a veinte años salga por las nubes y nadie entienda por qué.
+            return jsonify({"error": "el TER va en % anual (p. ej. 0,12). "
+                                     "Fuera del rango 0–10 no es un TER."}), 400
+    with _cartera_conn() as c:
+        if ter is None:
+            c.execute("DELETE FROM instrument_meta WHERE ticker=?", (tk,))
+        else:
+            c.execute("INSERT INTO instrument_meta(ticker,ter) VALUES(?,?) "
+                      "ON CONFLICT(ticker) DO UPDATE SET ter=excluded.ter", (tk, ter))
+    return jsonify(_cartera_payload())
+
+
 @app.route("/api/cartera/clear", methods=["POST"])
 def api_cartera_clear():
     with _cartera_conn() as c:
@@ -1624,6 +1886,40 @@ def _ffill_on(series, idx):
 
 
 def _cartera_history(benchmark: str = "SPY", max_points: int = 800):
+    """El gráfico: la misma reconstrucción, submuestreada a `max_points`.
+
+    El submuestreo es SÓLO para pintar. Cualquier cuenta —rentabilidad, riesgo—
+    tiene que salir de `_reconstruct_portfolio`, a resolución diaria: un TWR
+    calculado sobre uno de cada cuatro días coloca los flujos en el día que no
+    es y encadena tramos que nunca existieron.
+    """
+    r = _reconstruct_portfolio(benchmark)
+    if r.get("empty"):
+        return r["payload"]
+    idx, port, invested = r["idx"], r["port"], r["invested"]
+    bench_val = r["bench_val"]
+    step = max(1, len(idx) // max_points)
+    sl = slice(None, None, step)
+
+    def clean(a):
+        return [None if not np.isfinite(x) else round(float(x), 2) for x in a[sl]]
+
+    return {
+        "dates": [d.strftime("%Y-%m-%d") for d in idx[sl]],
+        "portfolio": clean(port), "invested": clean(invested),
+        "benchmark": (clean(bench_val) if bench_val is not None else None),
+        "benchmark_ticker": benchmark, "base": BASE_CCY,
+        # Which holdings this chart does NOT represent, so the UI can say so
+        # instead of drawing a shortfall that is really a missing data feed.
+        "excluded": r["excluded"], "covered": not r["excluded"],
+        # Which holdings are charted through a sibling listing, and why any
+        # configured proxy was refused — a borrowed series must never be
+        # indistinguishable from the instrument's own.
+        "proxied": r["proxied"], "proxy_refused": r["refused"],
+    }
+
+
+def _reconstruct_portfolio(benchmark: str = "SPY"):
     """Reconstruct the portfolio market value over time, plus a SAME-CASHFLOW
     benchmark: every buy/sell deploys/withdraws the same cash into the index.
 
@@ -1638,19 +1934,24 @@ def _cartera_history(benchmark: str = "SPY", max_points: int = 800):
         cols = [d[0] for d in cur.description]
         movs = [dict(zip(cols, r)) for r in cur.fetchall()]
     movs = [m for m in movs if m["date"]]
-    # Los dividendos salen ANTES de cualquier cuenta. Esta reconstrucción sólo
-    # sabe de dos cosas —títulos que entran y dinero que se despliega— y un
-    # dividendo no es ninguna de las dos. Cayendo por el `else` de más abajo se
-    # habría tratado como una VENTA: le habría restado títulos a la posición y
-    # habría sacado del benchmark un dinero que nunca se retiró, así que la
-    # línea de la cartera se separaba de la tabla de posiciones un poco más con
-    # cada cobro.
+    # Los dividendos salen del carril de la compraventa ANTES de cualquier
+    # cuenta. Este bucle sólo sabe de dos cosas —títulos que entran y dinero que
+    # se despliega— y un dividendo no es ninguna de las dos. Cayendo por el
+    # `else` de más abajo se habría tratado como una VENTA: le habría restado
+    # títulos a la posición y habría sacado del benchmark un dinero que nunca se
+    # retiró, así que la línea de la cartera se separaba de la tabla de
+    # posiciones un poco más con cada cobro.
+    #
+    # Pero NO se tiran: van a su propia serie, porque la rentabilidad sí los
+    # necesita. Un reparto hace caer el precio sin que se haya perdido nada, y
+    # sin contarlo el TWR restaría rentabilidad en cada cobro.
+    divs = [m for m in movs if m["side"] == "div"]
     movs = [m for m in movs if m["side"] != "div"]
     empty = {"dates": [], "portfolio": [], "invested": [], "benchmark": None,
              "benchmark_ticker": benchmark, "base": BASE_CCY, "excluded": [],
              "covered": True, "proxied": []}
     if not movs:
-        return empty
+        return {"empty": True, "payload": empty}
     end = pd.Timestamp.today().normalize()
     all_tickers = sorted({m["ticker"] for m in movs})
     # Price series and quote metadata for the whole book at once: this call used
@@ -1685,7 +1986,8 @@ def _cartera_history(benchmark: str = "SPY", max_points: int = 800):
     excluded = [t for t in all_tickers if t not in tickers]
     movs = [m for m in movs if m["ticker"] in set(tickers)]
     if not movs:
-        return dict(empty, excluded=excluded, covered=False, proxied=proxied)
+        return {"empty": True,
+                "payload": dict(empty, excluded=excluded, covered=False, proxied=proxied)}
 
     # AFTER the filter: if the oldest movement belonged to an excluded ticker,
     # starting there would open the chart with a stretch of flat zero.
@@ -1705,7 +2007,7 @@ def _cartera_history(benchmark: str = "SPY", max_points: int = 800):
             di = s.index[(s.index >= start) & (s.index <= end)]
             idx = di if idx is None else idx.union(di)
     if idx is None or len(idx) < 2:
-        return empty
+        return {"empty": True, "payload": empty}
     idx = idx.sort_values()
     dts = pd.to_datetime([m["date"] for m in movs])
     poss = np.clip(idx.searchsorted(dts), 0, len(idx) - 1)
@@ -1740,7 +2042,8 @@ def _cartera_history(benchmark: str = "SPY", max_points: int = 800):
         excluded = sorted(set(excluded) | set(no_fx))
         movs = [m for m in movs if m["ticker"] in set(tickers)]
         if not movs:
-            return dict(empty, excluded=excluded, covered=False, proxied=proxied)
+            return {"empty": True,
+                    "payload": dict(empty, excluded=excluded, covered=False, proxied=proxied)}
         dts = pd.to_datetime([m["date"] for m in movs])
         poss = np.clip(idx.searchsorted(dts), 0, len(idx) - 1)
 
@@ -1772,25 +2075,23 @@ def _cartera_history(benchmark: str = "SPY", max_points: int = 800):
     invested = np.cumsum(inv_c)
     bench_val = (np.cumsum(bsh_c) * bprice_eur) if bprice_eur is not None else None
 
-    step = max(1, len(idx) // max_points)
-    sl = slice(None, None, step)
+    # Los dividendos, a su propia serie y al cambio de SU día. Sólo los de
+    # instrumentos que siguen dentro: si una posición quedó fuera del gráfico
+    # por falta de serie o de tipo de cambio, su reparto tiene que salir con
+    # ella o la rentabilidad tendría un ingreso sin el activo que lo generó.
+    dentro = set(tickers)
+    div_c = np.zeros(len(idx))
+    for m in divs:
+        if m["ticker"] not in dentro:
+            continue
+        pos = int(np.clip(idx.searchsorted(pd.to_datetime(m["date"])), 0, len(idx) - 1))
+        rate = fx_arr(tccy[m["ticker"]])[pos]
+        div_c[pos] += (m["quantity"] * m["price"] - (m["fee"] or 0.0)) * rate
 
-    def clean(a):
-        return [None if not np.isfinite(x) else round(float(x), 2) for x in a[sl]]
-
-    return {
-        "dates": [d.strftime("%Y-%m-%d") for d in idx[sl]],
-        "portfolio": clean(port), "invested": clean(invested),
-        "benchmark": (clean(bench_val) if bench_val is not None else None),
-        "benchmark_ticker": benchmark, "base": BASE_CCY,
-        # Which holdings this chart does NOT represent, so the UI can say so
-        # instead of drawing a shortfall that is really a missing data feed.
-        "excluded": excluded, "covered": not excluded,
-        # Which holdings are charted through a sibling listing, and why any
-        # configured proxy was refused — a borrowed series must never be
-        # indistinguishable from the instrument's own.
-        "proxied": proxied, "proxy_refused": refused,
-    }
+    return {"empty": False, "idx": idx, "port": port, "invested": invested,
+            "bench_val": bench_val, "flows": inv_c, "divs": div_c,
+            "excluded": excluded, "proxied": proxied, "refused": refused,
+            "tickers": tickers}
 
 
 @app.route("/api/cartera/history")
