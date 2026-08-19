@@ -325,6 +325,59 @@ esa diferencia es real y no desaparece por no mirarla.
 > Esto no es asesoramiento fiscal. Es la misma cuenta hecha con los dos
 > criterios, para que sepas que existen y no te lleves la sorpresa en abril.
 
+### Los dos porcentajes de «Rentabilidad», y por qué no sobra ninguno
+
+Un «+89%» sobre una cartera a la que has ido metiendo dinero no se puede
+comparar con nada, porque no dice **cuándo** entró cada euro. Por eso hay dos:
+
+- **TWR** — qué tal lo han hecho los activos que elegiste. No la mueve cuándo
+  aportaste, y por eso es la única que puedes poner al lado de un índice: un
+  índice tampoco recibe aportaciones.
+- **TIR** — qué te has llevado tú. Ésta sí cuenta cuándo entró cada euro.
+
+Y lo interesante es **la diferencia entre las dos**. Si tu TIR va por encima
+del TWR, aportaste, de media, en buenos momentos. Si va por debajo, los mismos
+activos te habrían rendido más entrando de otra forma. Es el único número de
+todo el panel que puntúa una decisión tuya y no una del mercado.
+
+> **Por debajo de un año no verás la TIR ni el anualizado.** Convertir un +8%
+> de tres meses en un «+36% anual» es proyectar una racha como si fuera una
+> tasa. Cuando haya un año de historia aparecen solos.
+
+La comparación con el índice va **sin tus dividendos** a propósito, y lo dice
+en pantalla: la serie del índice tampoco lleva los suyos, y enfrentar una cosa
+con la otra te regalaría un punto y medio al año de ventaja falsa.
+
+### Qué te cuesta, y el coste que nunca ves
+
+Tres cifras, y la tercera es la que cambia decisiones:
+
+- **Comisiones pagadas** — lo que llevas gastado en operar. Estaba guardado en
+  cada movimiento y no se sumaba en ningún sitio.
+- **Retenido en dividendos** — no es una comisión, es un impuesto a cuenta, y
+  parte se recupera al declarar.
+- **Gastos corrientes (TER)** — éste **no aparece en ningún extracto**. No te lo
+  cobran: se descuenta del valor liquidativo todos los días.
+
+El TER no lo publica la fuente de precios de este panel, así que lo escribes tú:
+está en el **KID/DFI** del producto, la ficha de dos páginas que tu banco tiene
+que darte. En la tabla de «Qué te cuesta» hay una casilla por posición. Con eso
+el panel te dice lo que se llevan a 10 y a 20 años.
+
+> Si dejas casillas vacías, el total **no** cuenta esas posiciones — y te lo
+> dice: «sobre el 60% del capital». Un cero diría que no te cuestan nada, y la
+> verdad es que no se sabe.
+
+### Diversificación: contar líneas no es diversificar
+
+Cinco fondos del mismo índice son **una** apuesta repartida en cinco filas. La
+sección «Diversificación real» mide cuántas apuestas independientes tienes de
+verdad, usando cómo se han movido juntas tus posiciones durante el último año.
+
+Si el número de la derecha es mucho menor que el de la izquierda, tienes menos
+diversificación de la que parece. Debajo, la pareja que más se parece: por ahí
+es por donde empieza a mirarse.
+
 ### Qué mirar el primer día
 
 1. **Cartera** → cuánto llevas invertido, cuánto vale hoy, y el mapa de países.

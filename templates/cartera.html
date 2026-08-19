@@ -71,6 +71,13 @@
       <div id="chart-legend" class="chart-legend"></div>
     </section>
 
+    <!-- rentabilidad -->
+    <section class="card" id="perf-card">
+      <div class="card-h"><span>Rentabilidad</span>
+        <span class="legend" id="perf-legend">calculando…</span></div>
+      <div id="perf"></div>
+    </section>
+
     <!-- posiciones -->
     <section class="card">
       <div class="card-h"><span>Posiciones actuales</span><span id="pos-legend" class="legend"></span></div>
@@ -87,6 +94,29 @@
         </tr></thead><tbody id="pos-body"></tbody>
       </table></div>
     </section>
+
+    <!-- qué cuesta tener esto -->
+    <section class="card" id="costes-card">
+      <div class="card-h"><span>Qué te cuesta</span>
+        <span class="legend">comisiones pagadas · retenciones · gastos corrientes</span></div>
+      <div id="costes"></div>
+    </section>
+
+    <div class="two">
+      <!-- activo frente a divisa -->
+      <section class="card" id="fx-card" hidden>
+        <div class="card-h"><span>El activo y la divisa</span>
+          <span class="legend">reparto exacto del resultado no realizado</span></div>
+        <div id="fxsplit"></div>
+      </section>
+
+      <!-- diversificación real -->
+      <section class="card" id="corr-card">
+        <div class="card-h"><span>Diversificación real</span>
+          <span class="legend" id="corr-legend">midiendo…</span></div>
+        <div id="corr"></div>
+      </section>
+    </div>
 
     <!-- exposición geográfica -->
     <section class="card map-card">

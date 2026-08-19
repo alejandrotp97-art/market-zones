@@ -38,7 +38,7 @@
     alloc: ["Asignación de capital",
       "Cada peso = convicción × 18% (tope por activo). Convicción combina Oportunidad por encima de neutral, Robustez y Evidencia a 6m.",
       "Hay un tope del 35% por grupo de activos y un colchón mínimo de efectivo. NO es una optimización matemática: es una heurística transparente y explicable.",
-      "Puede inducir a error si varios activos correlacionados caen en grupos distintos: la diversificación real puede ser menor que la aparente."],
+      "Puede inducir a error si varios activos correlacionados caen en grupos distintos: la diversificación real puede ser menor que la aparente. En «Mi cartera real» esa diferencia ya no se advierte: se mide, con la correlación del último año."],
     radar: ["Calidad de la decisión",
       "Mide seis dimensiones de la CALIDAD del proceso (robustez, evidencia, consenso, calibración, persistencia, diversificación), no la rentabilidad esperada.",
       "Un radar amplio significa 'la señal es fiable', no 'va a subir'.",
@@ -443,7 +443,7 @@
   // capital en evidencia positiva— ya estaba escrita, y corría sobre una
   // asignación HIPOTÉTICA. La pregunta que nadie podía hacerle era la única que
   // importa cuando hay dinero dentro: ¿y lo que YO tengo, qué nota saca?
-  const MINE = { rows: [], loaded: false, err: null, total: 0, unvalued: 0 };
+  const MINE = { rows: [], loaded: false, err: null, total: 0, unvalued: 0, corr: null };
 
   async function loadMine() {
     let d;
@@ -465,6 +465,13 @@
       opp: null, rob: null, ev: null,
     })).sort((a, b) => b.pct - a.pct);
     renderMine();                                  // pesos ya, puntuación después
+
+    // La diversificación medida, que corrige el «activos efectivos» de aquí
+    // abajo. Este panel ya advertía por escrito de que contar líneas puede
+    // exagerar la diversificación real; ahora la mide en vez de advertirla.
+    fetch("/api/cartera/correlacion").then((r) => r.json()).then((c) => {
+      if (!c.error && c.eff_n_corr != null) { MINE.corr = c; renderMine(); }
+    }).catch(() => {});
 
     // El motor de régimen, para MIS símbolos. Muchos no estarán cubiertos (un
     // fondo sin histórico largo, un ETC): eso no es un fallo, es el alcance
@@ -546,8 +553,14 @@
           <div class="mine-big">${h.rating} <span class="mut">${h.score}/100</span></div>
           <div class="mut small">misma fórmula que la asignación sugerida</div></div>
         <div class="mine-kpi"><div class="ex-h">Concentración</div>
-          <div class="mine-big">${h.effN.toFixed(1)} <span class="mut">activos efectivos</span></div>
-          <div class="mut small">mayor posición ${Math.round(h.top1 * 100)}% · top 3 ${Math.round(h.top3 * 100)}%</div></div>
+          ${MINE.corr ? `
+            <div class="mine-big">${MINE.corr.eff_n_corr} <span class="mut">apuestas reales</span></div>
+            <div class="mut small">contando líneas serían ${MINE.corr.eff_n_weights}; la correlación
+              del último año las junta. Mayor posición ${Math.round(h.top1 * 100)}% · top 3 ${Math.round(h.top3 * 100)}%</div>`
+          : `
+            <div class="mine-big">${h.effN.toFixed(1)} <span class="mut">activos efectivos</span></div>
+            <div class="mut small">sólo por pesos — la correlación real está cargando.
+              Mayor posición ${Math.round(h.top1 * 100)}% · top 3 ${Math.round(h.top3 * 100)}%</div>`}</div>
         <div class="mine-kpi"><div class="ex-h">Cobertura del análisis</div>
           <div class="mine-big">${Math.round(h.covered * 100)}%</div>
           <div class="mut small">del capital tiene régimen medible</div></div>

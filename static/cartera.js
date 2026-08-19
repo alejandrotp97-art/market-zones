@@ -185,7 +185,9 @@
     // Las zonas van por su cuenta y DESPUÉS: son la parte lenta, y la tabla no
     // tiene por qué esperarlas para enseñar el dinero. Sólo se vuelven a pedir
     // cuando los datos han cambiado; repintar por el ojo no toca la red.
-    if (dataChanged) loadZones(); else paintZones();
+    renderCostes(p);
+    renderFx(p);
+    if (dataChanged) { loadZones(); loadPerf(); loadCorr(); } else paintZones();
     if (reloadHistory) loadHistory();     // skipped on first load: already in flight
   }
 
@@ -218,6 +220,222 @@
     $("real-mode").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
     if (P) render(P, false, false);
   });
+
+  // ══ rentabilidad ══════════════════════════════════════════════════════
+  // Un «+89%» sobre una cartera con aportaciones repartidas no se puede
+  // comparar con nada. Aquí van las dos cifras que sí, y la diferencia entre
+  // ellas, que es lo más informativo de toda la sección.
+  const pct = (x, d = 2) => x == null ? "—"
+    : (x >= 0 ? "+" : "") + (x * 100).toLocaleString("es-ES",
+        { minimumFractionDigits: d, maximumFractionDigits: d }) + "%";
+  const pcol = (x) => x == null ? "" : `color:${x >= 0 ? POS : NEG}`;
+
+  async function loadPerf() {
+    const leg = $("perf-legend"), box = $("perf");
+    let d;
+    const bench = ($("bench").value || "SPY").trim().toUpperCase();
+    try { d = await (await fetch("/api/cartera/rendimiento?benchmark=" + encodeURIComponent(bench))).json(); }
+    catch (e) { leg.textContent = ""; box.innerHTML = `<div class="mut">No pude calcularla.</div>`; return; }
+    if (d.error || d.empty || !d.twr || d.twr.total == null) {
+      leg.textContent = "";
+      box.innerHTML = `<div class="mut">Aún no hay historia suficiente para medir una rentabilidad.</div>`;
+      return;
+    }
+    const t = d.twr, anual = d.annualizable;
+    leg.innerHTML = `${t.days} días · ${t.periods} sesiones`
+      + (t.skipped ? ` · <b class="warn-txt">${t.skipped} excluidas</b>` : "");
+
+    // La diferencia TWR-TIR ES el efecto del propio calendario de aportaciones.
+    // Es el único sitio de la aplicación que le pone número a una decisión de
+    // quien invierte en vez de a una del mercado.
+    const gap = (anual && d.tir != null && t.annualized != null) ? d.tir - t.annualized : null;
+    const timing = gap == null ? "" : gap >= 0
+      ? `Tus aportaciones <b style="color:${POS}">sumaron ${pct(gap, 1)}</b> anual: entraste, de media, en buenos momentos.`
+      : `Tus aportaciones <b style="color:${NEG}">restaron ${pct(-gap, 1)}</b> anual: los mismos activos habrían rendido más entrando de otra forma.`;
+
+    const bt = d.benchmark_twr;
+    const vsb = (bt && bt.total != null)
+      ? d.twr_price_only.total - bt.total : null;
+
+    const anos = t.by_year.map((y) => `<tr>
+      <td>${y.year}${y.partial ? ` <span class="mut small" title="Tramo medido: ${esc(y.from)} → ${esc(y.to)}">parcial</span>` : ""}</td>
+      <td class="num" style="${pcol(y.ret)}">${pct(y.ret, 1)}</td>
+      <td class="bar-cell"><i class="ybar ${y.ret >= 0 ? "up" : "dn"}"
+        style="--w:${Math.min(100, Math.abs(y.ret) * 100 * 2).toFixed(1)}%"></i></td></tr>`).join("");
+
+    box.innerHTML = `
+      <div class="perf-grid">
+        <div class="perf-kpi">
+          <div class="ex-h">TWR${anual ? " anualizado" : " (total)"}</div>
+          <div class="perf-big" style="${pcol(anual ? t.annualized : t.total)}">${pct(anual ? t.annualized : t.total, 2)}</div>
+          <div class="mut small">Qué tal lo han hecho los activos que elegiste.
+            No la mueve <b>cuándo</b> aportaste, y por eso es la única comparable con un índice.</div>
+        </div>
+        <div class="perf-kpi">
+          <div class="ex-h">TIR${anual ? " (anual)" : ""}</div>
+          <div class="perf-big" style="${pcol(d.tir)}">${anual ? pct(d.tir, 2) : "—"}</div>
+          <div class="mut small">${anual
+            ? "Qué te has llevado tú. Sí cuenta cuándo entró cada euro."
+            : "Menos de un año de historia: anualizar una racha corta la convertiría en una tasa que no existe."}</div>
+        </div>
+        <div class="perf-kpi">
+          <div class="ex-h">Acumulado</div>
+          <div class="perf-big" style="${pcol(t.total)}">${pct(t.total, 2)}</div>
+          <div class="mut small">Desde el primer movimiento.
+            ${anual ? "" : "Todavía sin anualizar."}</div>
+        </div>
+      </div>
+      ${timing ? `<p class="perf-note">${timing}</p>` : ""}
+      <div class="perf-two">
+        <div>
+          <div class="ex-h">Por año</div>
+          <table class="tbl yr-tbl"><tbody>${anos}</tbody></table>
+        </div>
+        <div>
+          <div class="ex-h">Frente a ${esc(d.benchmark_ticker)}</div>
+          ${bt && bt.total != null ? `
+            <div class="vs-row"><span>Tu cartera</span><b style="${pcol(d.twr_price_only.total)}">${pct(d.twr_price_only.total, 2)}</b></div>
+            <div class="vs-row"><span>${esc(d.benchmark_ticker)}</span><b style="${pcol(bt.total)}">${pct(bt.total, 2)}</b></div>
+            <div class="vs-row vs-tot"><span>Diferencia</span><b style="${pcol(vsb)}">${pct(vsb, 2)}</b></div>
+            <p class="mut small">Comparación <b>limpia</b>: aquí tu cartera va SIN sus dividendos,
+              porque la serie del índice tampoco lleva los suyos. Enfrentar un total return
+              contra un price return te regalaría la rentabilidad por dividendo del índice.</p>`
+            : `<div class="mut">Sin serie del índice para comparar.</div>`}
+        </div>
+      </div>
+      ${(d.excluded || []).length ? `<p class="mut small">⚠ Fuera de este cálculo:
+        ${d.excluded.map(esc).join(", ")} — sin serie o sin tipo de cambio.</p>` : ""}`;
+  }
+
+  // ══ qué cuesta ════════════════════════════════════════════════════════
+  function renderCostes(p) {
+    const s = p.summary || {}, box = $("costes");
+    const open = (p.positions || []).filter((r) => r.qty > 1e-9);
+    const aport = s.invested || 0;
+    const filas = open.map((r) => `<tr>
+      <td>${assetCell(r.ticker, r.name, r.kind)}</td>
+      <td class="num">${r.fees ? eur(r.fees) : "—"}</td>
+      <td class="num"><input class="ter-in" type="number" step="0.01" min="0" max="10"
+        data-ticker="${esc(r.ticker)}" value="${r.ter == null ? "" : r.ter}"
+        placeholder="—" title="Gastos corrientes anuales en %, del folleto (KID/DFI)"></td>
+      <td class="num">${r.ter_year != null ? eur(r.ter_year) : `<span class="mut" title="Sin TER declarado: este coste no está contado en ningún total">sin declarar</span>`}</td>
+    </tr>`).join("");
+
+    // Lo que el TER se lleva a 20 años del valor de HOY, sin contar crecimiento.
+    // Es la cifra que cambia decisiones: el coste que nunca aparece en un
+    // extracto porque no se cobra, se descuenta del valor liquidativo.
+    const t = (s.ter_pct || 0) / 100;
+    const mv = s.market_value || 0;
+    const arrastre = (n) => t > 0 ? mv * (1 - Math.pow(1 - t, n)) : null;
+
+    box.innerHTML = `
+      <div class="perf-grid">
+        <div class="perf-kpi"><div class="ex-h">Comisiones pagadas</div>
+          <div class="perf-big">${eur(s.fees)}</div>
+          <div class="mut small">${s.n_ops || 0} operaciones${aport > 0 && s.fees
+            ? ` · ${(s.fees / aport * 100).toFixed(2)}% de lo aportado` : ""}</div></div>
+        <div class="perf-kpi"><div class="ex-h">Retenido en dividendos</div>
+          <div class="perf-big">${eur(s.withheld)}</div>
+          <div class="mut small">Impuesto a cuenta, no una comisión: parte se recupera al declarar.</div></div>
+        <div class="perf-kpi"><div class="ex-h">Gastos corrientes al año</div>
+          <div class="perf-big">${s.ter_year ? eur(s.ter_year) : "—"}</div>
+          <div class="mut small">${s.ter_coverage
+            ? `Sobre el <b>${s.ter_coverage}%</b> del capital: es lo único con TER declarado.`
+            : "Escribe el TER de cada fondo abajo y aparece aquí."}</div></div>
+      </div>
+      ${arrastre(20) ? `<p class="perf-note">A este ritmo, los gastos corrientes se llevan
+        <b>${eur(arrastre(10))}</b> en 10 años y <b>${eur(arrastre(20))}</b> en 20,
+        sobre el valor de hoy y sin contar lo que crezca.
+        <span class="mut">Es el único coste que no verás nunca en un extracto: no se cobra,
+        se descuenta del valor liquidativo todos los días.</span></p>` : ""}
+      <div class="scroll"><table class="tbl">
+        <thead><tr><th>Activo</th><th class="num">Comisiones</th>
+          <th class="num">TER %</th><th class="num">Coste anual</th></tr></thead>
+        <tbody>${filas || `<tr><td colspan="4" class="mut">Sin posiciones abiertas.</td></tr>`}</tbody>
+      </table></div>`;
+
+    box.querySelectorAll(".ter-in").forEach((el) => {
+      el.addEventListener("change", async () => {
+        const r = await send("/api/cartera/ter", { method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ticker: el.dataset.ticker, ter: el.value }) });
+        const d = await r.json();
+        if (d.error) { alert(d.error); return; }
+        render(d, false);
+      });
+    });
+  }
+
+  // ══ el activo y la divisa ═════════════════════════════════════════════
+  function renderFx(p) {
+    const rows = (p.positions || []).filter((r) => r.split
+      && Math.abs(r.split.currency) > 0.005);
+    $("fx-card").hidden = !rows.length;
+    if (!rows.length) return;
+    const tot = rows.reduce((a, r) => ({ asset: a.asset + r.split.asset,
+                                         currency: a.currency + r.split.currency }),
+                            { asset: 0, currency: 0 });
+    $("fxsplit").innerHTML = `
+      <div class="scroll"><table class="tbl">
+        <thead><tr><th>Activo</th><th class="num">Puso el activo</th>
+          <th class="num">Puso la divisa</th><th class="num">Cambio</th></tr></thead>
+        <tbody>${rows.map((r) => `<tr>
+          <td>${assetCell(r.ticker, r.name, r.kind)}</td>
+          <td class="num">${signed(r.split.asset, " €")}</td>
+          <td class="num">${signed(r.split.currency, " €")}</td>
+          <td class="num mut" title="Cambio medio de compra ${r.split.fx_buy.toFixed(4)} → hoy ${r.split.fx_now.toFixed(4)}">${
+            (r.split.fx_change_pct >= 0 ? "+" : "") + r.split.fx_change_pct.toFixed(1)}%</td></tr>`).join("")}
+          <tr class="tot-row"><td><b>Total</b></td>
+            <td class="num">${signed(tot.asset, " €")}</td>
+            <td class="num">${signed(tot.currency, " €")}</td><td></td></tr>
+        </tbody></table></div>
+      <p class="mut small">Los dos sumandos reconstruyen el resultado no realizado
+        <b>al céntimo</b>: no es un reparto aproximado. El de la divisa es lo que ha
+        puesto (o quitado) el tipo de cambio entre el día de tus compras y hoy.</p>`;
+  }
+
+  // ══ diversificación real ══════════════════════════════════════════════
+  async function loadCorr() {
+    const leg = $("corr-legend"), box = $("corr");
+    let d;
+    try { d = await (await fetch("/api/cartera/correlacion")).json(); }
+    catch (e) { leg.textContent = ""; box.innerHTML = `<div class="mut">No pude medirla.</div>`; return; }
+    if (d.error || d.eff_n_corr == null) {
+      leg.textContent = "";
+      box.innerHTML = `<div class="mut">${esc(d.why || "Hacen falta al menos dos posiciones con histórico en común.")}</div>`;
+      return;
+    }
+    leg.textContent = `${d.obs} sesiones · último año`;
+    const n = d.tickers.length;
+    // Verde = se mueven al revés (diversifica). Rojo = son la misma apuesta.
+    // La DIAGONAL va en gris: un activo correlaciona 1,00 consigo mismo por
+    // definición, y pintarla del rojo más intenso de la tabla dirige la vista
+    // justo a las únicas seis casillas que no dicen nada.
+    const cell = (v, diag) => {
+      if (diag) return `<td class="cm diag">${v.toFixed(2)}</td>`;
+      const a = Math.min(1, Math.abs(v));
+      const c = v >= 0 ? `rgba(207,91,58,${(a * 0.75).toFixed(2)})` : `rgba(63,174,107,${(a * 0.75).toFixed(2)})`;
+      return `<td class="cm" style="background:${c}">${v.toFixed(2)}</td>`;
+    };
+    const mc = d.most_correlated;
+    box.innerHTML = `
+      <div class="corr-kpis">
+        <div><div class="ex-h">Contando líneas</div><div class="perf-big mut">${d.eff_n_weights}</div></div>
+        <div class="corr-arrow">→</div>
+        <div><div class="ex-h">Apuestas reales</div><div class="perf-big">${d.eff_n_corr}</div></div>
+      </div>
+      <p class="mut small">Tienes <b>${n}</b> posiciones que se comportan como
+        <b>${d.eff_n_corr}</b> apuestas independientes. Contar líneas no es diversificar:
+        cinco fondos del mismo índice son una sola apuesta repartida en cinco filas.</p>
+      ${mc ? `<p class="perf-note">Lo que más se parece: <b>${esc(mc.a)}</b> y <b>${esc(mc.b)}</b>,
+        correlación <b>${mc.rho}</b>.${mc.rho > 0.8 ? " A ese nivel, son prácticamente el mismo activo." : ""}</p>` : ""}
+      <div class="scroll"><table class="tbl corr-tbl">
+        <thead><tr><th></th>${d.tickers.map((t) => `<th class="num">${esc(t.slice(0, 6))}</th>`).join("")}</tr></thead>
+        <tbody>${d.tickers.map((t, i) => `<tr><td class="sym">${esc(t.slice(0, 12))}</td>${
+          d.matrix[i].map((v, j) => cell(v, i === j)).join("")}</tr>`).join("")}</tbody></table></div>
+      ${(d.excluded || []).length ? `<p class="mut small">⚠ Fuera de la matriz:
+        ${d.excluded.map((x) => esc(x.ticker) + " (" + esc(x.why) + ")").join(", ")}.</p>` : ""}`;
+  }
 
   // ── evolución de la cartera + benchmark ──────────────────────────────
   async function loadHistory() {

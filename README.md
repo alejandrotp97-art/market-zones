@@ -163,7 +163,48 @@ cartera/positions.py  movements → valued positions. The money arithmetic.
                       Takes the market as a parameter — six methods — so the
                       rule that cost basis uses the fx of the PURCHASE date can
                       be verified without reaching Yahoo.
+cartera/returns.py    TWR, XIRR, effective N, currency decomposition. Pure
+                      functions over a series of values and flows.
 ```
+
+### Two returns, because there are two questions
+
+| | Answers | Moved by when you contributed |
+|---|---|---|
+| **TWR** | How did the assets I picked do? | No — the only figure comparable to an index |
+| **XIRR** | What did *I* actually get? | Yes |
+
+The gap between them **is** the effect of the contribution schedule — the one
+number in this panel that grades a decision of the investor rather than one of
+the market.
+
+Three details decide whether these come out right:
+
+- **Dividends enter as withdrawals.** A distribution drops the price without
+  anything being lost; subtracting it as an outflow cancels exactly that drop.
+  Without it, every payout would read as a loss.
+- **Full daily resolution.** The chart downsamples to ~800 points for drawing;
+  chaining sub-periods over one day in four puts flows on the wrong day.
+- **The benchmark comparison uses the portfolio's price-only TWR.**
+  `zones/data.py` requests Yahoo's raw close, not `adjclose`, so the index
+  series carries no dividends either. Comparing total return against price
+  return hands the reader the index's dividend yield.
+
+XIRR is solved by bisection, not Newton-Raphson. Speed is irrelevant here and
+Newton can wander off a shallow root — which is exactly the shape of a
+portfolio built from small monthly contributions.
+
+### Effective number of bets
+
+```
+by weights        1 / SUM(w_i^2)
+by correlation    1 / SUM_ij(w_i w_j rho_ij)
+```
+
+The second generalizes the first: with the identity matrix it returns the first
+exactly; with everything correlated at 1 it returns 1. Counting lines is not
+diversification — five funds tracking the same index are one bet spread over
+five rows, and `1/SUM(w^2)` says "5" for both cases.
 
 Three movement types, and only two of them move the position:
 
@@ -212,7 +253,7 @@ the two is how a holding silently disappears from a chart while its cost stays i
 
 ## Tests
 
-303 tests, hermetic — every outbound call is stubbed, so the suite never touches
+352 tests, hermetic — every outbound call is stubbed, so the suite never touches
 the network and never depends on Yahoo being up.
 
 ```bash
@@ -221,6 +262,7 @@ pytest tests/test_causal.py             # the no-lookahead guarantee
 pytest tests/test_positions_domain.py   # the money arithmetic, no Flask, no net
 pytest tests/test_daily_golden.py       # the score is byte-identical to the golden
 pytest tests/test_cartera_dividendos_edicion.py   # dividends, editing, per-position zone
+pytest tests/test_returns.py            # TWR/XIRR, checked against Excel's published example
 ```
 
 CI runs the same suite on every push and once a week on Python 3.10 and 3.12,
