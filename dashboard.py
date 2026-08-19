@@ -1554,7 +1554,7 @@ CORR_DAYS = 252
 CORR_MIN_OBS = 60
 
 
-def _cartera_correlacion(days: int = CORR_DAYS, benchmark: str = "SPY"):
+def _cartera_correlacion(days: int = CORR_DAYS, benchmark: str = "SPY", payload=None):
     """Correlación entre las posiciones abiertas y diversificación REAL.
 
     El «N efectivo» que enseñaba el comité sale sólo de los pesos: cuenta dos
@@ -1572,7 +1572,10 @@ def _cartera_correlacion(days: int = CORR_DAYS, benchmark: str = "SPY"):
     que no se parecen en nada pueden moverse juntos para quien mide en euros
     simplemente porque los dos cotizan en dólares.
     """
-    payload = _cartera_payload()
+    # El payload se acepta por parámetro: `/api/cartera/estado` ya lo tiene
+    # calculado y sin esto lo rehacía tres veces —una por sí mismo, otra aquí y
+    # otra en los splits— en la misma petición.
+    payload = payload or _cartera_payload()
     abiertas = [p for p in payload["positions"]
                 if p["qty"] > 1e-9 and p.get("market_value")]
     if len(abiertas) < 2:
@@ -2137,7 +2140,7 @@ def _cartera_estado():
     except Exception:
         pass
     try:
-        corr = _cartera_correlacion()
+        corr = _cartera_correlacion(payload=p)
     except Exception:
         pass
 
@@ -2161,7 +2164,7 @@ def _cartera_estado():
     plan = _goal_progress(goal, total, doce)
 
     try:
-        splits = _cartera_splits().get("pending") or []
+        splits = _cartera_splits(payload=p).get("pending") or []
     except Exception:
         splits = []
     hechos = {
@@ -2338,7 +2341,7 @@ def api_cartera_divisa():
                            "base": BASE_CCY}, max_age=0)
 
 
-def _cartera_splits():
+def _cartera_splits(payload=None):
     """Splits posteriores a alguna compra y todavía sin resolver.
 
     Se detecta, se enseña QUÉ cambiaría y se espera. El programa no puede saber
@@ -2346,7 +2349,7 @@ def _cartera_splits():
     mismo número antes y después—, así que decidir por su cuenta sería
     reescribir el libro de alguien sobre una suposición.
     """
-    p = _cartera_payload()
+    p = payload or _cartera_payload()
     abiertas = [x for x in p["positions"] if x["qty"] > 1e-9]
     with _cartera_conn() as c:
         ack = {}
@@ -2545,8 +2548,15 @@ def api_cartera_clear():
     return jsonify(_cartera_payload())
 
 
-_series_cache: dict[str, tuple[float, object]] = {}
-_splits_cache: dict[str, tuple[float, list]] = {}
+# Serie y splits viven en la MISMA entrada, no en dos cachés paralelas.
+# Tenerlas separadas era un fallo silencioso: `_close_series` sólo guarda los
+# splits cuando FALLA su caché, así que en cuanto la de splits se desalojaba
+# —tope de 64 entradas— y la de series seguía viva, `_splits_of` llamaba,
+# encontraba la serie cacheada, no repoblaba nada y devolvía `None` hasta que
+# expirase el TTL. El panel decía «sin consultar» para instrumentos que sí podía
+# mirar, y un split podía pasar desapercibido: justo lo que la función existe
+# para impedir. Compartiendo entrada, no pueden desincronizarse.
+_series_cache: dict[str, tuple[float, object, list]] = {}
 
 
 def _splits_of(ticker: str):
@@ -2557,12 +2567,9 @@ def _splits_of(ticker: str):
     instrumento sin consultar pareciera limpio.
     """
     t = ticker.upper().strip()
-    hit = _splits_cache.get(t)
-    if hit and time.time() - hit[0] < CACHE_TTL:
-        return hit[1]
-    _close_series(t)                     # rellena la caché de paso, sin pedir más
-    hit = _splits_cache.get(t)
-    return hit[1] if hit else None
+    _close_series(t)                     # rellena la entrada, sin pedir de más
+    hit = _series_cache.get(t)
+    return hit[2] if hit else None
 
 
 def _close_series(ticker: str):
@@ -2576,13 +2583,12 @@ def _close_series(ticker: str):
     hit = _series_cache.get(t)
     if hit and time.time() - hit[0] < 600:
         return hit[1]
+    splits = []
     try:
         df = fetch_daily(t, years=25)
-        # Los splits llegan en la MISMA respuesta. Se apartan aquí porque este
-        # es el único sitio por el que pasa el frame entero; más adelante sólo
-        # sobrevive la serie de cierres.
-        _cache_put(_splits_cache, t, (time.time(), df.attrs.get("splits") or []),
-                   cap=CACHE_MAX)
+        # Los splits llegan en la MISMA respuesta, y se guardan con la serie:
+        # este es el único sitio por el que pasa el frame entero.
+        splits = df.attrs.get("splits") or []
         di = pd.DatetimeIndex(pd.to_datetime(df["date"]))
         if di.tz is not None:                    # Yahoo returns tz-aware -> make naive
             di = di.tz_localize(None)
@@ -2592,7 +2598,7 @@ def _close_series(ticker: str):
         s = None                                 # settled fact -> cache it
     except Exception:
         return None                              # transient -> retry next call
-    _cache_put(_series_cache, t, (time.time(), s), cap=CACHE_MAX)
+    _cache_put(_series_cache, t, (time.time(), s, splits), cap=CACHE_MAX)
     return s
 
 

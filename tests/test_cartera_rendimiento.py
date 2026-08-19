@@ -618,3 +618,34 @@ def test_la_correlacion_contra_el_indice_va_posicion_a_posicion(libro, monkeypat
     # y el índice NO se cuela como una posición más de la matriz
     assert "__SPY" not in c["tickers"]
     assert len(c["tickers"]) == 2
+
+
+def test_serie_y_splits_no_pueden_desincronizarse(libro, monkeypatch):
+    """BUG REAL. Vivían en dos cachés paralelas, y `_close_series` sólo guardaba
+    los splits cuando FALLABA la suya. En cuanto la de splits se desalojaba
+    —tope de 64 entradas— con la de series todavía viva, `_splits_of` llamaba,
+    encontraba la serie cacheada, no repoblaba nada y devolvía `None` hasta que
+    expirase el TTL: el panel decía «sin consultar» para instrumentos que sí
+    podía mirar, y un split podía pasar desapercibido.
+    """
+    import pandas as pd_
+
+    class FrameConSplits(pd_.DataFrame):
+        pass
+
+    llamadas = []
+
+    def fake_fetch(t, years=25):
+        llamadas.append(t)
+        df = pd_.DataFrame({"date": pd_.bdate_range("2024-01-01", periods=30),
+                            "close": [100.0] * 30})
+        df.attrs["splits"] = [{"date": "2024-06-10", "ratio": 10.0}]
+        return df
+
+    monkeypatch.setattr(D, "fetch_daily", fake_fetch)
+    D._series_cache.clear()
+
+    assert D._splits_of("AAA") == [{"date": "2024-06-10", "ratio": 10.0}]
+    # segunda llamada: la entrada sigue completa y NO se vuelve a pedir nada
+    assert D._splits_of("AAA") == [{"date": "2024-06-10", "ratio": 10.0}]
+    assert len(llamadas) == 1
