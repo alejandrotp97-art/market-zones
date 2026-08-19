@@ -378,3 +378,31 @@ def test_una_posicion_cerrada_no_pesa():
 
     assert out["AAA"]["weight"] == 100.0
     assert out["BBB"]["weight"] is None
+
+
+# ── los lotes abiertos, que ahora salen a la superficie ───────────────────
+def test_los_lotes_se_publican_con_su_fecha_y_su_coste_unitario():
+    """Se calculaban ya para el FIFO y se tiraban. Publicarlos permite
+    responder «¿y si vendo?» sin recorrer otra vez el libro, y garantiza que
+    esa respuesta no pueda discrepar del realizado que se enseña al lado."""
+    market = FakeMarket(ccy="EUR", last=30.0, fx_now=1.0)
+    movs = [mov(1, "buy", 10, 10.0, date="2024-01-01", fee=5.0),
+            mov(2, "buy", 5, 20.0, date="2024-06-01")]
+
+    p = compute(movs, market)[0]
+
+    assert [l["qty"] for l in p["lots"]] == [10.0, 5.0]
+    assert p["lots"][0]["unit_cost"] == 10.5          # 105 / 10, comisión incluida
+    assert [l["date"] for l in p["lots"]] == ["2024-01-01", "2024-06-01"]
+
+
+def test_una_venta_parcial_deja_el_lote_a_medias_y_se_ve():
+    market = FakeMarket(ccy="EUR", last=30.0, fx_now=1.0)
+    movs = [mov(1, "buy", 10, 10.0, date="2024-01-01"),
+            mov(2, "buy", 10, 20.0, date="2024-02-01"),
+            mov(3, "sell", 14, 25.0, date="2024-03-01")]
+
+    p = compute(movs, market)[0]
+
+    assert [l["qty"] for l in p["lots"]] == [6.0]     # del primero no queda nada
+    assert p["lots"][0]["unit_cost"] == 20.0

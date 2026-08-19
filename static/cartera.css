@@ -275,3 +275,23 @@ table.corr-tbl td.cm.diag{background:var(--panel2);color:var(--faint);}
    significa cada color. */
 .ap-leg{display:inline-flex;align-items:center;gap:5px;}
 .ap-leg i{display:inline-block;width:8px;height:8px;border-radius:2px;}
+
+/* ── simulador de venta ───────────────────────────────────────────────────
+   La línea entre los dos bloques no es decorativa: separa lo que sale del
+   libro y se puede comprobar de lo que es una estimación sobre una ley. */
+.fi-bar{display:flex;gap:14px;align-items:end;flex-wrap:wrap;margin-bottom:14px;font-size:12.5px;color:var(--muted);}
+.fi-bar label{display:flex;gap:7px;align-items:center;}
+.fi-bar input{width:110px;text-align:right;font-family:var(--mono);padding:5px 8px;
+  background:var(--panel2);border:1px solid var(--border);border-radius:7px;color:var(--text);}
+.fi-two{display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--border);border-radius:10px;overflow:hidden;}
+.fi-block{padding:13px 15px;}
+.fi-est{background:var(--panel2);border-left:1px solid var(--border);}
+table.fi-lots{margin-top:10px;font-size:11.5px;min-width:0;}
+table.fi-lots td,table.fi-lots th{padding:4px 8px;}
+.fi-inputs{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px;
+  padding-top:12px;border-top:1px solid var(--border);}
+.fi-inputs label{display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--muted);}
+.fi-inputs input{padding:5px 8px;background:var(--panel);border:1px solid var(--border);
+  border-radius:6px;color:var(--text);font-family:var(--mono);text-align:right;font-size:12px;}
+@media(max-width:900px){.fi-two{grid-template-columns:1fr;}
+  .fi-est{border-left:none;border-top:1px solid var(--border);}}

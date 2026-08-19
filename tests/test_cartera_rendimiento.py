@@ -463,3 +463,38 @@ def test_el_calendario_sale_de_la_misma_reconstruccion_que_la_rentabilidad(libro
     assert a["stats"]["total_in"] == pytest.approx(r["flows"]["aportado"], abs=0.01)
     assert [x["month"] for x in a["rows"]][:3] == ["2024-01", "2024-02", "2024-03"]
     assert a["rows"][1]["in"] == 0.0        # febrero vacío, pero presente
+
+
+# ── simulador de venta ────────────────────────────────────────────────────
+def test_pedir_mas_titulos_de_los_que_hay_se_REPORTA(libro):
+    """Recortar la petición en silencio contestaría a una pregunta distinta de
+    la que se hizo. Pedir 999 cuando hay 10 tiene que verse."""
+    _post(libro, ticker="AAA", side="buy", quantity=10, price=100, date="2024-01-01")
+    d = libro.get("/api/cartera/simular-venta?ticker=AAA&qty=999").get_json()
+    assert d["qty"] == 10 and d["short"] == 989
+
+
+def test_las_plusvalias_del_ano_se_calculan_del_libro_y_mueven_el_tramo(libro):
+    """Se obtienen corriendo la misma contabilidad dos veces y restando, no con
+    un FIFO «por año» reimplementado: dos copias de esa regla divergen."""
+    import datetime as dt
+    ano = dt.date.today().year
+    _post(libro, ticker="AAA", side="buy", quantity=100, price=10, date=f"{ano - 2}-01-01")
+    _post(libro, ticker="AAA", side="sell", quantity=50, price=110, date=f"{ano}-02-01")
+
+    d = libro.get("/api/cartera/simular-venta?ticker=AAA&qty=10").get_json()
+
+    assert d["other_gains_auto"] is True
+    assert d["other_gains"] == pytest.approx(5000.0, abs=1.0)   # 50 x (110-10)
+
+
+def test_una_posicion_que_no_se_puede_valorar_no_se_simula(libro, monkeypatch):
+    monkeypatch.setattr(D, "_last_price", lambda t: None)
+    _post(libro, ticker="AAA", side="buy", quantity=10, price=100)
+    r = libro.get("/api/cartera/simular-venta?ticker=AAA&qty=1")
+    assert r.status_code == 422
+
+
+def test_un_instrumento_que_no_esta_en_cartera_da_404(libro):
+    _post(libro, ticker="AAA", side="buy", quantity=10, price=100)
+    assert libro.get("/api/cartera/simular-venta?ticker=ZZZ&qty=1").status_code == 404

@@ -141,7 +141,8 @@ def compute(movs, market) -> list[dict]:
                 # al cambio de su día. Es lo único que FIFO necesita recordar, y
                 # guardarlo ya dividido evita que una venta parcial tenga que
                 # repartir la comisión otra vez.
-                p["lots"].append([q, (q * px + fee) * rate / q if q > 1e-12 else 0.0])
+                p["lots"].append([q, (q * px + fee) * rate / q if q > 1e-12 else 0.0,
+                                  m["date"] or ""])
         else:
             # Una venta nunca puede dejar la posición en negativo: eso es un
             # error de datos (una compra que falta, una venta importada dos
@@ -216,6 +217,14 @@ def compute(movs, market) -> list[dict]:
             # descomposición exacta, no un reparto aproximado.
             "split": (currency_split(qty, avg_n, last_n, rate_now,
                                      p["cost_n"], p["cost_e"]) if valued else None),
+            # Los lotes ABIERTOS, de más antiguo a más nuevo. Se calculaban ya
+            # para el FIFO y se tiraban; publicarlos es lo que permite responder
+            # «¿qué pasaría si vendiera?» sin recorrer otra vez el libro — y,
+            # sobre todo, sin que esa respuesta pueda discrepar del realizado
+            # que se enseña al lado, porque sale de los mismos lotes.
+            "lots": [{"qty": round(l[0], 6), "unit_cost": round(l[1], 4),
+                      "date": (l[2] if len(l) > 2 else None)}
+                     for l in p["lots"] if l[0] > 1e-9],
         })
     # El peso se calcula al final, cuando ya se sabe el total, y SÓLO sobre lo
     # que se pudo valorar: repartir 100% incluyendo una posición sin precio

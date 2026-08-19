@@ -169,6 +169,10 @@ cartera/returns.py    TWR, XIRR, drawdown, volatility, Sharpe, effective N,
 cartera/plan.py       the investor's own plan: contribution calendar, goal
                       progress, and the attention rules. Today's date arrives
                       as a parameter so a test can stand on any day.
+cartera/fiscal.py     what a sale would leave: non-destructive FIFO preview,
+                      progressive savings-base tax, loss offsetting, and the
+                      two-month repurchase rule. Brackets are a parameter, not
+                      a constant in the maths.
 ```
 
 ### Two returns, because there are two questions
@@ -231,6 +235,27 @@ that. Same reason for volatility: the jump on a contribution day is not a
 market move, and a portfolio funded monthly would read as far more volatile
 than it is.
 
+### Exact and estimated must not share a number
+
+The sale simulator splits its answer in two, and the split is the feature. The
+FIFO lots consumed, their cost, the proceeds and the resulting gain all derive
+from movements already recorded — verifiable. The tax is an estimate that
+depends on a law that changes and on facts the app cannot see: the rest of the
+year's savings income, losses carried from earlier years, and whether the user
+files in a foral territory. Folding both into one figure would dress an
+estimate as a datum.
+
+Two details that are easy to get wrong:
+
+- **A gain is not taxed at the lowest bracket.** `tax_on_gain` returns the
+  *difference* between the liability with and without the gain, given what has
+  already been realized that year. Multiplying the gain by 19% is the classic
+  error.
+- **This year's realized gains are derived by running the same accounting
+  twice** — the whole book, and the book up to 31 December — and subtracting.
+  Reimplementing a per-year FIFO would be a second copy of the most delicate
+  rule in the project, and two copies drift apart.
+
 ### Effective number of bets
 
 ```
@@ -290,7 +315,7 @@ the two is how a holding silently disappears from a chart while its cost stays i
 
 ## Tests
 
-410 tests, hermetic — every outbound call is stubbed, so the suite never touches
+435 tests, hermetic — every outbound call is stubbed, so the suite never touches
 the network and never depends on Yahoo being up.
 
 ```bash

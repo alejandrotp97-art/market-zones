@@ -50,6 +50,10 @@ from cartera.parsing import side_es as _side_es
 from cartera.parsing import sniff_sep as _sniff_sep
 from cartera.parsing import symbol_isin as _symbol_isin
 from cartera.positions import BASE_CCY
+from cartera.fiscal import TRAMOS_ANO as _TRAMOS_ANO
+from cartera.fiscal import loss_offset_note as _loss_note
+from cartera.fiscal import repurchase_risk as _repurchase_risk
+from cartera.fiscal import simulate_sale as _simulate_sale
 from cartera.plan import attention as _attention
 from cartera.plan import contribution_stats as _contrib_stats
 from cartera.plan import goal_progress as _goal_progress
@@ -2109,6 +2113,102 @@ def api_cartera_estado():
         return _json_response(_cartera_estado(), max_age=0)
     except Exception as e:
         return jsonify({"error": str(e)}), 502
+
+
+def _realized_this_year(movs, year):
+    """Plusvalía FIFO realizada en el año en curso, en euros.
+
+    Se obtiene corriendo la MISMA contabilidad dos veces —con todo el libro y
+    con el libro hasta el 31 de diciembre anterior— y restando. Reimplementar
+    aquí un FIFO «por año» sería una segunda copia de la regla más delicada del
+    proyecto, y dos copias divergen: bastaría un arreglo en una para que la
+    pantalla de impuestos dejara de cuadrar con la de resultados.
+
+    Importa porque decide el TRAMO: una ganancia nueva no tributa al tipo más
+    bajo si ese año ya se han realizado otras.
+    """
+    corte = f"{year}-01-01"
+    previos = [m for m in movs if (m.get("date") or "") and m["date"] < corte]
+    mkt = _Market()
+    total = sum(p["realized_fifo"] for p in _compute_positions(movs, mkt)
+                if p["realized_fifo"] is not None)
+    antes = sum(p["realized_fifo"] for p in _compute_positions(previos, mkt)
+                if p["realized_fifo"] is not None) if previos else 0.0
+    return round(total - antes, 2)
+
+
+@app.route("/api/cartera/simular-venta")
+def api_cartera_simular_venta():
+    """Qué dejaría una venta: lo exacto del libro y lo estimado de la ley.
+
+    Los dos bloques salen SEPARADOS a propósito. El coste FIFO, el ingreso y el
+    resultado se derivan de movimientos ya apuntados y se pueden comprobar. El
+    impuesto es una estimación que depende de una ley que cambia y de cosas que
+    este programa no ve: el resto de tus rentas del ahorro, tus minusvalías de
+    ejercicios anteriores y si tributas en territorio foral.
+    """
+    tk = (request.args.get("ticker") or "").strip().upper()
+    if not tk:
+        return jsonify({"error": "falta el instrumento"}), 400
+
+    p = _cartera_payload()
+    pos = next((x for x in p["positions"] if x["ticker"] == tk and x["qty"] > 1e-9), None)
+    if pos is None:
+        return jsonify({"error": "no hay posición abierta en ese instrumento"}), 404
+    if not pos.get("valued"):
+        return jsonify({"error": f"esa posición no se puede valorar: {pos.get('why')}"}), 422
+
+    lots = [[l["qty"], l["unit_cost"], l["date"]] for l in (pos.get("lots") or [])]
+
+    def num(name, defecto=None):
+        v = _num(request.args.get(name))
+        return defecto if v is None else v
+
+    qty = num("qty")
+    if qty is None:
+        importe = num("amount")
+        # Por importe: se traduce a títulos con el ÚLTIMO precio, y se dice.
+        # Un importe no es una orden: el precio al que se ejecutaría no lo sabe
+        # nadie todavía.
+        qty = (importe / pos["last"]) if (importe and pos.get("last")) else pos["qty"]
+    # NO se recorta a lo que hay. `simulate_sale` ya calcula sobre los títulos
+    # que existen y devuelve cuántos faltaban; recortar aquí borraría ese dato y
+    # la pantalla contestaría a una pregunta distinta de la que se hizo, sin
+    # decirlo. Pedir 999 cuando hay 9 tiene que verse.
+    qty = max(0.0, float(qty))
+
+    year = int(str(pd.Timestamp.today().normalize())[:4])
+    ya = num("other_gains")
+    auto = ya is None
+    if auto:
+        try:
+            ya = max(0.0, _realized_this_year(p["movements"], year))
+        except Exception:
+            ya = 0.0
+    pendientes = num("pending_losses", 0.0)
+
+    sim = _simulate_sale(lots, qty, pos["last"], fee=num("fee", 0.0),
+                         fx=pos.get("fx") or 1.0,
+                         other_gains=ya, pending_losses=pendientes)
+
+    # La regla de los dos meses: sólo se puede mirar hacia ATRÁS, a lo que ya
+    # está apuntado. Si va a haber recompra mañana, este programa no lo sabe.
+    compras = [m["date"] for m in p["movements"]
+               if m["ticker"] == tk and m["side"] == "buy" and m.get("date")]
+    hoy = str(pd.Timestamp.today().normalize())[:10]
+    cotiza = "." in tk or not tk.startswith("0P")
+    recompras = _repurchase_risk(hoy, compras, listed=cotiza) if sim["result"] < 0 else []
+
+    return _json_response({
+        **sim,
+        "ticker": tk, "name": pos.get("name") or tk, "ccy": pos.get("ccy"),
+        "price": pos.get("last"), "fx": pos.get("fx"),
+        "held": pos["qty"], "all_lots": pos.get("lots") or [],
+        "other_gains_auto": auto, "year": year, "brackets_year": _TRAMOS_ANO,
+        "loss_note": _loss_note(sim["result"]),
+        "repurchase": recompras, "listed": cotiza,
+        "base": BASE_CCY,
+    }, max_age=0)
 
 
 @app.route("/api/cartera/rebalanceo")

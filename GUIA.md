@@ -469,6 +469,37 @@ corrige. Con dinero nuevo llegas al mismo sitio sin pasar por Hacienda.
 > queda fuera del reparto — no se cuenta como cero, porque que nadie haya
 > decidido su peso no significa que deba desaparecer.
 
+### «Si vendo…»: lo exacto y lo estimado, separados
+
+Eliges una posición, dices cuántos títulos y el panel parte la respuesta en dos
+columnas. **La línea entre ellas no es decorativa.**
+
+**A la izquierda, lo que sale de tu libro y se puede comprobar:** qué lotes
+concretos consumiría la venta —los más antiguos primero, que es la regla
+española—, cuánto costaron, cuánto ingresarías y qué plusvalía o minusvalía
+resulta.
+
+**A la derecha, una estimación:** el impuesto. Y es una estimación porque
+depende de una ley que cambia y de cosas que este panel no ve.
+
+> **Esto no es asesoramiento fiscal.** El panel no conoce el resto de tus rentas
+> del ahorro fuera de esta cartera, ni tus minusvalías de ejercicios anteriores,
+> ni si tributas en País Vasco o Navarra, que tienen su propio régimen.
+
+Hay dos casillas para que le digas lo que le falta:
+
+- **Otras ganancias del año.** El panel calcula solo las que salen de esta
+  cartera, pero si has vendido algo fuera, escríbelo. Importa más de lo que
+  parece: una plusvalía **no tributa siempre al 19%**. Si ese año ya llevas
+  ganancias, la nueva paga en tu tramo, no en el más bajo — y multiplicar por
+  el 19% es el error más común que se comete con esto.
+- **Minusvalías pendientes.** Reducen la base, y lo que sobre sigue pendiente.
+
+**Si la venta sale en pérdidas**, el panel mira si has comprado ese mismo valor
+en los dos meses anteriores: con una recompra así de cerca, la minusvalía **no
+se puede computar todavía**. Hacia delante no puede saber si vas a recomprar, y
+te lo dice en vez de callárselo.
+
 ### Qué te cuesta, y el coste que nunca ves
 
 Tres cifras, y la tercera es la que cambia decisiones:

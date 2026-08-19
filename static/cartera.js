@@ -191,6 +191,7 @@
     // Las zonas van por su cuenta y DESPUÉS: son la parte lenta, y la tabla no
     // tiene por qué esperarlas para enseñar el dinero. Sólo se vuelven a pedir
     // cuando los datos han cambiado; repintar por el ojo no toca la red.
+    renderFiscForm(p);
     renderCostes(p);
     renderFx(p);
     renderContrib(p);
@@ -610,6 +611,113 @@
       if (dd.error) { alert(dd.error); return; }
       P = dd; loadRebal();
     }));
+  }
+
+  // ══ si vendo… ═════════════════════════════════════════════════════════
+  // La pantalla separa LO EXACTO de LO ESTIMADO con una línea, y no es un
+  // adorno: el coste FIFO y el resultado salen del libro y se pueden
+  // comprobar; el impuesto depende de una ley que cambia y de cosas que este
+  // panel no ve. Presentarlos juntos convertiría una estimación en un dato.
+  const FISC = { ticker: null, qty: "", gains: "", losses: "" };
+
+  function renderFiscForm(p) {
+    const abiertas = (p.positions || []).filter((r) => r.qty > 1e-9 && r.valued);
+    if (!abiertas.length) {
+      $("fisc").innerHTML = `<div class="mut">Sin posiciones valorables que simular.</div>`;
+      return;
+    }
+    if (!FISC.ticker || !abiertas.some((r) => r.ticker === FISC.ticker))
+      FISC.ticker = abiertas[0].ticker;
+    const sel = abiertas.map((r) =>
+      `<option value="${esc(r.ticker)}"${r.ticker === FISC.ticker ? " selected" : ""}>${
+        esc(r.name || r.ticker)} · ${qty(r.qty)}</option>`).join("");
+    $("fisc").innerHTML = `
+      <div class="fi-bar">
+        <label>Instrumento <select id="fi-tk">${sel}</select></label>
+        <label>Vendo <input type="number" id="fi-qty" step="any" min="0"
+          value="${FISC.qty}" placeholder="todo"> títulos</label>
+        <button type="button" id="fi-go" class="primary-mini">Calcular</button>
+      </div>
+      <div id="fi-out" class="mut">Elige cuántos títulos y pulsa calcular.</div>`;
+    $("fi-tk").addEventListener("change", () => { FISC.ticker = $("fi-tk").value; runFisc(); });
+    $("fi-go").addEventListener("click", () => { FISC.qty = $("fi-qty").value; runFisc(); });
+  }
+
+  async function runFisc() {
+    const out = $("fi-out");
+    if (!out) return;
+    out.innerHTML = `<span class="mut">Calculando…</span>`;
+    const qs = new URLSearchParams({ ticker: FISC.ticker });
+    if (FISC.qty !== "") qs.set("qty", FISC.qty);
+    if (FISC.gains !== "") qs.set("other_gains", FISC.gains);
+    if (FISC.losses !== "") qs.set("pending_losses", FISC.losses);
+    let d;
+    try { d = await (await fetch("/api/cartera/simular-venta?" + qs)).json(); }
+    catch (e) { out.innerHTML = `<span class="mut">No pude calcularlo.</span>`; return; }
+    if (d.error) { out.innerHTML = `<span class="mut">${esc(d.error)}</span>`; return; }
+
+    const gana = d.result >= 0;
+    const lotes = d.lots.map((l) => `<tr>
+      <td>${esc(l.date || "—")}${l.partial ? ' <span class="mut small">(parte)</span>' : ""}</td>
+      <td class="num">${qty(l.qty)}</td>
+      <td class="num">${eur(l.unit_cost, 4)}</td>
+      <td class="num">${eur(l.cost)}</td></tr>`).join("");
+
+    out.innerHTML = `
+      <div class="fi-two">
+        <div class="fi-block">
+          <div class="ex-h">Del libro · exacto</div>
+          <div class="vs-row"><span>Vendes</span><b>${qty(d.qty)} de ${qty(d.held)}</b></div>
+          <div class="vs-row"><span>Ingresas</span><b>${eur(d.proceeds)}</b></div>
+          <div class="vs-row"><span>Coste FIFO de esos títulos</span><b>${eur(d.cost_fifo)}</b></div>
+          <div class="vs-row vs-tot"><span>${gana ? "Plusvalía" : "Minusvalía"}</span>
+            <b style="color:${gana ? POS : NEG}">${signed(d.result, " €")}</b></div>
+          <table class="tbl fi-lots"><thead><tr><th>Lote</th><th class="num">Títulos</th>
+            <th class="num">Coste ud.</th><th class="num">Coste</th></tr></thead>
+            <tbody>${lotes}</tbody></table>
+        </div>
+        <div class="fi-block fi-est">
+          <div class="ex-h">De la ley · estimación</div>
+          ${gana ? `
+            <div class="vs-row"><span>Ya realizado este año</span>
+              <b>${eur(d.other_gains)}${d.other_gains_auto ? ' <span class="mut small">calculado</span>' : ""}</b></div>
+            ${d.losses_used ? `<div class="vs-row"><span>Minusvalías aplicadas</span><b>−${eur(d.losses_used)}</b></div>` : ""}
+            <div class="vs-row"><span>Base que tributa</span><b>${eur(d.taxable_base)}</b></div>
+            <div class="vs-row vs-tot"><span>Impuesto estimado</span>
+              <b style="color:${NEG}">${eur(d.tax)}</b>${d.effective_rate != null
+                ? ` <span class="mut small">${d.effective_rate}% del resultado</span>` : ""}</div>
+            <div class="vs-row"><span>Te quedarían</span><b>${eur(d.net)}</b></div>`
+          : `<p class="mut">Una minusvalía no paga impuesto. ${esc(d.loss_note || "")}</p>`}
+          <div class="fi-inputs">
+            <label>Otras ganancias del año (€)
+              <input type="number" id="fi-g" step="any" min="0" value="${FISC.gains}"
+                placeholder="${d.other_gains}"></label>
+            <label>Minusvalías pendientes (€)
+              <input type="number" id="fi-l" step="any" min="0" value="${FISC.losses}"
+                placeholder="0"></label>
+          </div>
+        </div>
+      </div>
+      ${d.repurchase.length ? `<p class="perf-note" style="border-color:#cf8b3a;background:color-mix(in srgb,#cf8b3a 8%,transparent)">
+        ⚠ Has comprado ${esc(d.ticker)} hace ${d.repurchase[0].days} días
+        (${esc(d.repurchase[0].date)}). Con una recompra dentro de los dos meses
+        anteriores o posteriores, la minusvalía <b>no se puede computar todavía</b>.
+        Y hacia delante este panel no sabe si vas a recomprar.</p>` : ""}
+      ${d.short ? `<p class="mut small">⚠ Sólo tienes ${qty(d.held)}: se ha simulado sobre eso.</p>` : ""}
+      <p class="mut small"><b>Esto no es asesoramiento fiscal.</b> El impuesto sale de
+        los tramos estatales del ahorro de ${d.brackets_year} aplicados a lo que este
+        panel ve. No conoce el resto de tus rentas del ahorro fuera de esta cartera,
+        ni tus minusvalías de ejercicios anteriores —los dos campos de arriba están
+        para que se las digas—, ni si tributas en País Vasco o Navarra, que tienen su
+        propio régimen.</p>`;
+
+    ["fi-g", "fi-l"].forEach((id) => {
+      const el = $(id);
+      if (!el) return;
+      el.addEventListener("change", () => {
+        FISC.gains = $("fi-g").value; FISC.losses = $("fi-l").value; runFisc();
+      });
+    });
   }
 
   // ══ qué cuesta ════════════════════════════════════════════════════════
