@@ -1,7 +1,7 @@
 /* Cartera — reutiliza los tokens de regime.css (enlazado antes). */
-.cart-hero{grid-template-columns:repeat(6,1fr);}
+.cart-hero{grid-template-columns:repeat(4,1fr);}
 .cart-hero .big{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.01em;margin-top:2px;}
-@media(max-width:1180px){.cart-hero{grid-template-columns:repeat(3,1fr);}}
+@media(max-width:1180px){.cart-hero{grid-template-columns:1fr 1fr;}}
 @media(max-width:760px){.cart-hero{grid-template-columns:1fr 1fr;}}
 
 .tbl{width:100%;border-collapse:collapse;font-size:13px;min-width:640px;}
@@ -220,3 +220,58 @@ table.corr-tbl td.cm.diag{background:var(--panel2);color:var(--faint);}
 .tgt-in{width:66px;text-align:right;font-family:var(--mono);font-size:12px;padding:3px 6px;
   background:var(--panel2);border:1px solid var(--border);border-radius:6px;color:var(--text);}
 .tgt-in:focus,.rb-bar input:focus{border-color:var(--accent);outline:none;}
+
+/* ── estado de mi cartera ─────────────────────────────────────────────────
+   Ocho casillas de igual peso visual y a propósito: en cuanto una se hace más
+   grande que las demás, decide por quien mira cuál es la importante, y la que
+   importa depende del día. */
+.estado-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;
+  background:var(--border);border:1px solid var(--border);border-radius:10px;overflow:hidden;}
+.et{background:var(--panel);padding:12px 14px;}
+.et-l{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.05em;
+  color:var(--faint);margin-bottom:4px;}
+.et-v{font-size:21px;font-weight:700;letter-spacing:-.01em;font-variant-numeric:tabular-nums;}
+.et-s{font-size:11px;color:var(--muted);margin-top:3px;line-height:1.35;}
+
+/* ── qué merece tu atención ───────────────────────────────────────────────
+   La franja de color va a la IZQUIERDA y no de fondo: un aviso con el fondo
+   teñido se lee como una alarma, y la mayoría de estos no lo son. */
+.avisos{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.aviso{border:1px solid var(--border);border-left:3px solid var(--faint);
+  border-radius:8px;padding:10px 13px;background:var(--panel2);}
+.aviso.warn{border-left-color:#cf8b3a;}
+.aviso.info{border-left-color:var(--faint);}
+.av-t{font-weight:600;font-size:13px;margin-bottom:2px;}
+.av-s{font-family:var(--mono);font-size:10.5px;color:var(--muted);margin-bottom:6px;}
+.av-w{font-size:12px;color:var(--muted);line-height:1.45;}
+.av-m{font-size:11.5px;color:#cf8b3a;margin-top:6px;}
+
+/* ── aportaciones ─────────────────────────────────────────────────────────*/
+.ap-kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:14px;}
+.ap-big{font-size:19px;font-weight:700;font-variant-numeric:tabular-nums;}
+.ap-chart{display:flex;align-items:flex-end;gap:2px;height:92px;padding:0 1px;
+  border-bottom:1px solid var(--border);}
+.ap-col{flex:1;display:flex;flex-direction:column-reverse;justify-content:flex-start;
+  height:100%;min-width:3px;}
+.ap-in{background:color-mix(in srgb,var(--accent) 70%,transparent);border-radius:2px 2px 0 0;}
+.ap-out{background:color-mix(in srgb,#cf5b3a 55%,transparent);border-radius:0 0 2px 2px;}
+.ap-axis{display:flex;justify-content:space-between;font-family:var(--mono);
+  font-size:10px;color:var(--faint);margin:4px 0 10px;}
+
+/* ── objetivo ─────────────────────────────────────────────────────────────*/
+.plan-bar{height:9px;border-radius:5px;background:var(--panel2);overflow:hidden;margin:8px 0 6px;}
+.plan-bar i{display:block;height:100%;background:var(--accent);border-radius:5px;}
+.plan-form{display:grid;grid-template-columns:1fr 1fr;gap:10px 12px;align-items:end;margin-top:14px;
+  padding-top:14px;border-top:1px solid var(--border);}
+.plan-form label{display:flex;flex-direction:column;gap:5px;font-size:11.5px;color:var(--muted);}
+.plan-form input{padding:6px 9px;background:var(--panel2);border:1px solid var(--border);
+  border-radius:7px;color:var(--text);font-family:var(--mono);text-align:right;}
+.plan-form input:focus{border-color:var(--accent);outline:none;}
+
+@media(max-width:1180px){.estado-grid{grid-template-columns:repeat(2,1fr);}}
+@media(max-width:760px){.avisos,.ap-kpis{grid-template-columns:1fr;}}
+/* Las dos barras crecen hacia arriba, así que sin leyenda una retirada se lee
+   como una entrada más. El color solo no basta cuando nadie ha dicho qué
+   significa cada color. */
+.ap-leg{display:inline-flex;align-items:center;gap:5px;}
+.ap-leg i{display:inline-block;width:8px;height:8px;border-radius:2px;}

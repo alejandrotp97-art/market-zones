@@ -382,3 +382,84 @@ def test_la_contribucion_suma_las_tres_piezas_de_cada_posicion(libro):
     pos = p["positions"][0]
     assert pos["contribution"] == pytest.approx(
         pos["unreal"] + pos["realized"] + pos["income"], abs=0.01)
+
+
+# ── estado ejecutivo y cobertura ──────────────────────────────────────────
+def test_la_cobertura_de_zona_es_NONE_con_la_cache_fria(libro, monkeypatch):
+    """0% diría «ninguna posición tiene zona». La verdad con la caché vacía es
+    «todavía no lo sé», y son dos afirmaciones distintas."""
+    monkeypatch.setattr(D, "_close_series", lambda t: _serie("2024-01-01", [100] * 300))
+    monkeypatch.setattr(D, "_quote_meta", lambda t: (100.0, "EUR"))
+    monkeypatch.setattr(D, "_prefetch", lambda fn, ts: None)
+    monkeypatch.setattr(D, "_zone_cache", {})
+    _post(libro, ticker="AAA", side="buy", quantity=10, price=100, date="2024-01-01")
+
+    e = D._cartera_estado()
+
+    assert e["coverage"]["zona"] is None
+    assert e["coverage"]["analisis"] == 100.0
+
+
+def test_el_capital_aportado_no_es_el_coste_de_lo_abierto(libro, monkeypatch):
+    """`invested` es el coste de lo que sigue abierto: una posición cerrada con
+    beneficio desaparece de ahí como si nunca se hubiera aportado. Lo aportado
+    es lo desplegado menos lo retirado."""
+    monkeypatch.setattr(D, "_close_series", lambda t: _serie("2024-01-01", [100] * 300))
+    monkeypatch.setattr(D, "_quote_meta", lambda t: (100.0, "EUR"))
+    monkeypatch.setattr(D, "_prefetch", lambda fn, ts: None)
+    _post(libro, ticker="AAA", side="buy", quantity=10, price=100, date="2024-01-01")
+    _post(libro, ticker="AAA", side="sell", quantity=4, price=100, date="2024-02-01")
+
+    e = D._cartera_estado()
+
+    assert e["contributed"] == pytest.approx(600.0, abs=0.5)   # 1000 puestos - 400 sacados
+
+
+def test_una_cartera_sin_posiciones_no_finge_un_estado(libro):
+    e = D._cartera_estado()
+    assert e["n_positions"] == 0
+    assert e["value"] == 0.0
+
+
+# ── el plan de la persona ─────────────────────────────────────────────────
+def test_un_campo_vacio_del_plan_borra_en_vez_de_poner_cero(libro):
+    """No haber decidido un objetivo y haberse puesto uno de cero euros no son
+    lo mismo. Se guarda NULL, y el progreso correspondiente desaparece."""
+    libro.post("/api/cartera/plan", json={"capital": 50000, "monthly": 300},
+               headers={D.CSRF_HEADER: "1"})
+    assert D._portfolio_goal()["capital"] == 50000
+
+    libro.post("/api/cartera/plan", json={"capital": ""}, headers={D.CSRF_HEADER: "1"})
+    g = D._portfolio_goal()
+    assert g["capital"] is None and g["monthly"] == 300
+
+
+def test_un_plan_entero_vacio_se_borra(libro):
+    libro.post("/api/cartera/plan", json={"capital": 1000}, headers={D.CSRF_HEADER: "1"})
+    libro.post("/api/cartera/plan", json={"capital": "", "monthly": "", "horizon_years": ""},
+               headers={D.CSRF_HEADER: "1"})
+    assert D._portfolio_goal() is None
+
+
+def test_un_objetivo_disparatado_se_rechaza(libro):
+    r = libro.post("/api/cartera/plan", json={"horizon_years": 500},
+                   headers={D.CSRF_HEADER: "1"})
+    assert r.status_code == 400
+
+
+# ── aportaciones ──────────────────────────────────────────────────────────
+def test_el_calendario_sale_de_la_misma_reconstruccion_que_la_rentabilidad(libro, monkeypatch):
+    """Si saliera de otro sitio podría discrepar con la TIR, y entonces dos
+    pantallas del mismo panel dirían cosas distintas del mismo dinero."""
+    monkeypatch.setattr(D, "_close_series", lambda t: _serie("2024-01-01", [100] * 300))
+    monkeypatch.setattr(D, "_quote_meta", lambda t: (100.0, "EUR"))
+    monkeypatch.setattr(D, "_prefetch", lambda fn, ts: None)
+    _post(libro, ticker="AAA", side="buy", quantity=10, price=100, date="2024-01-01")
+    _post(libro, ticker="AAA", side="buy", quantity=5, price=100, date="2024-03-01")
+
+    a = D._cartera_aportaciones()
+    r = D._cartera_returns("AAA")
+
+    assert a["stats"]["total_in"] == pytest.approx(r["flows"]["aportado"], abs=0.01)
+    assert [x["month"] for x in a["rows"]][:3] == ["2024-01", "2024-02", "2024-03"]
+    assert a["rows"][1]["in"] == 0.0        # febrero vacío, pero presente

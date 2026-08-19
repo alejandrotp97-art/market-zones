@@ -50,6 +50,10 @@ from cartera.parsing import side_es as _side_es
 from cartera.parsing import sniff_sep as _sniff_sep
 from cartera.parsing import symbol_isin as _symbol_isin
 from cartera.positions import BASE_CCY
+from cartera.plan import attention as _attention
+from cartera.plan import contribution_stats as _contrib_stats
+from cartera.plan import goal_progress as _goal_progress
+from cartera.plan import monthly_flows as _monthly_flows
 from cartera.positions import compute as _compute_positions
 from cartera.returns import currency_split as _currency_split
 from cartera.returns import drawdown as _drawdown
@@ -853,7 +857,24 @@ def _cartera_conn():
     meta = {r[1] for r in c.execute("PRAGMA table_info(instrument_meta)")}
     if "target" not in meta:
         c.execute("ALTER TABLE instrument_meta ADD COLUMN target REAL")
+    # El plan de quien invierte: una fila, porque es una cartera. `id=1` fijo y
+    # no autoincremental — un plan nuevo SUSTITUYE al anterior, y una tabla que
+    # acumula planes viejos obliga a decidir cuál vale cada vez que se lee.
+    c.execute("""CREATE TABLE IF NOT EXISTS portfolio_goal(
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        capital REAL, horizon_years REAL, monthly REAL)""")
     return c
+
+
+def _portfolio_goal():
+    """El plan declarado, o None. Nunca un plan a cero: no haber decidido un
+    objetivo y haberse puesto uno de cero euros no son lo mismo."""
+    with _cartera_conn() as c:
+        row = c.execute("SELECT capital, horizon_years, monthly "
+                        "FROM portfolio_goal WHERE id=1").fetchone()
+    if not row or all(v is None for v in row):
+        return None
+    return {"capital": row[0], "horizon_years": row[1], "monthly": row[2]}
 
 
 # ── Búsqueda de instrumentos (ETFs, fondos, acciones) vía Yahoo Finance ──
@@ -1892,6 +1913,202 @@ def api_cartera_objetivo():
         # instrumentos fantasma que nadie volverá a mirar.
         c.execute("DELETE FROM instrument_meta WHERE ter IS NULL AND target IS NULL")
     return jsonify(_cartera_payload())
+
+
+def _cartera_aportaciones():
+    """Calendario de aportaciones: qué entró, qué salió y qué se cobró, por mes.
+
+    Sale de la MISMA reconstrucción que la rentabilidad, así que no puede
+    discrepar de ella. Y mide lo que se despliega en TÍTULOS, no lo que entra
+    en la cuenta del bróker: este programa no ve transferencias, sólo compras.
+    Un mes con dinero parado en efectivo aparece aquí como un mes sin aportar,
+    y eso hay que decirlo en vez de dejar que se lea como otra cosa.
+    """
+    r = _reconstruct_portfolio("SPY")
+    if r.get("empty"):
+        return {"rows": [], "stats": _contrib_stats([]), "empty": True,
+                "base": BASE_CCY}
+    fechas = [str(d)[:10] for d in r["idx"]]
+    filas = _monthly_flows(fechas, [float(x) for x in r["flows"]],
+                           [float(x) for x in r["divs"]])
+    hoy = str(pd.Timestamp.today().normalize())[:7]
+    return {"rows": filas, "stats": _contrib_stats(filas, today=hoy),
+            "empty": False, "excluded": r["excluded"], "base": BASE_CCY}
+
+
+@app.route("/api/cartera/aportaciones")
+def api_cartera_aportaciones():
+    try:
+        return _json_response(_cartera_aportaciones(), max_age=0)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
+
+
+@app.route("/api/cartera/plan", methods=["POST"])
+def api_cartera_plan():
+    """Declarar el objetivo propio: capital, horizonte y aportación prevista.
+
+    Los tres son opcionales y borrables. Un campo vacío significa «no lo he
+    decidido», que no es lo mismo que cero: por eso se guarda NULL y no 0, y
+    por eso el progreso correspondiente desaparece en vez de salir a cero.
+    """
+    d = request.get_json(force=True, silent=True) or {}
+    campos, limites = {}, {"capital": (0, 1e12), "horizon_years": (0, 100),
+                           "monthly": (0, 1e9)}
+    es = {"capital": "capital objetivo", "horizon_years": "horizonte",
+          "monthly": "aportación mensual"}
+    for k, (lo, hi) in limites.items():
+        if k not in d:
+            continue
+        raw = d[k]
+        if raw in (None, ""):
+            campos[k] = None
+            continue
+        v = _num(raw)
+        if v is None or not (lo <= v <= hi):
+            return jsonify({"error": f"«{es[k]}» fuera de rango"}), 400
+        campos[k] = v
+    if not campos:
+        return jsonify({"error": "no llegó ningún campo"}), 400
+    with _cartera_conn() as c:
+        c.execute("INSERT INTO portfolio_goal(id) VALUES(1) "
+                  "ON CONFLICT(id) DO NOTHING")
+        sets = ", ".join(f"{k}=?" for k in campos)
+        c.execute(f"UPDATE portfolio_goal SET {sets} WHERE id=1", tuple(campos.values()))
+        # Un plan sin ningún campo declarado se borra: así `_portfolio_goal`
+        # devuelve None y la pantalla vuelve a ofrecer declararlo, en vez de
+        # enseñar una ficha vacía que parece rota.
+        c.execute("DELETE FROM portfolio_goal WHERE capital IS NULL "
+                  "AND horizon_years IS NULL AND monthly IS NULL")
+    return jsonify(_cartera_estado())
+
+
+def _cartera_estado():
+    """El bloque de cabecera: qué tengo, cómo voy, y qué merece una mirada.
+
+    Junta en una sola llamada lo que si no serían cinco, porque es lo que se
+    lee en los primeros diez segundos y no puede aparecer a trozos.
+
+    LA COBERTURA ES LA PIEZA QUE HACE HONESTO A TODO LO DEMÁS. Rentabilidad,
+    caída y correlación se calculan sobre las posiciones que tienen serie de
+    precios utilizable; si eso es el 70% del patrimonio, esas cifras describen
+    ese 70%. Publicarlas sin decirlo las convierte en una afirmación sobre la
+    cartera entera que nadie ha comprobado.
+    """
+    p = _cartera_payload()
+    s = p["summary"]
+    abiertas = [x for x in p["positions"] if x["qty"] > 1e-9]
+    valoradas = [x for x in abiertas if x["valued"]]
+    total = sum(x["market_value"] for x in valoradas) or 0.0
+
+    # ¿De qué posiciones hay serie utilizable? Es el hecho que gobierna la
+    # entrada al gráfico, a la rentabilidad y a la correlación.
+    con_hist = {}
+    for x in abiertas:
+        try:
+            serie = _close_series(x["ticker"])
+            con_hist[x["ticker"]] = bool(serie is not None and len(serie))
+        except Exception:
+            con_hist[x["ticker"]] = False
+
+    def cuota(pred):
+        v = sum(x["market_value"] for x in valoradas if pred(x))
+        return round(v / total * 100, 1) if total > 1e-9 else None
+
+    # La zona se lee de la caché y NO se fuerza: calcularla aquí obligaría a
+    # descargar 25 años por instrumento antes de pintar la cabecera. Con la
+    # caché fría el dato es `None` —«todavía no lo sé»— y nunca 0%, que diría
+    # «ninguna tiene zona» y es una afirmación distinta y falsa.
+    zonas_vistas = sum(1 for x in valoradas
+                       if (_zone_cache.get(x["ticker"].upper().strip()) or (0, {}))[1].get("zone"))
+    cobertura = {
+        "analisis": cuota(lambda x: con_hist.get(x["ticker"])),
+        "ter": cuota(lambda x: x.get("ter") is not None),
+        "zona": (cuota(lambda x: (_zone_cache.get(x["ticker"].upper().strip()) or (0, {}))[1].get("zone"))
+                 if zonas_vistas else None),
+        "valorado": (round(len(valoradas) / len(abiertas) * 100, 1) if abiertas else None),
+        "sin_valorar": len(abiertas) - len(valoradas),
+    }
+
+    rend = ytd = corr = None
+    try:
+        rend = _cartera_returns("SPY")
+    except Exception:
+        pass
+    try:
+        ytd = _cartera_returns("SPY", rango="ytd")
+    except Exception:
+        pass
+    try:
+        corr = _cartera_correlacion()
+    except Exception:
+        pass
+
+    aport = None
+    try:
+        aport = _cartera_aportaciones()
+    except Exception:
+        pass
+
+    # Capital aportado NETO: lo desplegado menos lo retirado. `invested` no
+    # sirve para esto — es el coste de lo que sigue abierto, y una posición
+    # cerrada con beneficio desaparece de ahí como si nunca se hubiera aportado.
+    flujos = (rend or {}).get("flows") or {}
+    aportado = (round(flujos.get("aportado", 0.0) - flujos.get("retirado", 0.0), 2)
+                if flujos else None)
+
+    goal = _portfolio_goal()
+    doce = None
+    if aport and aport.get("rows"):
+        doce = round(sum(r["in"] for r in aport["rows"][-12:]), 2)
+    plan = _goal_progress(goal, total, doce)
+
+    hechos = {
+        "total": total,
+        "positions": [{**x, "has_history": con_hist.get(x["ticker"], False)}
+                      for x in abiertas],
+        "n_undated": s.get("n_undated", 0),
+        "months_since_contribution": (aport or {}).get("stats", {}).get("months_since"),
+        "eff_n_corr": (corr or {}).get("eff_n_corr"),
+        "eff_n_weights": (corr or {}).get("eff_n_weights"),
+        "coverage_pct": cobertura["analisis"],
+    }
+    avisos = _attention(hechos)
+
+    t = (rend or {}).get("twr") or {}
+    bt = (rend or {}).get("benchmark_twr") or {}
+    vs = None
+    if (rend or {}).get("twr_price_only") and bt.get("total") is not None:
+        vs = round(rend["twr_price_only"]["total"] - bt["total"], 6)
+
+    return {
+        "value": round(total, 2),
+        "contributed": aportado,
+        "result": s.get("total_return"),
+        "twr": t.get("total"), "twr_annualized": t.get("annualized"),
+        "tir": (rend or {}).get("tir"),
+        "annualizable": (rend or {}).get("annualizable", False),
+        "ytd": ((ytd or {}).get("twr") or {}).get("total"),
+        "ytd_from": (ytd or {}).get("from"),
+        "benchmark_ticker": (rend or {}).get("benchmark_ticker", "SPY"),
+        "vs_benchmark": vs,
+        "drawdown": (rend or {}).get("drawdown"),
+        "volatility": (rend or {}).get("volatility"),
+        "coverage": cobertura,
+        "attention": avisos,
+        "n_attention": len([a for a in avisos if a["level"] == "warn"]),
+        "goal": plan,
+        "n_positions": len(abiertas),
+        "base": BASE_CCY,
+    }
+
+
+@app.route("/api/cartera/estado")
+def api_cartera_estado():
+    try:
+        return _json_response(_cartera_estado(), max_age=0)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
 
 
 @app.route("/api/cartera/rebalanceo")

@@ -353,6 +353,66 @@ La comparación con el índice va **sin tus dividendos** a propósito, y lo dice
 en pantalla: la serie del índice tampoco lleva los suyos, y enfrentar una cosa
 con la otra te regalaría un punto y medio al año de ventaja falsa.
 
+### Lo primero que verás: «Estado de mi cartera»
+
+Ocho casillas arriba del todo, pensadas para que en diez segundos sepas:
+
+| Casilla | Contesta |
+|---|---|
+| **Tengo** | cuánto vale hoy |
+| **He puesto** | cuánto has aportado, ya restado lo que sacaste por ventas |
+| **He ganado** | resultado en euros, y el porcentaje desde el principio |
+| **Este año** | cómo va el año, desde el cierre del año pasado |
+| **Frente a…** | si vas por encima o por debajo de tu índice |
+| **Peor caída** | cuánto llegaste a perder, y cuánto te falta de tu mejor momento |
+| **Cobertura** | qué parte de tu patrimonio entra de verdad en estos cálculos |
+| **Requiere mirada** | cuántas cosas hay debajo esperándote |
+
+> **La casilla de cobertura es la que hace honestas a las demás.** Si dice 84%,
+> la rentabilidad, la caída y la correlación describen ese 84% — no toda tu
+> cartera. No es que el resto vaya bien: es que no se sabe.
+
+### «Qué merece tu atención»: hechos, nunca órdenes
+
+Debajo aparecen las cosas que conviene que mires: datos que faltan, posiciones
+que se han ido de su peso objetivo, cosas que se quedan fuera del análisis.
+
+Cada aviso te dice **qué pasa**, **a qué parte de tu cartera afecta**, **por qué
+importa** y **qué dato falta**, si falta alguno.
+
+Ninguno te dirá que compres ni que vendas, y no es por prudencia: este panel
+tiene medido que no sabe hacer eso. Un aviso describe algo comprobable; una
+orden requiere saber cuándo necesitas el dinero, qué impuestos pagarías y qué
+opinas del activo — tres cosas que el programa no sabe.
+
+### Tus aportaciones
+
+Cuánto has ido metiendo, mes a mes, con los meses vacíos incluidos: si un año
+estuviste parado, se ve el hueco.
+
+Dos avisos para leerlo bien:
+
+- La **media al mes** reparte entre TODOS los meses transcurridos, no sólo
+  entre aquellos en los que aportaste. Lo segundo contesta «cuánto aporto
+  cuando aporto», que no es lo que nadie quiere saber — y sale más halagador.
+- Mide el dinero que entra en **títulos**, no en tu cuenta del bróker. El panel
+  ve compras, no transferencias: un mes con el dinero parado en efectivo sale
+  aquí como un mes sin aportar.
+
+### Tu objetivo
+
+Escribe a dónde quieres llegar —capital, aportación mensual, horizonte— y el
+panel te dice **cuánto llevas del camino** y si estás cumpliendo tu propio plan
+de aportaciones.
+
+> **No verás nunca una fecha de llegada.** Decir «a este ritmo llegas en 2034»
+> exige suponer una rentabilidad futura, y ya sabes lo que opina este panel de
+> pronosticar. Progreso y desviación son hechos; una fecha es una predicción
+> disfrazada de aritmética.
+
+Un campo vacío significa «no lo he decidido», y desaparece del progreso. No es
+lo mismo que ponerlo a cero.
+
 ### Los botones de temporalidad, y por qué no son un simple recorte
 
 Arriba de la gráfica tienes **1M · 3M · 6M · YTD · 1A · 5A · Todo** y

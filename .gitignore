@@ -17,6 +17,13 @@ backups/
 # vacía (.example) y cada instalación construye la suya al añadir posiciones.
 data/country_weights.json
 
+# El estado del avisador de zonas: un símbolo por posición abierta, con la zona
+# en la que estaba. Es la lista de lo que tienes, y por eso está aquí. Se coló
+# en un `git add -A` y sólo lo paró la revisión previa al commit — un fichero
+# de estado nuevo junto a la raíz no lo cubría ninguna de las reglas de arriba.
+alertas_cartera.json
+alertas_cartera.json.parcial
+
 # Credenciales y configuración local
 .env
 *.env

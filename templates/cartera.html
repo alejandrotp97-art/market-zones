@@ -38,10 +38,23 @@
       </button>
     </header>
 
-    <!-- resumen -->
+    <!-- estado de mi cartera: lo que se lee en diez segundos -->
+    <section class="card estado-card" id="estado-card">
+      <div class="card-h"><span>Estado de mi cartera</span>
+        <span class="legend" id="estado-legend">calculando…</span></div>
+      <div id="estado"></div>
+    </section>
+
+    <!-- qué merece tu atención -->
+    <section class="card" id="atencion-card" hidden>
+      <div class="card-h"><span>Qué merece tu atención</span>
+        <span class="legend">hechos, no recomendaciones</span></div>
+      <div id="atencion"></div>
+    </section>
+
+    <!-- de dónde sale el resultado -->
     <section class="hero cart-hero">
       <div><div class="lbl">Invertido (abierto)</div><div id="s-inv" class="big">—</div></div>
-      <div><div class="lbl">Valor de mercado</div><div id="s-mval" class="big">—</div></div>
       <div><div class="lbl">P&L no realizado</div><div id="s-unreal" class="big">—</div><div id="s-unrealpct" class="mut small"></div></div>
       <!-- El realizado se puede leer con dos criterios de coste y NO dan lo
            mismo en una venta parcial. El selector no es un adorno: el número de
@@ -54,7 +67,6 @@
           </span></div>
         <div id="s-real" class="big">—</div><div id="s-realnote" class="mut small"></div></div>
       <div><div class="lbl">Dividendos cobrados</div><div id="s-income" class="big">—</div><div id="s-incomenote" class="mut small"></div></div>
-      <div><div class="lbl">Rentabilidad total</div><div id="s-total" class="big">—</div><div class="mut small">no realizado + realizado + dividendos</div></div>
     </section>
 
     <!-- evolución -->
@@ -125,6 +137,22 @@
         <div class="card-h"><span>Rebalanceo</span>
           <span class="legend">comprando, sin vender</span></div>
         <div id="rebal"></div>
+      </section>
+    </div>
+
+    <div class="two">
+      <!-- aportaciones -->
+      <section class="card" id="aport-card">
+        <div class="card-h"><span>Tus aportaciones</span>
+          <span class="legend" id="aport-legend"></span></div>
+        <div id="aport"></div>
+      </section>
+
+      <!-- objetivo propio -->
+      <section class="card" id="plan-card">
+        <div class="card-h"><span>Tu objetivo</span>
+          <span class="legend">progreso, no predicción</span></div>
+        <div id="plan"></div>
       </section>
     </div>
 

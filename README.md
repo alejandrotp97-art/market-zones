@@ -166,6 +166,9 @@ cartera/positions.py  movements → valued positions. The money arithmetic.
 cartera/returns.py    TWR, XIRR, drawdown, volatility, Sharpe, effective N,
                       currency decomposition, buy-only rebalancing. Pure
                       functions over a series of values and flows.
+cartera/plan.py       the investor's own plan: contribution calendar, goal
+                      progress, and the attention rules. Today's date arrives
+                      as a parameter so a test can stand on any day.
 ```
 
 ### Two returns, because there are two questions
@@ -287,7 +290,7 @@ the two is how a holding silently disappears from a chart while its cost stays i
 
 ## Tests
 
-378 tests, hermetic — every outbound call is stubbed, so the suite never touches
+410 tests, hermetic — every outbound call is stubbed, so the suite never touches
 the network and never depends on Yahoo being up.
 
 ```bash

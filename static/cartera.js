@@ -64,7 +64,7 @@
 
   // Estado que NO viene del payload de la cartera: las zonas llegan por su
   // propia ruta (son lentas) y el criterio de coste lo elige quien mira.
-  let ZONES = {}, ZONE_TRIES = 0, REALMODE = "avg";
+  let ZONES = {}, ZONE_TRIES = 0, REALMODE = "avg", ESTADO = null, APORT = null;
 
   // La temporalidad la comparten la gráfica y la sección de rentabilidad: son
   // la misma pregunta mirada de dos formas, y verlas contestar a rangos
@@ -130,7 +130,6 @@
     document.dispatchEvent(new CustomEvent(dataChanged ? "cartera:changed" : "cartera:display"));
     $("n-mov").textContent = s.n_movements ?? 0;
     $("s-inv").textContent = eur(s.invested);
-    $("s-mval").textContent = eur(s.market_value);
     $("s-unreal").innerHTML = signed(s.unreal, " €");
     $("s-unrealpct").textContent = s.unreal_pct != null ? (s.unreal_pct >= 0 ? "+" : "") + s.unreal_pct + "%" : "";
     paintRealized(s);
@@ -138,7 +137,6 @@
     $("s-incomenote").textContent = s.n_dividends
       ? `${s.n_dividends} cobro${s.n_dividends === 1 ? "" : "s"}`
       : "sin dividendos apuntados";
-    $("s-total").innerHTML = signed(s.total_return, " €");
     // posiciones
     const open = (p.positions || []).filter((r) => r.qty > 1e-9);
     // Una posición cerrada que sólo dejó dividendos también es historia de esta
@@ -197,7 +195,8 @@
     renderFx(p);
     renderContrib(p);
     if (dataChanged) loadRebal();
-    if (dataChanged) { loadZones(); loadPerf(); loadCorr(); } else paintZones();
+    if (dataChanged) { loadZones(); loadPerf(); loadCorr(); loadEstado(); loadAport(); }
+    else paintZones();
     if (reloadHistory) loadHistory();     // skipped on first load: already in flight
   }
 
@@ -230,6 +229,183 @@
     $("real-mode").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
     if (P) render(P, false, false);
   });
+
+  // ══ estado de mi cartera ══════════════════════════════════════════════
+  // El bloque que se lee en diez segundos. Junta lo que si no habría que ir a
+  // buscar a cinco sitios, y NO repite ninguna cifra del desglose de abajo:
+  // dos números iguales en la misma pantalla obligan a comprobar si dicen lo
+  // mismo, que es justo el trabajo que este bloque existe para ahorrar.
+  async function loadEstado() {
+    const leg = $("estado-legend"), box = $("estado");
+    let d;
+    try { d = await (await fetch("/api/cartera/estado")).json(); }
+    catch (e) { leg.textContent = ""; box.innerHTML = `<div class="mut">No pude calcularlo.</div>`; return; }
+    if (d.error) { leg.textContent = ""; box.innerHTML = `<div class="mut">${esc(d.error)}</div>`; return; }
+    if (!d.n_positions) {
+      leg.textContent = "";
+      box.innerHTML = `<div class="mut">Sin posiciones abiertas todavía.</div>`;
+      $("atencion-card").hidden = true; renderPlan(d); return;
+    }
+    ESTADO = d;
+    const cob = d.coverage || {};
+    leg.innerHTML = `${d.n_positions} posiciones · análisis sobre el <b>${
+      cob.analisis == null ? "—" : cob.analisis + "%"}</b> del patrimonio`;
+
+    const dd = d.drawdown || {};
+    const tile = (lbl, val, sub, color) => `<div class="et">
+      <div class="et-l">${lbl}</div>
+      <div class="et-v"${color ? ` style="color:${color}"` : ""}>${val}</div>
+      <div class="et-s">${sub || ""}</div></div>`;
+
+    box.innerHTML = `<div class="estado-grid">
+      ${tile("Tengo", eur(d.value), `${d.n_positions} posiciones abiertas`)}
+      ${tile("He puesto", eur(d.contributed), "aportado menos retirado")}
+      ${tile("He ganado", signed(d.result, " €"),
+             d.twr == null ? "" : `${pct(d.twr, 1)} desde el principio`,
+             (d.result || 0) >= 0 ? POS : NEG)}
+      ${tile("Este año", d.ytd == null ? "—" : pct(d.ytd, 1),
+             d.ytd_from ? `desde ${esc(d.ytd_from)}` : "", (d.ytd || 0) >= 0 ? POS : NEG)}
+      ${tile(`Frente a ${esc(d.benchmark_ticker)}`,
+             d.vs_benchmark == null ? "—" : pct(d.vs_benchmark, 1),
+             "sin dividendos en ninguno de los dos",
+             (d.vs_benchmark || 0) >= 0 ? POS : NEG)}
+      ${tile("Peor caída", dd.max == null ? "—" : pct(dd.max, 1),
+             dd.at_high ? "ahora, en máximos" : (dd.current == null ? "" : `ahora ${pct(dd.current, 1)}`),
+             NEG)}
+      ${tile("Cobertura", cob.analisis == null ? "—" : cob.analisis + "%",
+             cob.analisis != null && cob.analisis < 100
+               ? "el resto no está medido" : "todo el patrimonio",
+             cob.analisis != null && cob.analisis < 90 ? "#cf8b3a" : "")}
+      ${(() => {
+        // La casilla cuenta TODO lo que hay debajo. Enseñar sólo los graves
+        // ponía un "0" encima de una lista de cuatro avisos, y eso obliga a
+        // parar a averiguar cuál de los dos números miente.
+        const n = (d.attention || []).length, g = d.n_attention || 0;
+        return tile("Requiere mirada", String(n),
+          n === 0 ? "nada pendiente" : g ? `${g} de ellos, importantes` : "ninguno urgente",
+          g ? "#cf8b3a" : (n ? "" : POS));
+      })()}
+    </div>
+    ${d.twr != null && !d.annualizable ? `<p class="mut small">Menos de un año de
+      historia: no se anualiza ninguna cifra, porque convertir una racha corta
+      en una tasa anual es inventarse un dato.</p>` : ""}`;
+
+    renderAtencion(d);
+    renderPlan(d);
+  }
+
+  // ══ qué merece tu atención ════════════════════════════════════════════
+  // Un aviso describe un HECHO. En cuanto dijera qué hacer estaría prometiendo
+  // algo que este panel tiene medido que no sabe: aquí el buy & hold le gana a
+  // cualquier regla de entrada y salida que se ha probado.
+  function renderAtencion(d) {
+    const box = $("atencion"), card = $("atencion-card");
+    const av = d.attention || [];
+    card.hidden = !av.length;
+    if (!av.length) return;
+    box.innerHTML = `<div class="avisos">${av.map((a) => `
+      <div class="aviso ${esc(a.level)}">
+        <div class="av-t">${esc(a.title)}</div>
+        <div class="av-s">${esc(a.scope)}</div>
+        <div class="av-w">${esc(a.why)}</div>
+        ${a.missing ? `<div class="av-m">Falta: ${esc(a.missing)}</div>` : ""}
+      </div>`).join("")}</div>
+      <p class="mut small">Ninguno de estos avisos dice qué comprar ni qué vender.
+        Describen el estado de tus datos y la distancia respecto a lo que TÚ has
+        declarado; qué hacer con eso depende de cosas que este panel no sabe.</p>`;
+  }
+
+  // ══ aportaciones ══════════════════════════════════════════════════════
+  async function loadAport() {
+    const box = $("aport"), leg = $("aport-legend");
+    let d;
+    try { d = await (await fetch("/api/cartera/aportaciones")).json(); }
+    catch (e) { box.innerHTML = `<div class="mut">No pude calcularlo.</div>`; return; }
+    if (d.error || d.empty || !(d.rows || []).length) {
+      leg.textContent = "";
+      box.innerHTML = `<div class="mut">Aún no hay movimientos con fecha que agregar por meses.</div>`;
+      return;
+    }
+    APORT = d;
+    const s = d.stats;
+    leg.textContent = `${s.months} meses · ${s.n_months_with_in} con aportación`;
+    const filas = d.rows.slice(-36);
+    const max = Math.max(...filas.map((r) => Math.max(r.in, r.out)), 1);
+    const barras = filas.map((r) => `<span class="ap-col"
+        title="${esc(r.month)} · entra ${eur(r.in)}${r.out ? " · sale " + eur(r.out) : ""}${r.div ? " · dividendos " + eur(r.div) : ""}">
+        <i class="ap-in" style="height:${(r.in / max * 100).toFixed(1)}%"></i>
+        ${r.out ? `<i class="ap-out" style="height:${(r.out / max * 100).toFixed(1)}%"></i>` : ""}
+      </span>`).join("");
+
+    box.innerHTML = `
+      <div class="ap-kpis">
+        <div><div class="ex-h">Aportado en total</div><div class="ap-big">${eur(s.total_in)}</div>
+          <div class="mut small">sin restar lo que salió por ventas${
+            s.total_out ? " — arriba, en «He puesto», sí está restado" : ""}</div></div>
+        <div><div class="ex-h">Media al mes</div><div class="ap-big">${eur(s.avg_month)}</div>
+          <div class="mut small">repartido entre los ${s.months} meses transcurridos, no sólo entre los que aportaste</div></div>
+        <div><div class="ex-h">Última aportación</div>
+          <div class="ap-big">${s.last_month ? esc(s.last_month) : "—"}</div>
+          <div class="mut small">${s.months_since === 0 ? "este mes"
+            : s.months_since == null ? "" : `hace ${s.months_since} mes(es)`}</div></div>
+      </div>
+      <div class="ap-chart">${barras}</div>
+      <div class="ap-axis"><span>${esc(filas[0].month)}</span>
+        <span class="ap-leg"><i class="ap-in"></i>entra <i class="ap-out"></i>sale</span>
+        <span>${esc(filas[filas.length - 1].month)}</span></div>
+      ${s.total_out ? `<div class="vs-row"><span>Retirado por ventas</span><b>${eur(s.total_out)}</b></div>` : ""}
+      ${s.total_div ? `<div class="vs-row"><span>Dividendos cobrados</span><b>${eur(s.total_div)}</b></div>` : ""}
+      <p class="mut small">Mide el dinero que se despliega en <b>títulos</b>, no lo que
+        entra en la cuenta del bróker: este panel ve compras, no transferencias. Un mes
+        con dinero parado en efectivo aparece aquí como un mes sin aportar.</p>`;
+  }
+
+  // ══ objetivo propio ═══════════════════════════════════════════════════
+  function renderPlan(d) {
+    const box = $("plan"), g = d.goal;
+    const campo = (id, lbl, val, ph) => `<label>${lbl}
+      <input type="number" id="${id}" step="any" min="0" value="${val == null ? "" : val}" placeholder="${ph}"></label>`;
+    const form = `<form class="plan-form" id="plan-form">
+      ${campo("g-capital", "Capital objetivo (€)", g && g.capital, "100000")}
+      ${campo("g-monthly", "Aportación mensual (€)", g && g.monthly, "500")}
+      ${campo("g-horizon", "Horizonte (años)", g && g.horizon_years, "15")}
+      <button type="submit" class="primary-mini">Guardar</button>
+    </form>`;
+
+    if (!g || g.capital == null) {
+      box.innerHTML = `<p class="mut">Declara a dónde quieres llegar y el panel te
+        dice cuánto llevas del camino. <b>No proyecta ninguna fecha de llegada</b>:
+        eso exigiría suponer una rentabilidad futura, y este panel tiene medido que
+        no sabe pronosticar.</p>${form}`;
+    } else {
+      const p = Math.max(0, Math.min(100, g.pct || 0));
+      box.innerHTML = `
+        <div class="ex-h">Capital objetivo</div>
+        <div class="ap-big">${g.pct == null ? "—" : g.pct + "%"}
+          <span class="mut" style="font-size:14px">de ${eur(g.capital)}</span></div>
+        <div class="plan-bar"><i style="width:${p}%"></i></div>
+        <div class="mut small">Te faltan ${eur(g.missing)}.
+          ${g.horizon_years ? `Horizonte declarado: ${g.horizon_years} años.` : ""}</div>
+        ${g.plan_pct != null ? `<div class="vs-row" style="margin-top:12px">
+            <span>Aportado en 12 meses</span><b>${eur(g.real_12m)}</b></div>
+          <div class="vs-row"><span>Previsto en 12 meses</span><b>${eur(g.plan_12m)}</b></div>
+          <div class="vs-row vs-tot"><span>Cumplimiento</span>
+            <b style="color:${g.plan_pct >= 100 ? POS : g.plan_pct >= 80 ? "" : NEG}">${g.plan_pct}%</b></div>` : ""}
+        <p class="mut small">Progreso y desviación, nada más. Una fecha de llegada
+          sería una predicción disfrazada de aritmética.</p>${form}`;
+    }
+
+    $("plan-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const body = { capital: $("g-capital").value, monthly: $("g-monthly").value,
+                     horizon_years: $("g-horizon").value };
+      const r = await send("/api/cartera/plan", { method: "POST",
+        headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const dd = await r.json();
+      if (dd.error) { alert(dd.error); return; }
+      ESTADO = dd; renderPlan(dd); renderAtencion(dd);
+    });
+  }
 
   // ══ rentabilidad ══════════════════════════════════════════════════════
   // Un «+89%» sobre una cartera con aportaciones repartidas no se puede
