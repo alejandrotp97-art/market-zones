@@ -348,6 +348,62 @@ La comparación con el índice va **sin tus dividendos** a propósito, y lo dice
 en pantalla: la serie del índice tampoco lleva los suyos, y enfrentar una cosa
 con la otra te regalaría un punto y medio al año de ventaja falsa.
 
+### Los botones de temporalidad, y por qué no son un simple recorte
+
+Arriba de la gráfica tienes **1M · 3M · 6M · YTD · 1A · 5A · Todo** y
+«Fechas…» para elegir el tramo que quieras. La rentabilidad de abajo cambia con
+ellos: son la misma pregunta mirada de dos formas.
+
+Lo que no se ve pero importa: cuando eliges un tramo, la línea del índice se
+**resiembra** ese primer día con el valor que tenía tu cartera, y recibe tus
+mismos movimientos dentro del tramo. Si nos limitáramos a recortar, estarías
+comparando tres meses de tu cartera contra una posición del índice comprada
+hace dos años, y casi toda la diferencia que verías sería historia vieja.
+
+Por eso las tres líneas arrancan pegadas, y lo que se abre entre ellas es
+exactamente lo que ha pasado **en ese tramo**.
+
+### La caída máxima, y por qué no sale de tu saldo
+
+Un ingreso sube el saldo, y **aportar no es recuperarse**. Si midiéramos la
+caída sobre los euros, una transferencia podría devolver la cifra a su máximo
+anterior y dar por superada una caída de la que el mercado no ha vuelto — y si
+aportas todos los meses, una bajada larga podría no llegar a verse nunca.
+
+Así que se mide sobre **lo que vale 1 € invertido**. Verás tres cosas:
+
+- **Caída máxima** — la peor, con las fechas y cuánto tardó en recuperarse (o
+  si sigue sin recuperar).
+- **Ahora mismo** — cuánto estás por debajo de tu mejor momento. Suele importar
+  más que la anterior: una caída del 30% en 2020 no dice nada de hoy.
+- **Volatilidad y Sharpe** — cuánto se mueve y cuánta rentabilidad sacas por
+  unidad de movimiento. El Sharpe va con **tipo sin riesgo 0%**, y lo pone al
+  lado: un Sharpe sin decir contra qué se calcula no se compara con nada.
+
+### Quién te está haciendo el dinero
+
+«Peso» te dice qué parte de tu dinero está en cada cosa, y «%» cuánto ha subido
+cada una. Ninguna de las dos contesta a **quién ha hecho el dinero en euros**:
+una posición del 5% que se dobló ha aportado más que una del 40% que subió un
+2%. Esa sección lo ordena de mayor a menor, en euros, y suma no realizado,
+realizado y dividendos.
+
+### Rebalanceo: comprando, sin vender
+
+Escribe el **peso objetivo** de cada posición y el panel te dice cuánto te has
+desviado. Después pon lo que vas a aportar y te reparte esa aportación para
+acercarte al objetivo **sin vender nada**.
+
+Es a propósito. Rebalancear vendiendo lo que sobra es lo que hace todo el
+mundo, y en España cada venta con plusvalía es un hecho imponible: pagar
+impuestos hoy para cuadrar unos decimales de peso destruye más de lo que
+corrige. Con dinero nuevo llegas al mismo sitio sin pasar por Hacienda.
+
+> Tus objetivos **no tienen que sumar 100** exacto: se usan normalizados, así
+> que lo que manda es la proporción entre ellos. Y una posición sin objetivo se
+> queda fuera del reparto — no se cuenta como cero, porque que nadie haya
+> decidido su peso no significa que deba desaparecer.
+
 ### Qué te cuesta, y el coste que nunca ves
 
 Tres cifras, y la tercera es la que cambia decisiones:

@@ -60,6 +60,16 @@
     <!-- evolución -->
     <section class="card chart-card">
       <div class="card-h"><span>Evolución de la cartera</span>
+        <span class="ranges" id="hrange" role="group" aria-label="Temporalidad">
+          <button type="button" data-r="1m">1M</button>
+          <button type="button" data-r="3m">3M</button>
+          <button type="button" data-r="6m">6M</button>
+          <button type="button" data-r="ytd">YTD</button>
+          <button type="button" data-r="1y">1A</button>
+          <button type="button" data-r="5y">5A</button>
+          <button type="button" data-r="all" class="on">Todo</button>
+          <button type="button" data-r="custom" title="Elegir fechas">Fechas…</button>
+        </span>
         <span class="legend">comparar con
           <span id="bench-wrap" class="search-wrap">
             <input id="bench" value="SPY" autocomplete="off" spellcheck="false"
@@ -67,8 +77,15 @@
             <div id="bench-results" class="results" hidden></div>
           </span>
         </span></div>
+      <div class="custom-range" id="hcustom" hidden>
+        <label>Desde <input type="date" id="hfrom"></label>
+        <label>Hasta <input type="date" id="hto"></label>
+        <button type="button" id="happly" class="primary-mini">Aplicar</button>
+        <span class="mut small" id="hrangenote"></span>
+      </div>
       <div class="chart-host"><canvas id="pchart"></canvas><div id="ptip" class="tip" hidden></div></div>
       <div id="chart-legend" class="chart-legend"></div>
+      <div id="rebase-note" class="mut small" hidden></div>
     </section>
 
     <!-- rentabilidad -->
@@ -94,6 +111,22 @@
         </tr></thead><tbody id="pos-body"></tbody>
       </table></div>
     </section>
+
+    <div class="two">
+      <!-- quién ha puesto el dinero -->
+      <section class="card" id="contrib-card">
+        <div class="card-h"><span>Quién ha puesto el dinero</span>
+          <span class="legend">resultado en euros, no en porcentaje</span></div>
+        <div id="contrib"></div>
+      </section>
+
+      <!-- rebalanceo -->
+      <section class="card" id="rebal-card">
+        <div class="card-h"><span>Rebalanceo</span>
+          <span class="legend">comprando, sin vender</span></div>
+        <div id="rebal"></div>
+      </section>
+    </div>
 
     <!-- qué cuesta tener esto -->
     <section class="card" id="costes-card">

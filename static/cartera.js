@@ -66,6 +66,14 @@
   // propia ruta (son lentas) y el criterio de coste lo elige quien mira.
   let ZONES = {}, ZONE_TRIES = 0, REALMODE = "avg";
 
+  // La temporalidad la comparten la gráfica y la sección de rentabilidad: son
+  // la misma pregunta mirada de dos formas, y verlas contestar a rangos
+  // distintos a la vez es peor que no poder cambiar el rango.
+  const RANGO = { r: "all", from: "", to: "" };
+  const rangoQS = () => RANGO.r === "custom"
+    ? `from=${encodeURIComponent(RANGO.from)}&to=${encodeURIComponent(RANGO.to)}`
+    : `range=${encodeURIComponent(RANGO.r)}`;
+
   function zoneCell(ticker) {
     const z = ZONES[(ticker || "").toUpperCase()];
     if (!z) return `<span class="mut">…</span>`;
@@ -187,6 +195,8 @@
     // cuando los datos han cambiado; repintar por el ojo no toca la red.
     renderCostes(p);
     renderFx(p);
+    renderContrib(p);
+    if (dataChanged) loadRebal();
     if (dataChanged) { loadZones(); loadPerf(); loadCorr(); } else paintZones();
     if (reloadHistory) loadHistory();     // skipped on first load: already in flight
   }
@@ -234,7 +244,7 @@
     const leg = $("perf-legend"), box = $("perf");
     let d;
     const bench = ($("bench").value || "SPY").trim().toUpperCase();
-    try { d = await (await fetch("/api/cartera/rendimiento?benchmark=" + encodeURIComponent(bench))).json(); }
+    try { d = await (await fetch(`/api/cartera/rendimiento?benchmark=${encodeURIComponent(bench)}&${rangoQS()}`)).json(); }
     catch (e) { leg.textContent = ""; box.innerHTML = `<div class="mut">No pude calcularla.</div>`; return; }
     if (d.error || d.empty || !d.twr || d.twr.total == null) {
       leg.textContent = "";
@@ -286,6 +296,7 @@
         </div>
       </div>
       ${timing ? `<p class="perf-note">${timing}</p>` : ""}
+      ${riesgoBloque(d)}
       <div class="perf-two">
         <div>
           <div class="ex-h">Por año</div>
@@ -305,6 +316,124 @@
       </div>
       ${(d.excluded || []).length ? `<p class="mut small">⚠ Fuera de este cálculo:
         ${d.excluded.map(esc).join(", ")} — sin serie o sin tipo de cambio.</p>` : ""}`;
+  }
+
+  // La caída va SIEMPRE sobre el índice de rendimiento y nunca sobre los euros.
+  // El valor en euros sube cuando se aporta, y aportar no es recuperarse: una
+  // transferencia puede devolver la cifra a su máximo anterior y hacer pasar
+  // por «recuperada» una caída de la que el mercado no ha vuelto.
+  function riesgoBloque(d) {
+    const dd = d.drawdown;
+    if (!dd) return "";
+    const rec = dd.recovered
+      ? `recuperada el <b>${esc(dd.recovered)}</b>${dd.days_to_recover != null ? ` — tardó ${dd.days_to_recover} días` : ""}`
+      : `<b class="warn-txt">todavía sin recuperar</b>`;
+    return `
+      <div class="perf-grid" style="margin-top:16px">
+        <div class="perf-kpi"><div class="ex-h">Caída máxima</div>
+          <div class="perf-big" style="color:${NEG}">${pct(dd.max, 1)}</div>
+          <div class="mut small">De <b>${esc(dd.peak || "—")}</b> a <b>${esc(dd.trough || "—")}</b>; ${rec}.
+            Medida sobre lo que valía 1 € invertido, no sobre el saldo: aportar no es recuperarse.</div></div>
+        <div class="perf-kpi"><div class="ex-h">Ahora mismo</div>
+          <div class="perf-big" style="${dd.at_high ? `color:${POS}` : `color:${NEG}`}">${
+            dd.at_high ? "en máximos" : pct(dd.current, 1)}</div>
+          <div class="mut small">${dd.at_high
+            ? "Estás en el mejor momento de la serie."
+            : "Por debajo de tu mejor momento. Es la caída que importa hoy, no la de 2020."}</div></div>
+        <div class="perf-kpi"><div class="ex-h">Volatilidad · Sharpe</div>
+          <div class="perf-big">${d.volatility != null ? pct(d.volatility, 1) : "—"}
+            <span class="mut" style="font-size:15px">${d.sharpe != null ? " · " + d.sharpe.toFixed(2) : ""}</span></div>
+          <div class="mut small">${d.sharpe != null
+            ? `Rentabilidad por unidad de riesgo, con tipo sin riesgo <b>0%</b> — un Sharpe sin decir contra qué se calcula no se compara con nada.`
+            : "Hace falta un año de historia para el Sharpe."}</div></div>
+      </div>`;
+  }
+
+  // ══ quién ha puesto el dinero ═════════════════════════════════════════
+  // Ni el peso ni el porcentaje de subida contestan esto. Una posición del 5%
+  // que se dobló ha hecho más dinero que una del 40% que subió un 2%, y hasta
+  // ahora eso no se deducía de ninguna columna de la tabla.
+  function renderContrib(p) {
+    const box = $("contrib");
+    const rows = (p.positions || [])
+      .filter((r) => r.contribution != null && Math.abs(r.contribution) > 0.005)
+      .sort((a, b) => b.contribution - a.contribution);
+    if (!rows.length) { box.innerHTML = `<div class="mut">Todavía no hay resultado que repartir.</div>`; return; }
+    const max = Math.max(...rows.map((r) => Math.abs(r.contribution)));
+    const total = rows.reduce((a, r) => a + r.contribution, 0);
+    box.innerHTML = `
+      <div class="cbars">${rows.map((r) => {
+        const w = (Math.abs(r.contribution) / max * 100).toFixed(1);
+        const pos = r.contribution >= 0;
+        return `<div class="cbar-row">
+          <span class="cbar-lab" title="${esc(r.name || r.ticker)}">${esc(r.ticker)}</span>
+          <span class="cbar-track"><i class="cbar ${pos ? "up" : "dn"}" style="width:${w}%"></i></span>
+          <span class="cbar-val" style="color:${pos ? POS : NEG}">${signed(r.contribution, " €")}</span>
+        </div>`; }).join("")}</div>
+      <div class="vs-row vs-tot"><span>Total</span><b style="color:${total >= 0 ? POS : NEG}">${signed(total, " €")}</b></div>
+      <p class="mut small">No realizado + realizado + dividendos de cada posición.
+        Es la respuesta a «¿quién me está haciendo el dinero?», que no es la misma
+        pregunta que «¿qué pesa más?» ni que «¿qué ha subido más por ciento?».</p>`;
+  }
+
+  // ══ rebalanceo ════════════════════════════════════════════════════════
+  async function loadRebal() {
+    const box = $("rebal");
+    const cash = Number($("rb-cash") ? $("rb-cash").value : 0) || 0;
+    let d;
+    try { d = await (await fetch("/api/cartera/rebalanceo?cash=" + cash)).json(); }
+    catch (e) { box.innerHTML = `<div class="mut">No pude calcularlo.</div>`; return; }
+    const filas = d.rows || [];
+    const compras = d.buys || {};
+    const drift = filas.map((r) => `<tr>
+      <td><span class="sym">${esc(r.ticker)}</span></td>
+      <td class="num">${r.now_pct}%</td>
+      <td class="num mut">${r.target_pct}%</td>
+      <td class="num" style="color:${Math.abs(r.drift_pp) < 1 ? "" : (r.drift_pp > 0 ? NEG : POS)}">${
+        (r.drift_pp >= 0 ? "+" : "") + r.drift_pp}pp</td>
+      <td class="num">${compras[r.ticker] ? `<b style="color:${POS}">${eur(compras[r.ticker])}</b>` : "—"}</td></tr>`).join("");
+
+    box.innerHTML = `
+      <div class="rb-bar">
+        <label>Voy a aportar <input type="number" id="rb-cash" min="0" step="50" value="${cash || ""}" placeholder="500"> €</label>
+        <button type="button" id="rb-go" class="primary-mini">Calcular</button>
+      </div>
+      ${!filas.length ? `<p class="mut">Escribe un peso objetivo (%) en la tabla de abajo y aquí sale
+        cuánto te desvías y qué comprar para corregirlo.</p>` : `
+        <div class="ex-h">Qué desvío tienes</div>
+        <div class="scroll"><table class="tbl">
+          <thead><tr><th>Activo</th><th class="num">Ahora</th><th class="num">Objetivo</th>
+            <th class="num">Desvío</th><th class="num">Comprar</th></tr></thead>
+          <tbody>${drift}</tbody></table></div>
+        ${Object.keys(compras).length ? `<p class="perf-note">Repartiendo <b>${eur(d.cash)}</b> así,
+          te acercas al objetivo <b>sin vender nada</b>. En España cada venta con plusvalía
+          es un hecho imponible: pagar impuestos hoy para cuadrar unos decimales de peso
+          destruye más de lo que corrige.</p>` : ""}
+        ${d.targets_sum && Math.abs(d.targets_sum - 100) > 0.5 ? `<p class="mut small">
+          Tus objetivos suman ${d.targets_sum}%. Se usan normalizados, así que la proporción
+          entre ellos es la que manda.</p>` : ""}
+        ${(d.untargeted || []).length ? `<p class="mut small">Sin objetivo asignado:
+          ${d.untargeted.map(esc).join(", ")} — no entran en el reparto, y no se cuentan como cero:
+          que nadie haya decidido su peso no significa que deban desaparecer.</p>` : ""}`}
+      <div class="ex-h" style="margin-top:18px">Tus pesos objetivo</div>
+      <div class="scroll"><table class="tbl">
+        <thead><tr><th>Activo</th><th class="num">Peso hoy</th><th class="num">Objetivo %</th></tr></thead>
+        <tbody>${((P && P.positions) || []).filter((r) => r.qty > 1e-9).map((r) => `<tr>
+          <td>${assetCell(r.ticker, r.name, r.kind)}</td>
+          <td class="num">${r.weight != null ? r.weight + "%" : "—"}</td>
+          <td class="num"><input class="tgt-in" type="number" step="1" min="0" max="100"
+            data-ticker="${esc(r.ticker)}" value="${r.target == null ? "" : r.target}" placeholder="—"></td>
+        </tr>`).join("")}</tbody></table></div>`;
+
+    $("rb-go").addEventListener("click", loadRebal);
+    box.querySelectorAll(".tgt-in").forEach((el) => el.addEventListener("change", async () => {
+      const r = await send("/api/cartera/objetivo", { method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ticker: el.dataset.ticker, target: el.value }) });
+      const dd = await r.json();
+      if (dd.error) { alert(dd.error); return; }
+      P = dd; loadRebal();
+    }));
   }
 
   // ══ qué cuesta ════════════════════════════════════════════════════════
@@ -440,10 +569,49 @@
   // ── evolución de la cartera + benchmark ──────────────────────────────
   async function loadHistory() {
     const b = ($("bench").value || "SPY").trim();
-    try { CH = await (await fetch("/api/cartera/history?benchmark=" + encodeURIComponent(b))).json(); }
+    try { CH = await (await fetch(`/api/cartera/history?benchmark=${encodeURIComponent(b)}&${rangoQS()}`)).json(); }
     catch (e) { CH = null; }
     drawChart();
+    const nota = $("rebase-note");
+    if (CH && CH.rebased) {
+      // Un tramo recortado lleva el índice RESEMBRADO su primer día. Decirlo
+      // no es un tecnicismo: sin ello, alguien podría leer la distancia entre
+      // las dos líneas como si viniera de su primera compra.
+      nota.innerHTML = `Tramo <b>${esc(CH.dates[0] || "")}</b> → <b>${esc(CH.dates[CH.dates.length - 1] || "")}</b>. `
+        + `${esc(CH.benchmark_ticker)} se <b>resiembra</b> el primer día con el valor que tenía tu cartera, `
+        + `y recibe tus mismos flujos dentro del tramo: las tres líneas parten del mismo punto. `
+        + `«Invertido» es el capital que ya tenías más lo aportado dentro.`;
+      nota.hidden = false;
+    } else nota.hidden = true;
   }
+
+  $("hrange").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-r]");
+    if (!b) return;
+    const r = b.dataset.r;
+    if (r === "custom") {
+      $("hcustom").hidden = !$("hcustom").hidden;
+      if (!$("hfrom").value && CH && CH.first) $("hfrom").value = CH.first;
+      if (!$("hto").value && CH && CH.last) $("hto").value = CH.last;
+      return;
+    }
+    $("hcustom").hidden = true;
+    if (r === RANGO.r) return;
+    RANGO.r = r;
+    $("hrange").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
+    loadHistory(); loadPerf();
+  });
+
+  $("happly").addEventListener("click", () => {
+    const f = $("hfrom").value, t = $("hto").value;
+    if (!f) return;
+    if (t && t < f) { $("hrangenote").textContent = "La fecha final va después de la inicial."; return; }
+    $("hrangenote").textContent = "";
+    RANGO.r = "custom"; RANGO.from = f; RANGO.to = t;
+    $("hrange").querySelectorAll("button").forEach((x) =>
+      x.classList.toggle("on", x.dataset.r === "custom"));
+    loadHistory(); loadPerf();
+  });
 
   const SERIES = () => [
     { k: "invested", c: cssv("--faint"), dash: [4, 4], lab: "Invertido" },

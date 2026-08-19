@@ -163,7 +163,8 @@ cartera/positions.py  movements → valued positions. The money arithmetic.
                       Takes the market as a parameter — six methods — so the
                       rule that cost basis uses the fx of the PURCHASE date can
                       be verified without reaching Yahoo.
-cartera/returns.py    TWR, XIRR, effective N, currency decomposition. Pure
+cartera/returns.py    TWR, XIRR, drawdown, volatility, Sharpe, effective N,
+                      currency decomposition, buy-only rebalancing. Pure
                       functions over a series of values and flows.
 ```
 
@@ -193,6 +194,39 @@ Three details decide whether these come out right:
 XIRR is solved by bisection, not Newton-Raphson. Speed is irrelevant here and
 Newton can wander off a shallow root — which is exactly the shape of a
 portfolio built from small monthly contributions.
+
+### Windowing is not slicing
+
+The chart's benchmark line is seeded at the portfolio's **first movement** and
+fed the portfolio's own cashflows. Slicing that array to show three months
+would compare three months of portfolio against an index position opened two
+years ago — most of the visible gap would be inherited history.
+
+A window therefore **rebases**: the index is re-seeded on the window's first
+day with the portfolio's value that day and receives only the flows inside the
+window; `invested` becomes the capital already at risk plus contributions made
+inside. All three lines start from the same point, which is what choosing a
+range implies.
+
+The window's first point is the last close **strictly before** the period
+starts — measuring January needs December 31st's close. `side="left"` matters:
+when the start date falls on a trading day, `"right"` lands *on* it and the
+first day of the period has nothing to measure against.
+
+For XIRR over a window, the capital already held on day one is entered as a
+purchase on that day. Without it there would be inflows with no outflow paying
+for them, and the rate would diverge.
+
+### Drawdown is measured on the return index, never on the balance
+
+A contribution raises the euro value, and contributing is not recovering. A
+transfer can push the balance back to its previous high and make a drawdown the
+market never recovered from look resolved — with monthly contributions, a long
+slide may never appear as a drawdown at all. So `nav_series` chains the same
+TWR factors into "what one euro invested is worth", and `drawdown` runs on
+that. Same reason for volatility: the jump on a contribution day is not a
+market move, and a portfolio funded monthly would read as far more volatile
+than it is.
 
 ### Effective number of bets
 
@@ -253,7 +287,7 @@ the two is how a holding silently disappears from a chart while its cost stays i
 
 ## Tests
 
-352 tests, hermetic — every outbound call is stubbed, so the suite never touches
+378 tests, hermetic — every outbound call is stubbed, so the suite never touches
 the network and never depends on Yahoo being up.
 
 ```bash
