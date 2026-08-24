@@ -16,6 +16,7 @@ import io
 import json
 import math
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -976,6 +977,379 @@ def _resolve_symbol(query: str):
     return q.upper(), "", ""
 
 
+# ── Catálogo europeo de fondos y ETFs (ESMA FIRDS) ────────────────────────
+# El buscador de Yahoo de arriba resuelve un ticker que ya sabes; no sirve para
+# mirar qué hay. Tiene un tope DURO de siete resultados —comprobado pidiendo 10,
+# 25 y 50—, no entiende lenguaje natural y no publica ni domicilio ni política de
+# reparto. Sobre siete resultados no se construye un explorador.
+#
+# El catálogo lo llena `ingest_firds.py` desde el registro oficial de la UE, una
+# vez por semana. Aquí sólo se LEE, y en solo-lectura de verdad: una consulta del
+# navegador no puede escribir en él ni por accidente.
+#
+# Si el catálogo no existe todavía, todo esto devuelve vacío y la pantalla cae al
+# buscador de Yahoo. Un catálogo sin construir no puede romper el alta manual.
+#
+# Vive FUERA del directorio del proyecto, y no por orden: el proceso de ingesta
+# necesita escribir donde esté, y si eso fuera el directorio del proyecto, el
+# sandbox de su unidad tendría que abrir en escritura la carpeta donde está
+# cartera.db. Comprobado que `ReadOnlyPaths` anidado dentro de un
+# `ReadWritePaths` NO recorta el permiso: la única separación que se sostiene es
+# que no compartan carpeta.
+CATALOGO_DB = os.environ.get("MZ_CATALOGO_DB") or os.path.join(
+    os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state"),
+    "market-zones", "instruments.db")
+
+
+def _catalogo_conn():
+    """Conexión de sólo lectura, o None si aún no hay catálogo."""
+    if not os.path.exists(CATALOGO_DB):
+        return None
+    try:
+        c = sqlite3.connect(f"file:{urllib.parse.quote(CATALOGO_DB)}?mode=ro",
+                            uri=True, timeout=2)
+        c.row_factory = sqlite3.Row
+        return c
+    except sqlite3.Error:
+        return None
+
+
+def _catalogo_meta() -> dict:
+    """De qué fichero y de qué fecha salen estos datos.
+
+    Va en cada respuesta a propósito. Un catálogo que no dice cuándo se llenó es
+    un catálogo en el que hay que confiar a ciegas, y este se queda parado si el
+    temporizador semanal falla.
+    """
+    c = _catalogo_conn()
+    if c is None:
+        return {}
+    try:
+        return {r["key"]: r["value"] for r in c.execute("SELECT key,value FROM meta")}
+    except sqlite3.Error:
+        return {}
+    finally:
+        c.close()
+
+
+def _entero(v, por_defecto: int, minimo: int, maximo: int) -> int:
+    """Un entero acotado a partir de lo que venga en la URL, sin reventar.
+
+    `int()` a pelo sobre `?limit=abc` levanta un `ValueError` que nadie recoge y
+    la ruta contesta un 500. Un parámetro mal escrito no es un fallo del
+    servidor: es un parámetro mal escrito, y se trata como si no viniera.
+    """
+    try:
+        n = int(v)
+    except (TypeError, ValueError):
+        n = por_defecto
+    return max(minimo, min(n, maximo))
+
+
+# FTS5 tiene su propio lenguaje de consulta: comillas, `AND`, `NOT`, `*`, `^`.
+# El texto del usuario NO se le pasa tal cual —una comilla suelta es un error de
+# sintaxis y `NOT` escrito sin querer cambiaría el sentido de la búsqueda—: se
+# parte en palabras y cada una se cita. Lo que se pierde es poder escribir
+# operadores; lo que se gana es que nada de lo que se teclee sea un operador.
+_FTS_TOKEN = re.compile(r"[0-9A-Za-zÁÉÍÓÚÜÑáéíóúüñ&+]+")
+
+
+def _fts_query(q: str) -> str | None:
+    """Texto libre -> consulta FTS5, con la última palabra como prefijo."""
+    toks = _FTS_TOKEN.findall(q or "")
+    if not toks:
+        return None
+    toks = toks[:8]                        # ocho palabras ya no acotan más
+    # La última va con `*` porque se busca MIENTRAS se escribe: sin eso, «mundi»
+    # no encontraría Amundi hasta terminar de teclear la palabra.
+    return " AND ".join([*(f'"{t}"' for t in toks[:-1]), f'"{toks[-1]}"*'])
+
+
+# Los tres tipos que alguien construye una cartera con ellos. El resto —REIT,
+# hedge funds, capital riesgo— existen en el catálogo y se encuentran, pero no
+# compiten por sitio en la lista corta.
+_TIPOS_PRINCIPALES = ("ETF", "Fondo", "ETC")
+
+
+# Doce y no veinte: el cupo por tipo sale de este número, y con veinte salían
+# seis ETF antes del primer fondo, o sea los fondos por debajo del pliegue del
+# desplegable. Es el DEFECTO del servidor, no sólo el que manda la pantalla:
+# cualquier otro consumidor de la API merece el mismo reparto.
+_LIMITE_POR_DEFECTO = 12
+
+
+def _catalogo_buscar(q: str, kind: str = "", dist: str = "", domicile: str = "",
+                     limit: int = _LIMITE_POR_DEFECTO, _sin_cupo: bool = False) -> list:
+    """Busca un FONDO, no una línea de cotización.
+
+    El mismo ETF se negocia en muchas plazas —mediana 7, máximo 48 medidos sobre
+    el fichero—, y devolverlas por separado sería repetir la misma respuesta
+    cuarenta veces. Las plazas van dentro del resultado.
+
+    **Sin filtro de tipo se busca POR TIPO y se juntan los resultados**, en vez de
+    coger los mejores del montón. Y no es un capricho: buscando «msci world
+    index» sin esto salían cinco ETF y ni un fondo, aunque hubiera fondos que
+    encajaban mejor. Sencillamente hay muchos más ETF, y cualquier orden global
+    los deja fuera de la pantalla.
+
+    Se probaron tres fórmulas de orden antes de rendirse a esto —lineal por
+    plazas, logarítmica, y sólo-en-cotizados— y las tres daban ETF/ETF/ETF/ETF/ETF.
+    El problema no era el peso: era que un fondo NUNCA gana un cupo global.
+
+    Dentro de cada tipo, el orden mezcla lo que encaja (`bm25`) con en cuántos
+    mercados cotiza. `bm25` a secas premia al documento más corto —aquí, el fondo
+    con menos nombres alternativos—, justo al revés de lo que interesa.
+    """
+    m = _fts_query(q)
+    if m is None:
+        return []
+    # El cupo va ANTES de abrir la conexión porque no la usa: reparte trabajo
+    # entre llamadas recursivas y cada una abre y cierra la suya. Abrirla aquí
+    # dejaba un descriptor colgando en cada búsqueda sin filtro —medido: 40
+    # búsquedas, 40 descriptores— porque esta rama sale por `return` y nunca
+    # llegaba al `finally` que cierra, que vive en la consulta de abajo.
+    if not kind and not _sin_cupo:
+        # Un cupo por tipo. Se pide de más y se recorta al final, para que un
+        # tipo sin resultados le ceda su sitio a los demás en vez de perderlo.
+        cupo = max(3, _entero(limit, _LIMITE_POR_DEFECTO, 1, 50) // 3)
+        out = []
+        for t in _TIPOS_PRINCIPALES:
+            out += _catalogo_buscar(q, kind=t, dist=dist, domicile=domicile, limit=cupo)
+        # La cola es SÓLO para los tipos que no tienen cupo —REIT, hedge funds,
+        # capital riesgo—. Dejarla traer más ETF le devolvía el problema: al
+        # agrupar, esos ETF de más se ponían delante y empujaban a los fondos
+        # fuera del corte. El cupo no sirve de nada si luego se rellena con lo
+        # mismo que el cupo estaba limitando.
+        vistos = {r["isin"] for r in out}
+        for r in _catalogo_buscar(q, kind="", dist=dist, domicile=domicile,
+                                  limit=limit, _sin_cupo=True):
+            if r["isin"] not in vistos and r["kind"] not in _TIPOS_PRINCIPALES:
+                out.append(r)
+        # Cada tipo, UNA vez. La cola global vuelve a traer ETF, y sin esto la
+        # pantalla pintaba dos veces la cabecera «ETFs» con una de «Fondos» en
+        # medio: parece un fallo aunque el orden sea correcto. Ordenación
+        # ESTABLE, así que dentro de cada tipo manda el orden que ya traían.
+        orden = {t: i for i, t in enumerate(_TIPOS_PRINCIPALES)}
+        out.sort(key=lambda r: orden.get(r["kind"], len(orden)))
+        return out[:_entero(limit, _LIMITE_POR_DEFECTO, 1, 50)]
+    c = _catalogo_conn()
+    if c is None:
+        return []
+    where, args = ["funds_fts MATCH ?"], [m]
+    if kind:
+        where.append("f.kind = ?"); args.append(kind)
+    if dist:
+        where.append("f.dist_policy = ?"); args.append(dist)
+    if domicile:
+        where.append("f.domicile = ?"); args.append(domicile.upper())
+    args.append(_entero(limit, _LIMITE_POR_DEFECTO, 1, 50))
+    try:
+        rows = c.execute(
+            "SELECT f.isin,f.name,f.kind,f.dist_policy,f.domicile,f.ccy,"
+            "f.n_listings,f.leveraged"
+            " FROM funds_fts JOIN funds f ON f.isin = funds_fts.isin"
+            f" WHERE {' AND '.join(where)}"
+            " ORDER BY bm25(funds_fts) * (1 + f.n_listings/40.0) LIMIT ?",
+            args).fetchall()
+    except sqlite3.Error:
+        return []                          # catálogo a medio construir o corrupto
+    finally:
+        c.close()
+    return [dict(r) for r in rows]
+
+
+def _catalogo_plazas(isin: str) -> list:
+    c = _catalogo_conn()
+    if c is None:
+        return []
+    try:
+        return [dict(r) for r in c.execute(
+            "SELECT mic, first_trade FROM listings WHERE isin=? ORDER BY mic",
+            (isin.upper(),))]
+    except sqlite3.Error:
+        return []
+    finally:
+        c.close()
+
+
+# ── Fondos de gestora directa: consulta EN VIVO, sin copia ────────────────
+# El registro de ESMA sólo recoge lo admitido a negociación en algún mercado de
+# la UE. Los fondos que se contratan directamente con la gestora —Vanguard,
+# Bestinver, Cobas, los de un roboadvisor— no están ahí y no van a estar.
+#
+# El buscador de Morningstar sí los tiene, y da justo las tres cosas que hacen
+# falta: el ISIN, el `PerformanceId` —que es el `0P…` con el que esta aplicación
+# ya sabe pedir precios— y los gastos corrientes, que el registro de la UE no
+# publica. El universo `FOESP$$ALL` son los fondos registrados para su venta en
+# España: 49.679 medidos el 2026-08-24.
+#
+# **Se consulta, no se copia.** Una petición cuando el catálogo local no
+# encuentra ningún fondo, y nada se guarda: la clave con la que responde es la
+# que Morningstar incrusta en sus buscadores públicos, y bajarse su base entera
+# sería otro uso distinto del que está expuesto. Decisión del dueño del panel,
+# tomada a propósito.
+MS_URL = "https://lt.morningstar.com/api/rest.svc/klr5zyak8x/security/screener"
+MS_UNIVERSO = "FOESP$$ALL"          # registrados para su venta en España
+MS_CAMPOS = "SecId|Name|isin|PerformanceId|OngoingCharge|categoryName"
+_ms_cache: dict[str, tuple[float, list]] = {}
+
+
+def _morningstar_buscar(q: str, limit: int = 8) -> list:
+    """Fondos de gestora directa, preguntados en el momento.
+
+    Falla en silencio a propósito: es una fuente de APOYO. Si no contesta, la
+    pantalla se queda con el registro de la UE, que es la fuente principal y la
+    única oficial. Un buscador que se rompe porque un tercero está caído es peor
+    que uno que encuentra menos.
+    """
+    q = (q or "").strip()
+    if len(q) < 3:
+        return []
+    key = f"{q.lower()}|{limit}"
+    hit = _ms_cache.get(key)
+    if hit and time.time() - hit[0] < 300:
+        return hit[1]
+    params = {"page": 1, "pageSize": int(limit), "outputType": "json", "version": 1,
+              "languageId": "es-ES", "currencyId": "EUR", "universeIds": MS_UNIVERSO,
+              "securityDataPoints": MS_CAMPOS, "term": q}
+    try:
+        url = MS_URL + "?" + urllib.parse.urlencode(params, safe="|$")
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0",
+                                                   "Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=8) as r:
+            filas = json.load(r).get("rows", [])
+    except Exception:
+        return []                             # caída pasajera -> NO se cachea
+    out = []
+    for x in filas:
+        pid = (x.get("PerformanceId") or "").strip()
+        isin = (x.get("isin") or "").strip().upper()
+        if not pid or not isin:
+            continue                          # sin identificador no se puede valorar
+        ogc = x.get("OngoingCharge")
+        out.append({"isin": isin, "perf_id": pid,
+                    "name": (x.get("Name") or "").strip(),
+                    "category": (x.get("categoryName") or "").strip(),
+                    # `0` en gastos corrientes es «no lo publican», no «es gratis»:
+                    # sale en fondos que sí cobran. Se trata como ausente.
+                    "ter": ogc if isinstance(ogc, (int, float)) and ogc > 0 else None})
+    _cache_put(_ms_cache, key, (time.time(), out), cap=128)
+    return out
+
+
+@app.route("/api/instruments/externo")
+def api_instruments_externo():
+    """Sólo la llama la pantalla cuando el registro de la UE no da ningún fondo."""
+    return _json_response({"results": _morningstar_buscar(request.args.get("q", "")),
+                           "source": "Morningstar"}, max_age=0)
+
+
+def _catalogo_ficha(isin: str) -> dict | None:
+    c = _catalogo_conn()
+    if c is None:
+        return None
+    try:
+        r = c.execute("SELECT isin,name,kind,ccy FROM funds WHERE isin=?",
+                      (isin.upper(),)).fetchone()
+        return dict(r) if r else None
+    except sqlite3.Error:
+        return None
+    finally:
+        c.close()
+
+
+# Cuántas cotizaciones se llegan a comprobar. Cada una es una petición a Yahoo, y
+# esto se paga UNA vez —al elegir un fondo— pero se paga.
+_RESOLVER_MAX = 8
+
+# Cuántas resoluciones pueden estar en vuelo a la vez.
+#
+# El limitador de arriba mide el RITMO, no cuántos hilos hay ocupados: son dos
+# cosas distintas y aquí hacen falta las dos. Una resolución encadena hasta
+# `1 + 2 * _RESOLVER_MAX` peticiones a Yahoo, en serie y dentro del hilo que
+# atiende, y el servidor sirve con un pool FIJO (`threads=8`). Sin este tope,
+# ocho peticiones simultáneas dejan el panel entero —zonas, régimen, cartera—
+# sin un solo hilo libre durante minutos. Con él, la ruta más cara del servicio
+# nunca puede quedarse con más de un cuarto del pool.
+_RESOLVER_A_LA_VEZ = 2
+_resolver_slots = threading.Semaphore(_RESOLVER_A_LA_VEZ)
+
+
+def _catalogo_resolver(isin: str, perf_id: str = "", nombre: str = "") -> dict:
+    """ISIN del catálogo -> las cotizaciones con las que se puede valorar.
+
+    **Devuelve las que sirven, no una sola.** Se comprueban hasta `_RESOLVER_MAX`
+    candidatos: cada uno es una petición de red y esto se paga al elegir. El
+    mismo fondo se cruza en varias
+    plazas y en varias divisas, y cuál es la tuya no lo sabe ni el registro ni
+    Yahoo: lo sabes tú, que eres quien la compró.
+
+    Lo medido con el oro de Amundi (`FR0013416716`): Yahoo devuelve `GOLD.AS` a
+    184,72 **USD** y `FR0013416716.SG` a 158,12 **EUR**. Quedarse con la primera
+    que conteste apunta el precio en la divisa equivocada y parte la posición en
+    dos. Ya pasó una vez, y por eso aquí no se elige a ciegas.
+
+    La sugerencia por defecto es la de la divisa de la CARTERA, no la de
+    denominación del fondo. No es lo mismo y confundirlas engaña: el VanEck de
+    uranio está denominado en USD y en Stuttgart se compra en euros. Quien mira
+    esta pantalla compra en euros.
+
+    Empate deshecho por si tiene serie: hay líneas —las de Stuttgart, casi
+    siempre— que cotizan y no se pueden dibujar.
+    """
+    isin = (isin or "").strip().upper()
+    if not _looks_like_isin(isin):
+        return {"error": "eso no es un ISIN"}
+    ficha = _catalogo_ficha(isin) or {}
+    if not ficha and nombre:
+        ficha = {"name": nombre}              # viene de Morningstar, no del registro
+
+    # Por ISIN sale la línea exacta; por NOMBRE salen las hermanas de otras
+    # plazas. Hacen falta las dos: por el ISIN del oro salen dos líneas, y la que
+    # encabeza es la de la divisa que no era.
+    #
+    # Y el `0P…` va PRIMERO cuando lo hay: es la única forma de encontrar un
+    # fondo de gestora directa, porque Yahoo no los indexa por nombre —medido:
+    # cero de dieciocho— aunque sepa ponerles precio por ese identificador.
+    cand, vistos = [], set()
+    for q in ((perf_id or ""), isin, ficha.get("name") or ""):
+        if not q:
+            continue
+        for r in _yahoo_search(q):
+            if r["symbol"] not in vistos:
+                vistos.add(r["symbol"])
+                cand.append(r)
+
+    opciones = []
+    for r in cand[:_RESOLVER_MAX]:
+        sym = r["symbol"]
+        try:
+            price, ccy = _quote_meta(sym)
+        except Exception:
+            continue
+        if price is None:
+            continue                       # no cotiza: no es una opción
+        try:
+            serie = _close_series(sym)
+        except Exception:
+            serie = None
+        # Sin serie propia la línea aún puede dibujarse si tiene un proxy
+        # comprobado a mano en `HISTORY_PROXY`. Avisar de «sin histórico» sobre
+        # una que el panel pinta perfectamente sería asustar sin motivo — y son
+        # justo las dos líneas de Stuttgart que ya están en esa tabla.
+        hay = bool(serie is not None and len(serie) > 5)
+        opciones.append({"symbol": sym, "name": r.get("name") or "",
+                         "kind": r.get("kind") or "", "price": price, "ccy": ccy,
+                         "history": hay or sym in HISTORY_PROXY,
+                         "via": None if hay else HISTORY_PROXY.get(sym)})
+    if not opciones:
+        return {"error": "Yahoo no conoce ninguna cotización de este ISIN"}
+
+    opciones.sort(key=lambda o: (o["ccy"] != BASE_CCY, not o["history"]))
+    return {"options": opciones, "best": opciones[0]["symbol"],
+            "base_ccy": BASE_CCY, "denom_ccy": ficha.get("ccy")}
+
+
 _meta_cache: dict[str, tuple[float, tuple]] = {}
 
 # ── History proxies ───────────────────────────────────────────────────────
@@ -1317,6 +1691,21 @@ def cartera_page():
     return render_template("cartera.html")
 
 
+@app.route("/cartera/movimientos")
+def cartera_movimientos_page():
+    """El registro, en su propia pantalla.
+
+    El diario y el libro crecen con cada operación y no se leen para decidir
+    nada: se consultan. Al final de /cartera obligaban a recorrer el registro
+    entero para llegar al pie de la página de análisis.
+
+    Lo que NO se ha movido es el alta ni la importación: corregir un movimiento
+    reutiliza el mismo formulario que darlo de alta, así que el ✎ de esta página
+    lleva a /cartera con el movimiento ya cargado en él.
+    """
+    return render_template("cartera_movimientos.html")
+
+
 @app.route("/api/cartera", methods=["GET"])
 def api_cartera_get():
     # Portfolio data changes only when the user edits it, so it is gzipped but
@@ -1542,6 +1931,9 @@ def _cartera_returns(benchmark: str = "SPY", rango=None, desde=None, hasta=None)
         # las dos cifras, para que no puedan discrepar.
         "annualizable": dias >= 365,
         "benchmark_ticker": benchmark, "benchmark_twr": bench,
+        # El nombre que se puede enseñar: `None` cuando las sesiones NO salieron
+        # del índice pedido. La pantalla no debe inventarse la procedencia.
+        "sessions_ticker": r.get("grid_ticker"),
         # Beta y correlación SIEMPRE juntas: una beta de 1,2 con correlación 0,3
         # no dice «se mueve un 20% más», dice que el índice explica muy poco de
         # lo que hace esta cartera y que ese 1,2 es casi ruido.
@@ -1882,6 +2274,58 @@ def api_search():
     return jsonify({"results": _yahoo_search(q)})
 
 
+@app.route("/api/instruments/search")
+def api_instruments_search():
+    """El catálogo europeo. Local, sin red, y con la fecha del registro dentro."""
+    q = request.args.get("q", "")
+    if len(q.strip()) < 2:
+        return _json_response({"results": [], "source": _catalogo_meta()}, max_age=0)
+    res = _catalogo_buscar(q,
+                           kind=request.args.get("kind", ""),
+                           dist=request.args.get("dist", ""),
+                           domicile=request.args.get("domicile", ""),
+                           limit=request.args.get("limit", _LIMITE_POR_DEFECTO))
+    return _json_response({"results": res, "source": _catalogo_meta()}, max_age=0)
+
+
+@app.route("/api/instruments/plazas")
+def api_instruments_plazas():
+    return _json_response({"listings": _catalogo_plazas(request.args.get("isin", ""))},
+                          max_age=0)
+
+
+@app.route("/api/instruments/resolver")
+def api_instruments_resolver():
+    """Del ISIN elegido al símbolo con el que la cartera sabrá valorarlo.
+
+    Sale a la red, así que va aparte de la búsqueda: se paga UNA vez, al elegir,
+    y no en cada tecla.
+
+    Y es el camino MÁS caro del servicio: hasta `1 + 2 * _RESOLVER_MAX`
+    peticiones a Yahoo por llamada. Por eso paga el limitador igual que las
+    zonas, el objetivo y el régimen, y además pasa por el tope de resoluciones
+    en vuelo. Que sólo la llame la pantalla no la protege de nada: un GET no
+    lleva cabecera propia, así que cualquier página abierta en el navegador
+    —o un script del propio dueño— puede pedirla en bucle.
+    """
+    isin = (request.args.get("isin", "") or "").strip().upper()
+    # La forma se comprueba ANTES de cobrar. Rechazar no cuesta red, y cobrarlo
+    # dejaría que la basura vacíe el presupuesto que necesitan las buenas.
+    if not _looks_like_isin(isin):
+        return _json_response({"error": "eso no es un ISIN"}, max_age=0)
+    if not _upstream.take():
+        return _busy()
+    if not _resolver_slots.acquire(blocking=False):
+        return _busy()
+    try:
+        d = _catalogo_resolver(isin,
+                               request.args.get("perf_id", ""),
+                               request.args.get("nombre", ""))
+    finally:
+        _resolver_slots.release()
+    return _json_response(d, max_age=0)
+
+
 @app.route("/api/cartera/<int:mid>", methods=["DELETE"])
 def api_cartera_delete(mid):
     with _cartera_conn() as c:
@@ -2095,7 +2539,7 @@ def api_cartera_plan():
     return jsonify(_cartera_estado())
 
 
-def _cartera_estado():
+def _cartera_estado(benchmark: str = "SPY"):
     """El bloque de cabecera: qué tengo, cómo voy, y qué merece una mirada.
 
     Junta en una sola llamada lo que si no serían cinco, porque es lo que se
@@ -2105,7 +2549,8 @@ def _cartera_estado():
     caída y correlación se calculan sobre las posiciones que tienen serie de
     precios utilizable; si eso es el 70% del patrimonio, esas cifras describen
     ese 70%. Publicarlas sin decirlo las convierte en una afirmación sobre la
-    cartera entera que nadie ha comprobado.
+    cartera entera que nadie ha comprobado. `benchmark` es el índice elegido
+    en pantalla, y fija la rejilla diaria de TODO, no sólo la comparación.
     """
     p = _cartera_payload()
     s = p["summary"]
@@ -2142,17 +2587,24 @@ def _cartera_estado():
         "sin_valorar": len(abiertas) - len(valoradas),
     }
 
+    # El índice con el que se compara viene de quien mira, no fijo: la casilla
+    # «Frente a X» de esta tarjeta y la de Rentabilidad tienen que decir lo
+    # mismo. El del año va con el mismo, aunque no lo enseñe, porque la rejilla
+    # diaria se construye sobre el calendario del índice y dos índices distintos
+    # darían dos TWR ligeramente distintos para la misma cartera.
     rend = ytd = corr = None
     try:
-        rend = _cartera_returns("SPY")
+        rend = _cartera_returns(benchmark)
     except Exception:
         pass
     try:
-        ytd = _cartera_returns("SPY", rango="ytd")
+        ytd = _cartera_returns(benchmark, rango="ytd")
     except Exception:
         pass
     try:
-        corr = _cartera_correlacion(payload=p)
+        # El MISMO índice: este `eff_n_corr` es el del aviso de «apuestas
+        # independientes», y la tarjeta de Diversificación usa el elegido.
+        corr = _cartera_correlacion(benchmark=benchmark, payload=p)
     except Exception:
         pass
 
@@ -2207,7 +2659,8 @@ def _cartera_estado():
         "annualizable": (rend or {}).get("annualizable", False),
         "ytd": ((ytd or {}).get("twr") or {}).get("total"),
         "ytd_from": (ytd or {}).get("from"),
-        "benchmark_ticker": (rend or {}).get("benchmark_ticker", "SPY"),
+        "benchmark_ticker": (rend or {}).get("benchmark_ticker", benchmark),
+        "sessions_ticker": (rend or {}).get("sessions_ticker"),
         "vs_benchmark": vs,
         "drawdown": (rend or {}).get("drawdown"),
         "volatility": (rend or {}).get("volatility"),
@@ -2222,8 +2675,9 @@ def _cartera_estado():
 
 @app.route("/api/cartera/estado")
 def api_cartera_estado():
+    bench = request.args.get("benchmark", "SPY")
     try:
-        return _json_response(_cartera_estado(), max_age=0)
+        return _json_response(_cartera_estado(bench), max_age=0)
     except Exception as e:
         return jsonify({"error": str(e)}), 502
 
@@ -2872,6 +3326,10 @@ def _reconstruct_portfolio(benchmark: str = "SPY"):
     if bench is not None and len(bench):
         bi = bench.index[(bench.index >= start) & (bench.index <= end)]
         idx = bi if len(bi) >= 2 else None
+    # De QUIÉN son las sesiones que se acaban usando. Si el índice no se puede
+    # descargar, la rejilla cae a los calendarios de las posiciones — y entonces
+    # anunciar «sesiones de <índice>» nombraría una fuente que nadie usó.
+    rejilla = benchmark if idx is not None else None
     if idx is None:
         for s in series.values():
             if s is None:
@@ -2961,6 +3419,7 @@ def _reconstruct_portfolio(benchmark: str = "SPY"):
         div_c[pos] += (m["quantity"] * m["price"] - (m["fee"] or 0.0)) * rate
 
     return {"empty": False, "idx": idx, "port": port, "invested": invested,
+            "grid_ticker": rejilla,
             "bench_val": bench_val, "bprice_eur": bprice_eur,
             "flows": inv_c, "divs": div_c,
             "excluded": excluded, "proxied": proxied, "refused": refused,

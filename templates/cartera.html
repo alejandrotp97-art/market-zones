@@ -23,7 +23,8 @@
     <header class="top">
       <div class="titles">
         <h1>Mi Cartera</h1>
-        <div class="sub">Libro de movimientos · <span id="n-mov">—</span> operaciones ·
+        <div class="sub"><a href="/cartera/movimientos" class="sublink">Libro de movimientos</a>
+          · <span id="n-mov">—</span> operaciones ·
           valores en <b>EUR</b> · precios y tipo de cambio en tiempo real (Yahoo)</div>
       </div>
       <button id="eye" class="eye" type="button" aria-pressed="false" title="Ocultar importes">
@@ -43,13 +44,6 @@
       <div class="card-h"><span>Estado de mi cartera</span>
         <span class="legend" id="estado-legend">calculando…</span></div>
       <div id="estado"></div>
-    </section>
-
-    <!-- qué merece tu atención -->
-    <section class="card" id="atencion-card" hidden>
-      <div class="card-h"><span>Qué merece tu atención</span>
-        <span class="legend">hechos, no recomendaciones</span></div>
-      <div id="atencion"></div>
     </section>
 
     <!-- de dónde sale el resultado -->
@@ -200,13 +194,6 @@
       </section>
     </div>
 
-    <!-- diario -->
-    <section class="card" id="diario-card">
-      <div class="card-h"><span>Diario de tu cartera</span>
-        <span class="legend">hechos propios · ni noticias ni mercado</span></div>
-      <div id="diario"></div>
-    </section>
-
     <!-- exposición geográfica -->
     <section class="card map-card">
       <div class="card-h"><span>Exposición geográfica</span>
@@ -252,8 +239,9 @@
 
     <div class="two">
       <!-- alta manual -->
-      <section class="card">
-        <div class="card-h"><span>Añadir movimiento</span></div>
+      <section class="card" id="add-card">
+        <div class="card-h"><span>Añadir movimiento</span>
+          <a class="legend sublink" href="/cartera/movimientos">ver el libro →</a></div>
         <form id="add-form" class="add-grid">
           <label class="wide search-wrap">Instrumento — ticker, ISIN o nombre
             <input type="text" id="f-ticker" placeholder="SPY · IE00B4L5Y983 · MSCI World · Baelo…" autocomplete="off" required>
@@ -300,17 +288,24 @@
       </section>
     </div>
 
-    <!-- movimientos -->
-    <section class="card">
-      <div class="card-h"><span>Movimientos</span>
-        <button id="clear" class="danger-link">vaciar todo</button></div>
-      <div class="scroll"><table id="mov" class="tbl">
-        <thead><tr>
-          <th>Fecha</th><th>Activo</th><th>Tipo</th><th class="num">Cantidad</th>
-          <th class="num">Precio</th><th class="num">Comisión</th><th>Nota</th><th></th><th></th>
-        </tr></thead><tbody id="mov-body"></tbody>
-      </table></div>
+    <!-- Qué merece tu atención: al final a propósito. Los avisos se leen DESPUÉS
+         de los números a los que se refieren; arriba no había con qué
+         contrastarlos. El libro de movimientos, que antes cerraba la página, se
+         consulta en /cartera/movimientos: es registro, no lectura. -->
+    <section class="card" id="atencion-card" hidden>
+      <div class="card-h"><span>Qué merece tu atención</span>
+        <span class="legend">hechos, no recomendaciones</span></div>
+      <div id="atencion"></div>
     </section>
+
+    <!-- Salida al registro. Va al pie porque es donde estaba el libro: quien
+         baja hasta el final buscándolo encuentra la puerta en su sitio. -->
+    <a class="card gotolink" href="/cartera/movimientos">
+      <span><b>Diario y movimientos</b>
+        <span class="mut small">la cronología de tu cartera y el libro completo, con
+          <span id="n-mov2">—</span> operaciones</span></span>
+      <span class="goto-arrow" aria-hidden="true">→</span>
+    </a>
 
     <div id="status" class="status" hidden></div>
   </div>
