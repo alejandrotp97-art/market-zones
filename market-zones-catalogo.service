@@ -1,0 +1,57 @@
+[Unit]
+Description=market-zones - reconstruye el catalogo europeo de fondos, ETFs y ETC desde el registro de ESMA (FIRDS). Solo lee de la red; escribe fuera del directorio de la cartera.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/alex/bots/market-zones
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/alex/bots/market-zones/.venv/bin/python /home/alex/bots/market-zones/ingest_firds.py
+
+# Escribe UN fichero, instruments.db, y vive FUERA del directorio del proyecto a
+# proposito: StateDirectory crea ~/.local/state/market-zones y ahi va. El
+# proceso no tiene ningun motivo para escribir donde esta cartera.db.
+#
+# Y aqui va la parte incomoda, medida en esta maquina: en una unidad de USUARIO
+# el aislamiento de rutas del HOME NO SE APLICA. Comprobado contra un fichero
+# senuelo: ni ProtectHome=read-only ni un ReadOnlyPaths anidado dentro de un
+# ReadWritePaths impiden la escritura. ProtectSystem=strict si funciona —una
+# escritura en /usr se deniega—, pero el home queda abierto.
+#
+# O sea que la cartera NO esta protegida por el sandbox. Lo que si es cierto, y
+# es lo unico que se promete aqui: ingest_firds.py no nombra cartera.db en
+# ninguna linea, y el catalogo ya no comparte carpeta con ella. Las directivas
+# de abajo se quedan porque no estorban y porque en una unidad de sistema si
+# valdrian; no se apoya ninguna garantia en ellas.
+ProtectSystem=strict
+ProtectHome=read-only
+StateDirectory=market-zones
+Environment=MZ_CATALOGO_DB=%S/market-zones/instruments.db
+PrivateTmp=true
+NoNewPrivileges=true
+
+# La ingesta escribe en un temporal y renombra encima al final. Si el proceso
+# muere a mitad, el panel sigue leyendo el catalogo anterior entero: por eso se
+# puede matar por tiempo sin dejar nada a medias.
+#
+# Baja 56 MB (fondos + deuda) y parsea 1,87 millones de lineas en DOS pasadas.
+# Medido: 56 s de proceso. El resto del margen es para la descarga.
+TimeoutStartSec=900
+
+# Pico medido: 201 MB. Antes de la primera pasada de filtrado eran 1,47 GB
+# —doblar los 642.598 ISIN de deuda para quedarse con 909— y esta unidad lo
+# habria matado. Si este numero vuelve a subir, el filtro previo se ha roto.
+MemoryHigh=400M
+MemoryMax=700M
+OOMScoreAdjust=200
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=market-zones-catalogo
+
+# Instalar:
+#   cp market-zones-catalogo.{service,timer} ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now market-zones-catalogo.timer
+# Probar ahora:      systemctl --user start market-zones-catalogo.service
+# Ver que haria:     .venv/bin/python ingest_firds.py --dry-run

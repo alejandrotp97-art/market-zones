@@ -102,6 +102,58 @@ body.amounts-hidden .eye .off{display:block;}
 .r-sym{font-family:var(--mono);color:var(--muted);font-size:11px;white-space:nowrap;}
 .r-empty{padding:10px 12px;color:var(--muted);font-size:12px;}
 .picked{margin-top:5px;font-size:12px;color:var(--muted);}
+
+/* El desplegable ahora mezcla dos fuentes, y hay que poder distinguirlas de un
+   vistazo: cada bloque lleva su cabecera, pegajosa al hacer scroll, para que al
+   bajar por la lista no se pierda de vista de dónde sale lo que se está mirando. */
+/* Más ancha que la casilla a propósito. La columna del formulario mide unos 340
+   px, y el renglón de datos —ISIN, reparto, domicilio, plazas, divisa— es justo
+   lo que distingue una clase de otra: cortarlo con puntos suspensivos deja una
+   lista de filas que parecen la misma. El ancho no se lo puede imponer el hueco
+   donde vive el campo. */
+.results{max-height:400px;right:auto;min-width:100%;width:max(100%,480px);
+  max-width:calc(100vw - 32px);}
+.r-head{position:sticky;top:0;z-index:1;background:var(--panel2,var(--panel));
+  padding:6px 11px;font-family:var(--mono);font-size:10px;text-transform:uppercase;
+  letter-spacing:.04em;color:var(--faint);border-bottom:1px solid var(--border);}
+/* Un fondo ocupa dos renglones: el nombre y, debajo, lo que lo distingue de las
+   otras once clases del mismo producto. Sin el ISIN y el reparto, media lista
+   parece la misma fila repetida. */
+.r-fund{grid-template-columns:auto 1fr;row-gap:1px;align-items:start;}
+.r-fund .r-name{white-space:normal;}
+.r-sub{grid-column:2;font-family:var(--mono);font-size:10.5px;color:var(--muted);
+  line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+/* Subtítulo de tipo. Más discreto que la cabecera de fuente —que es la que dice
+   de quién te fías— pero suficiente para ver dónde acaban los ETF. */
+.r-nota{padding:6px 11px 8px;font-size:11px;color:var(--faint);line-height:1.4;}
+.ter-hint{font-size:10px;font-weight:600;padding:1px 6px;border-radius:5px;vertical-align:1px;
+  color:#8a63d2;background:color-mix(in srgb,#8a63d2 16%,transparent);cursor:help;}
+.r-sub-head{padding:5px 11px 3px;font-size:10.5px;font-weight:600;color:var(--muted);
+  border-top:1px solid var(--border);}
+.r-empty code{font-family:var(--mono);background:color-mix(in srgb,var(--text) 8%,transparent);
+  padding:0 4px;border-radius:3px;}
+.r-empty b{color:var(--text);}
+.r-filt{position:sticky;top:0;z-index:2;display:flex;flex-wrap:wrap;gap:4px;align-items:center;
+  padding:7px 10px;background:var(--panel);border-bottom:1px solid var(--border);}
+.r-chip{background:none;border:1px solid var(--border);color:var(--muted);cursor:pointer;
+  border-radius:999px;padding:2px 10px;font-size:11px;font-family:inherit;}
+.r-chip:hover{color:var(--text);border-color:var(--accent);}
+.r-chip.on{background:color-mix(in srgb,var(--accent) 18%,transparent);
+  border-color:var(--accent);color:var(--text);}
+.r-sep{width:1px;align-self:stretch;background:var(--border);margin:0 3px;}
+.picked .warn{color:#cf5b3a;}
+/* Chip de apalancamiento: color de aviso, no de error. El producto es legítimo
+   y puede ser justo el que buscas; lo que no puede es parecerse al físico. */
+/* Las plazas donde se cruza el mismo fondo. Botones y no un desplegable: son
+   dos o tres, se leen de un vistazo, y la divisa es lo que hay que comparar. */
+.lineas{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px;}
+.linea{background:none;border:1px solid var(--border);color:var(--muted);cursor:pointer;
+  border-radius:6px;padding:2px 8px;font-size:11px;font-family:var(--mono);}
+.linea:hover{color:var(--text);border-color:var(--accent);}
+.linea.on{background:color-mix(in srgb,var(--accent) 18%,transparent);
+  border-color:var(--accent);color:var(--text);}
+.lev{font-size:10px;font-weight:600;padding:1px 6px;border-radius:5px;vertical-align:1px;
+  color:#c07a2a;background:color-mix(in srgb,#c07a2a 16%,transparent);cursor:help;}
 .picked b{color:var(--text);}
 
 /* ── zona del índice por posición ─────────────────────────────────────────
@@ -331,3 +383,24 @@ table.fi-lots td,table.fi-lots th{padding:4px 8px;}
 .dia-fila.high .dia-t,.dia-fila.dd .dia-t,.dia-fila.rec .dia-t{font-weight:600;}
 .dia-d{font-size:11.5px;text-align:right;}
 @media(max-width:760px){.dia-fila{grid-template-columns:78px 16px 1fr;}.dia-d{display:none;}}
+
+/* ── puertas entre la cartera y su registro ──────────────────────────────
+   El diario y el libro viven en /cartera/movimientos. Estos enlaces son la
+   única forma de llegar, así que se les da peso de verdad: el de cabecera
+   subrayado sólo al pasar por encima —ahí compite con el texto— y el del pie
+   con forma de tarjeta, que es lo que había en ese hueco. */
+.sublink{color:var(--accent);text-decoration:none;}
+.sublink:hover{text-decoration:underline;}
+.gotolink{display:flex;align-items:center;justify-content:space-between;gap:14px;
+  text-decoration:none;color:var(--text);}
+.gotolink:hover{border-color:var(--accent);}
+.gotolink b{display:block;font-size:14px;}
+.gotolink .small{display:block;margin-top:2px;}
+.goto-arrow{color:var(--faint);font-size:18px;transition:transform .12s,color .12s;}
+.gotolink:hover .goto-arrow{color:var(--accent);transform:translateX(3px);}
+@media(prefers-reduced-motion:reduce){.goto-arrow{transition:none;}
+  .gotolink:hover .goto-arrow{transform:none;}}
+/* La vuelta desde el registro: mismo enlace, sin el subrayado que ya lleva el
+   propio ← como señal. */
+.backlink{color:var(--muted);text-decoration:none;}
+.backlink:hover{color:var(--accent);}
