@@ -314,29 +314,53 @@
   // día que se separan nadie sabe cuál de los dos está diciendo la verdad.
   // Mudarlo conserva además los oyentes (cuelgan del <svg>) y el tooltip, que
   // se posiciona contra `.map-host` y viaja dentro de él.
-  const dlg = $("map-dlg");
+  // Ampliar es un ACCESORIO, y un accesorio que falte no puede dejar al mapa
+  // sin pedir sus datos. Por eso el herraje se monta en su propia función, tras
+  // una guarda y después de lo esencial: antes se desreferenciaba aquí arriba,
+  // así que un botón de menos en la plantilla reventaba con un TypeError en el
+  // nivel superior del módulo y se llevaba por delante la descarga, el filtro y
+  // el repintado. El mapa sin botón de ampliar sigue siendo un mapa; el botón
+  // sin mapa no es nada.
+  function montarAmpliar() {
+    const dlg = $("map-dlg"), destino = $("map-dlg-host"), hueco = $("geo-slot");
+    const abrir = $("map-expand"), cerrar = $("map-close");
+    if (!dlg || !destino || !hueco || !abrir || !cerrar) return;
 
-  function ampliar() {
-    if (dlg.open) return;
-    hideTip();
-    $("map-dlg-host").appendChild($("geo-body"));
-    dlg.showModal();
+    const ampliar = () => {
+      if (dlg.open) return;
+      hideTip();
+      destino.appendChild($("geo-body"));
+      dlg.showModal();
+    };
+
+    // `close` y no el botón: el <dialog> también se cierra con Esc y pulsando
+    // fuera, y el mapa tiene que volver a su hueco por los tres caminos.
+    dlg.addEventListener("close", () => {
+      hideTip();
+      hueco.appendChild($("geo-body"));
+    });
+    cerrar.addEventListener("click", () => dlg.close());
+
+    // El clic de fuera se mide contra el RECTÁNGULO del diálogo, no con
+    // `ev.target === dlg`. El <dialog> lleva su propio relleno y su propia
+    // barra de desplazamiento —el contenido pasa de 92vh en cualquier
+    // portátil—, y las dos cosas se anuncian como el diálogo mismo: con la
+    // comparación a secas, arrastrar la barra o pulsar el margen interior
+    // cerraba el mapa y lo devolvía al raíl. Fuera es fuera del rectángulo.
+    dlg.addEventListener("click", (ev) => {
+      if (ev.target !== dlg) return;
+      const r = dlg.getBoundingClientRect();
+      const dentro = ev.clientX >= r.left && ev.clientX <= r.right
+        && ev.clientY >= r.top && ev.clientY <= r.bottom;
+      if (!dentro) dlg.close();
+    });
+
+    abrir.addEventListener("click", ampliar);
+    // Pulsar el mapa pequeño también amplía. El oyente va en el HUECO y no en el
+    // mapa: cuando el mapa se muda al diálogo, el hueco se queda vacío y deja de
+    // haber nada que pulsar, sin tener que acordarse de desactivar nada.
+    hueco.addEventListener("click", ampliar);
   }
-
-  // `close` y no el botón: el <dialog> también se cierra con Esc y pulsando
-  // fuera, y el mapa tiene que volver a su hueco por los tres caminos.
-  dlg.addEventListener("close", () => {
-    hideTip();
-    $("geo-slot").appendChild($("geo-body"));
-  });
-  $("map-close").addEventListener("click", () => dlg.close());
-  dlg.addEventListener("click", (ev) => { if (ev.target === dlg) dlg.close(); });
-
-  $("map-expand").addEventListener("click", ampliar);
-  // Pulsar el mapa pequeño también amplía. El oyente va en el HUECO y no en el
-  // mapa: cuando el mapa se muda al diálogo, el hueco se queda vacío y deja de
-  // haber nada que pulsar, sin tener que acordarse de desactivar nada.
-  $("geo-slot").addEventListener("click", ampliar);
 
   const NOMBRE = { all: "toda la cartera", equity: "sólo renta variable", bond: "sólo renta fija" };
 
@@ -367,4 +391,7 @@
   // El ojo no cambia los datos, solo cómo se ven: repintar basta.
   document.addEventListener("cartera:display", () => paint());
   load();
+  // Lo último, y a propósito: primero el mapa pide sus datos y queda vivo, y
+  // sólo después se le cuelga lo accesorio.
+  montarAmpliar();
 })();
