@@ -57,13 +57,18 @@ def _estatico(nombre):
     return r.get_data(as_text=True)
 
 
-# El juego COMPLETO de elementos vacíos de HTML más los del SVG que usa el mapa.
-# Con la lista corta, meter un `<source>` o un `<use>` en la plantilla dejaba al
-# analizador desincronizado y toda la ascendencia pasaba a ser mentira.
+# El juego COMPLETO de elementos vacíos de HTML, y SÓLO ésos. Con la lista corta,
+# meter un `<source>` en la plantilla desincronizaba el analizador y toda la
+# ascendencia pasaba a ser mentira.
+#
+# Los del SVG NO van aquí aunque en la plantilla se escriban solos: `path`,
+# `circle`, `use` y compañía admiten hijos —un `<title>` dentro es el patrón
+# normal de nombre accesible, y el mapa construye justo eso—, así que tratarlos
+# como vacíos colgaría a ese hijo del abuelo y respondería mal a cualquier
+# pregunta sobre él. Escritos como `<path/>`, html.parser ya los abre y los
+# cierra por su cuenta.
 _VACIOS = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link",
-           "meta", "param", "source", "track", "wbr",
-           "path", "circle", "line", "rect", "polygon", "polyline", "ellipse",
-           "use", "stop"}
+           "meta", "param", "source", "track", "wbr"}
 
 
 class _Arbol(HTMLParser):
@@ -129,6 +134,55 @@ def _bajo(nodo, ident):
     return any(p["id"] == ident for p in nodo["padres"])
 
 
+_DELIMITADORES = "(){}"
+# Antes de un `/`, esto significa que lo que viene es una expresión regular y no
+# una división. Es la heurística de siempre, y aquí basta: sin ella, el `"` de
+# dentro de `/[<>&"']/g` abre una cadena que no se cierra nunca.
+_ANTES_DE_REGEX = "(,=:[!&|?{};\n"
+
+
+def _sin_ruido(js):
+    """El mismo texto con los comentarios en blanco y los delimitadores que
+    viven DENTRO de una cadena neutralizados.
+
+    El contador de profundidad no sabe de comillas: una llave dentro de un
+    literal —y cartera.js está lleno de plantillas con `${...}`— le descuadra la
+    cuenta y devuelve un trozo cortado o de más, sin avisar. Las comillas y el
+    contenido de las cadenas se conservan, que es lo que se busca luego.
+    """
+    salida = []
+    modo, cierre, i = "codigo", "", 0
+    while i < len(js):
+        c = js[i]
+        if modo == "codigo":
+            dos = js[i:i + 2]
+            if dos == "//":
+                modo, cierre = "linea", "\n"
+            elif dos == "/*":
+                modo, cierre = "bloque", "*/"
+            elif c in "\"'`":
+                modo, cierre = "cadena", c
+            elif c == "/" and (next((x for x in reversed(salida) if not x.isspace()), "\n")
+                               in _ANTES_DE_REGEX):
+                modo, cierre = "regex", "/"
+            salida.append(c)
+        elif modo in ("linea", "bloque"):
+            salida.append("\n" if c == "\n" else " ")
+            if (modo == "linea" and c == "\n") or (modo == "bloque" and js[i - 1:i + 1] == "*/"):
+                modo = "codigo"
+        else:                                   # cadena o expresión regular
+            if c == "\\":
+                salida.append("  ")
+                i += 2
+                continue
+            salida.append("·" if c in _DELIMITADORES else c)
+            if c == cierre:
+                salida[-1] = c
+                modo = "codigo"
+        i += 1
+    return "".join(salida)
+
+
 def _hasta_cerrar(js, ancla, abre, cierra):
     """El trozo que va desde `ancla` hasta que se equilibra el primer `abre`
     que aparece DESPUÉS de ella.
@@ -137,6 +191,7 @@ def _hasta_cerrar(js, ancla, abre, cierra):
     buscar palabras sueltas por todo el fichero: las palabras sobreviven a que
     borres el oyente, el cuerpo no.
     """
+    js = _sin_ruido(js)
     i = js.find(ancla)
     assert i >= 0, f"no aparece {ancla!r}"
     j = js.index(abre, i + len(ancla))
@@ -191,9 +246,13 @@ def test_el_mapa_sale_del_rail_al_ampliar(cli):
     assert _dentro_de(a.por_id("geo-body"), "rail")
     assert a.por_id("geo-body")["padres"][-1]["id"] == "geo-slot"
 
+    montaje = _cuerpo(js, "function montarAmpliar")
+    assert 'bloque = $("geo-body")' in montaje, montaje
+    assert 'destino = $("map-dlg-host")' in montaje, montaje
+
     ampliar = _cuerpo(js, "const ampliar =")
-    assert "appendChild" in ampliar and "geo-body" in ampliar
-    assert "showModal" in ampliar
+    assert "destino.appendChild(bloque)" in ampliar, ampliar
+    assert "showModal" in ampliar, ampliar
 
 
 def test_el_mapa_VUELVE_a_su_hueco_al_cerrar(cli):
@@ -208,9 +267,13 @@ def test_el_mapa_VUELVE_a_su_hueco_al_cerrar(cli):
     js = _estatico("cartera-map.js")
 
     cierre = _cuerpo(js, 'dlg.addEventListener("close"')
-    assert "appendChild" in cierre, cierre
-    assert "geo-body" in cierre, cierre
-    assert "hueco" in cierre or "geo-slot" in cierre, cierre
+    assert "hueco.appendChild(bloque)" in cierre, cierre
+
+    # Y va PRIMERO. Limpiar el resaltado es cosmético; devolver el mapa es lo
+    # único que no puede quedarse sin hacer. Con la limpieza delante, cualquier
+    # excepción suya dejaba el mapa varado en un diálogo cerrado y el raíl
+    # vacío, sin error visible en pantalla.
+    assert cierre.index("hueco.appendChild") < cierre.index("hideTip()"), cierre
 
     # Y los tres caminos existen: el botón, y el clic fuera. Esc lo pone el
     # propio <dialog> por ser modal.
@@ -225,9 +288,19 @@ def test_arrastrar_la_barra_del_dialogo_no_lo_cierra(cli):
     raíl a media lectura. Fuera es fuera del RECTÁNGULO."""
     js = _estatico("cartera-map.js")
 
-    fuera = _cuerpo(js, 'dlg.addEventListener("click"')
-    assert "getBoundingClientRect" in fuera, fuera
-    assert "clientX" in fuera and "clientY" in fuera, fuera
+    medida = _cuerpo(js, "const fueraDelPanel =")
+    assert "getBoundingClientRect" in medida, medida
+    assert "clientX" in medida and "clientY" in medida, medida
+
+    # Y manda dónde EMPEZÓ la pulsación. Seleccionar texto dentro del diálogo y
+    # soltar fuera despacha su clic sobre el propio diálogo con coordenadas de
+    # fuera; juzgando sólo el clic, arrastrar para seleccionar cerraba el mapa.
+    # Un clic sintético llega además sin coordenadas —en el (0,0)—, que también
+    # cae fuera de un diálogo centrado.
+    assert "empezoFuera" in _cuerpo(js, 'dlg.addEventListener("pointerdown"'), js
+    clic = _cuerpo(js, 'dlg.addEventListener("click"')
+    assert "empezoFuera &&" in clic, clic
+    assert "fueraDelPanel(ev)" in clic, clic
 
 
 def test_el_mapa_no_depende_de_su_propio_herraje(cli):
@@ -240,17 +313,29 @@ def test_el_mapa_no_depende_de_su_propio_herraje(cli):
     Ahora va tras una guarda y después de lo esencial."""
     js = _estatico("cartera-map.js")
 
-    montaje = _cuerpo(js, "function montarAmpliar")
-    for pieza in ("map-dlg", "map-dlg-host", "geo-slot", "map-expand", "map-close"):
-        assert pieza in montaje, pieza
-    # La guarda sale ANTES de colgar nada: si falta una pieza, no se monta
-    # media cosa.
-    guarda = re.search(r"if \(![^)]*\)\s*return;", montaje)
-    assert guarda, montaje
-    assert guarda.start() < montaje.index("addEventListener"), montaje
+    for funcion in ("function montarAmpliar", "function montarControles"):
+        montaje = _cuerpo(js, funcion)
+        # La guarda cubre TODO lo que el montaje busca, no una pieza de muestra:
+        # con `if (!dlg) return;` a secas el test seguía en verde mientras las
+        # otras cuatro reventaban con null.
+        buscados = re.findall(r'(\w+) = \$\("([^"]+)"\)', montaje)
+        assert buscados, funcion
+        # Vale tanto la salida temprana negada como el `if (a && b)` positivo:
+        # lo que se exige es que NADA se use sin haberse comprobado antes.
+        for variable, ident in buscados:
+            assert re.search(r"if \([^)]*\b" + variable + r"\b", montaje), (funcion, ident)
+        # Y la guarda sale ANTES de colgar nada: si falta una pieza, no se monta
+        # media cosa.
+        guarda = re.search(r"if \([^)]*\)\s*\{?\s*(return;)?", montaje)
+        assert guarda.start() < montaje.index("addEventListener"), funcion
+
     # Y lo esencial va antes: el mapa pide sus datos y queda vivo, y sólo
-    # después se le cuelga lo accesorio.
-    assert js.index("load();") < js.rindex("montarAmpliar();")
+    # después se le cuelgan los mandos y el herraje. `rindex` y no `index`: la
+    # primera aparición de `load();` es la de dentro del oyente del filtro, que
+    # está por encima de todo esto pasara lo que pasara — comparar contra ella
+    # dejaba pasar justo el intercambio que este test dice vigilar.
+    assert js.rindex("load();") < js.rindex("montarControles();")
+    assert js.rindex("load();") < js.rindex("montarAmpliar();")
 
 
 def test_todos_los_ganchos_del_mapa_existen_en_la_plantilla(cli):
@@ -287,8 +372,16 @@ def test_todos_los_ganchos_de_la_cartera_existen(cli):
     assert not faltan, faltan
     # Y al revés: una excepción que ya no hace falta se retira, o la lista se
     # convierte en un cajón donde esconder ganchos rotos.
-    sobran = sorted(i for i in _PINTADOS_EN_CALIENTE if i not in ids)
-    assert not sobran, sobran
+    # Y al revés, con dientes. Que un id esté en la lista no puede ser una
+    # amnistía: hay que ver que ALGUIEN lo pinta. Cada exento tiene que aparecer
+    # en el guion en algún sitio que no sea su propia búsqueda —el
+    # `campo("g-capital", …)` o el `id="rb-go"` que lo escribe—; si sólo aparece
+    # cuando se busca, es un gancho roto escondido en la lista.
+    js = _estatico("cartera.js")
+    for ident in sorted(_PINTADOS_EN_CALIENTE):
+        assert ident in ids, f"{ident} ya no lo busca nadie: sobra de la lista"
+        assert js.count(f'"{ident}"') > js.count(f'$("{ident}")'), \
+            f"{ident} se busca pero no lo pinta nadie"
 
 
 def test_el_selector_de_clase_vive_en_el_dialogo(cli):
@@ -300,8 +393,8 @@ def test_el_selector_de_clase_vive_en_el_dialogo(cli):
     a.por_id("geo-filter")
     # Y alguien la escribe: dentro del oyente del selector, no en cualquier
     # parte del fichero.
-    assert "geo-filter" in _cuerpo(_estatico("cartera-map.js"),
-                                   '$("geo-class").addEventListener')
+    assert "etiqueta.textContent" in _cuerpo(_estatico("cartera-map.js"),
+                                             "function montarControles")
 
 
 def test_las_tres_lecturas_de_composicion_comparten_tarjeta(cli):
@@ -393,7 +486,7 @@ def test_las_cajas_de_dentro_comparten_una_sola_rejilla():
     # hueco y dejar un margen de 14px en cualquier otra declaración seguía
     # pasando, que es exactamente la regresión que esto vigila.
     for selector in (".estado-grid", ".perf-grid", ".add-grid", ".avisos", ".perf-two"):
-        assert "gap:14px" in _regla(css, selector), selector
+        assert re.search(r"(?<![-\w])gap:\s*14px", _regla(css, selector)), selector
 
     # Los cuatro números no van dentro de una tarjeta: sin este sangrado —borde
     # más relleno— arrancan 15px antes que todo lo demás y la columna se tuerce.
