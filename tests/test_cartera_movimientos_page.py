@@ -73,13 +73,37 @@ def test_hay_camino_de_ida_y_de_vuelta(cli):
 
 
 def test_el_alta_y_la_importacion_NO_se_movieron(cli):
-    """Es lo que hace que el ✎ del libro pueda ser un enlace en vez de un
-    segundo formulario. Si esto se rompe, `?editar=` deja de tener destino."""
+    """No se fueron de esta página —dentro de ella sí cambiaron de sitio, y eso
+    lo fija el test de abajo—. Es lo que hace que el ✎ del libro pueda ser un
+    enlace en vez de un segundo formulario: si esto se rompe, `?editar=` deja de
+    tener destino."""
     h = _html(cli, "/cartera")
 
     assert 'id="add-form"' in h        # alta manual
     assert 'id="drop"' in h            # importación CSV
     assert 'id="add-card"' in h        # el ancla a la que salta `?editar=`
+
+
+def test_el_alta_va_arriba_no_al_final(cli):
+    """Anotar una compra es lo ÚNICO que se viene a HACER a esta pantalla; todo
+    lo demás se lee. Estaba a veinte tarjetas, detrás del mapa, y llegar hasta
+    ella costaba media página de scroll.
+
+    Se fija por posición relativa y no por un índice: lo que importa es que la
+    entrada quede después del resumen y ANTES de lo que se lee. Añadir mañana
+    otra tarjeta de análisis no puede hacer fallar esto."""
+    h = _html(cli, "/cartera")
+
+    resumen = h.index('id="estado-card"')
+    alta = h.index('id="add-card"')
+
+    assert resumen < alta
+    for despues in ('class="card chart-card"',   # evolución
+                    'id="perf-card"',            # rentabilidad
+                    'id="pos-legend"',           # posiciones
+                    'id="corr-card"',            # diversificación
+                    'id="drop"'):                # importar CSV
+        assert alta < h.index(despues), despues
 
 
 def test_la_cartera_sabe_atender_editar(cli):

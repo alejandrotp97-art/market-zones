@@ -135,8 +135,9 @@
     // formulario en blanco sin decir por qué no pasó nada.
     if (!m) { alert("Ese movimiento ya no existe: alguien lo borró mientras tanto."); return; }
     startEdit(m);
-    // El formulario está a media página de scroll: sin esto la corrección se
-    // abre fuera de la pantalla y parece que el ✎ no hizo nada.
+    // El formulario ya está arriba del todo, pero el salto se queda: quien llega
+    // con el ✎ puede caer con la página a media altura (volver atrás restaura el
+    // scroll), y entonces la corrección se abriría fuera de la pantalla.
     $("add-card").scrollIntoView({
       behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
       block: "center",
@@ -1714,6 +1715,19 @@
     const b = new Blob([csv], { type: "text/csv" }); const u = URL.createObjectURL(b);
     const a = document.createElement("a"); a.href = u; a.download = "plantilla_cartera.csv"; a.click();
     setTimeout(() => URL.revokeObjectURL(u), 1000);
+  });
+
+  // ══ pestañas del raíl ═════════════════════════════════════════════════
+  // Países, tipo de activo y divisas son tres cortes de la misma pregunta, y
+  // nunca se comparan entre sí: se turnan en el mismo hueco. Sólo se oculta el
+  // panel, no se descarga: las tres se piden igual al cargar la página, así que
+  // cambiar de pestaña no espera a ninguna red.
+  $("comp-tabs").addEventListener("click", (ev) => {
+    const b = ev.target.closest("button[data-pane]");
+    if (!b) return;
+    for (const x of $("comp-tabs").children) x.classList.toggle("on", x === b);
+    for (const p of document.querySelectorAll("#comp-card .pane"))
+      p.hidden = p.id !== "pane-" + b.dataset.pane;
   });
 
   // fecha por defecto = hoy
