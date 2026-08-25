@@ -308,11 +308,46 @@
     } finally { busy = false; }
   }
 
+  // ── ampliar ───────────────────────────────────────────────────────────────
+  // El mapa NO se duplica: se MUDA. Dos mapas serían dos geometrías, dos
+  // descargas y dos estados que se separan en cuanto se toca el filtro, y el
+  // día que se separan nadie sabe cuál de los dos está diciendo la verdad.
+  // Mudarlo conserva además los oyentes (cuelgan del <svg>) y el tooltip, que
+  // se posiciona contra `.map-host` y viaja dentro de él.
+  const dlg = $("map-dlg");
+
+  function ampliar() {
+    if (dlg.open) return;
+    hideTip();
+    $("map-dlg-host").appendChild($("geo-body"));
+    dlg.showModal();
+  }
+
+  // `close` y no el botón: el <dialog> también se cierra con Esc y pulsando
+  // fuera, y el mapa tiene que volver a su hueco por los tres caminos.
+  dlg.addEventListener("close", () => {
+    hideTip();
+    $("geo-slot").appendChild($("geo-body"));
+  });
+  $("map-close").addEventListener("click", () => dlg.close());
+  dlg.addEventListener("click", (ev) => { if (ev.target === dlg) dlg.close(); });
+
+  $("map-expand").addEventListener("click", ampliar);
+  // Pulsar el mapa pequeño también amplía. El oyente va en el HUECO y no en el
+  // mapa: cuando el mapa se muda al diálogo, el hueco se queda vacío y deja de
+  // haber nada que pulsar, sin tener que acordarse de desactivar nada.
+  $("geo-slot").addEventListener("click", ampliar);
+
+  const NOMBRE = { all: "toda la cartera", equity: "sólo renta variable", bond: "sólo renta fija" };
+
   $("geo-class").addEventListener("click", (ev) => {
     const b = ev.target.closest("button[data-clase]");
     if (!b || b.classList.contains("on")) return;
     for (const x of $("geo-class").children) x.classList.toggle("on", x === b);
     clase = b.dataset.clase;
+    // El selector vive en el diálogo, así que arriba hay que DECIR qué filtro
+    // está puesto: un mapa filtrado que parece la cartera entera miente.
+    $("geo-filter").textContent = NOMBRE[clase] || clase;
     load();
   });
 

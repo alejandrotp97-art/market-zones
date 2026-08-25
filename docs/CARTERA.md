@@ -143,25 +143,79 @@ publicación: cubre `/cartera` y `/api/cartera*` por prefijo.
 
 ## 5. La pantalla, en orden
 
+Dos columnas. A la izquierda lo que necesita **ancho de verdad** —el gráfico,
+la tabla de doce columnas, la matriz de correlación—; a la derecha lo que se
+pinta con barras, tres cifras o una tabla estrecha. Por debajo de 1200px el
+raíl se apila debajo del relato.
+
+**Una sola rejilla interior.** Todas las tarjetas de la columna principal parten
+su interior igual: **cuatro columnas, hueco de 14px, medido sobre el interior de
+la tarjeta**. Lo que no viene de cuatro en cuatro ocupa dos columnas
+(`.perf-grid>*:last-child`) en vez de estrenar un ancho propio. Los cuatro
+números del resumen viven fuera de una tarjeta, así que llevan `padding:0 15px`
+—borde más relleno— para caer sobre esas mismas líneas. Tres columnas iguales
+cortarían en el 33% y el 66%, que no son líneas de esta página.
+
+### Columna principal
+
 1. **Resumen** — invertido, valor de mercado, P&L no realizado, P&L realizado
    (con interruptor Medio/FIFO), dividendos cobrados, rentabilidad total.
-2. **Evolución** — cartera vs capital aportado vs un índice a elegir, con
+2. **Alta manual** — el formulario de añadir movimiento. Va aquí, y no al final,
+   porque es lo único de esta pantalla que se USA: el resto se lee. Corregir un
+   movimiento (`?editar=`) reutiliza este mismo formulario.
+3. **Evolución** — cartera vs capital aportado vs un índice a elegir, con
    **selector de temporalidad** (1M · 3M · 6M · YTD · 1A · 5A · Todo · fechas).
-3. **Rentabilidad** — TWR, TIR, acumulado; la frase que sale de restarlos;
+4. **Rentabilidad** — TWR, TIR, acumulado; la frase que sale de restarlos;
    caída máxima, caída actual, volatilidad y Sharpe; desglose por año; y la
    comparación con el índice.
-4. **Posiciones** — 12 columnas: activo, **zona**, **peso**, cantidad, coste
+5. **Posiciones** — 12 columnas: activo, **zona**, **peso**, cantidad, coste
    medio, invertido, último, valor, P&L no realizado, %, **dividendos**, P&L
    realizado.
-5. **Quién ha puesto el dinero** — contribución al resultado en euros, ordenada.
-6. **Rebalanceo** — desvío vs objetivo y reparto de una aportación.
-7. **Qué te cuesta** — comisiones pagadas, retenciones, gastos corrientes y su
-   arrastre a 10 y 20 años.
-8. **El activo y la divisa** — reparto exacto (se oculta si todo está en euros).
-9. **Diversificación real** — «contando líneas» → «apuestas reales», matriz.
-10. **Exposición geográfica** — mapa por transparencia: abre cada fondo y mira
-    qué país hay dentro, no dónde está domiciliado.
-11. **Alta manual · Importar/exportar · Movimientos**.
+6. **Si vendo… · Qué te cuesta** — simulación de venta; comisiones pagadas,
+   retenciones, gastos corrientes y su arrastre a 10 y 20 años.
+7. **El activo y la divisa** — reparto exacto (se oculta si todo está en euros).
+8. **Diversificación real** — «contando líneas» → «apuestas reales», matriz.
+9. **Importar/exportar · Qué merece tu atención · Movimientos**.
+
+Las dos tarjetas de análisis que quedan aquí son TABLAS —cuatro columnas la del
+cambio, una matriz que crece con cada posición la de correlación—, y por eso no
+bajan al raíl.
+
+### Raíl derecho
+
+**De qué está hecha** — una sola tarjeta con tres pestañas, porque son tres
+cortes de la misma pregunta y nunca se comparan entre sí:
+
+- **Países** — el mapa por transparencia: abre cada fondo y mira qué país hay
+  dentro, no dónde está domiciliado. En el raíl es una MINIATURA con el top-5 y
+  el ratón apagado sobre los países: a 360px de ancho un país europeo mide dos
+  píxeles, y ofrecer un hover que no se puede acertar es prometer lo que la
+  miniatura no cumple. **Al ampliar** (`⤢`, o pulsando el mapa) el bloque entero
+  se muda a un diálogo a pantalla casi completa y recupera el hover con país,
+  peso, valor y quién lo aporta, el ranking completo, la leyenda y las fuentes.
+  El selector Todo / Renta variable / Renta fija vive **en el diálogo**; arriba
+  sólo se dice qué filtro está puesto.
+- **Tipo** — en qué clase de activo estás.
+- **Divisas** — de qué divisas dependes, en las dos lecturas.
+
+**El mapa es UNO.** Al ampliar se muda y al cerrar vuelve a su hueco: dos mapas
+serían dos geometrías, dos descargas y dos estados que se separan en cuanto se
+toca el filtro — y el día que se separan, ninguno de los dos dice la verdad.
+
+Debajo del mapa, y en este orden:
+
+- **Quién ha puesto el dinero** — contribución al resultado en euros, ordenada.
+- **Rebalanceo** — desvío vs objetivo y reparto de una aportación.
+- **Tus aportaciones** — total, media al mes, última, y el histograma mensual.
+- **Tu objetivo** — progreso contra el capital declarado. No proyecta fechas.
+
+Ninguno necesitaba la columna ancha: son barras, tres cifras, dos tablas de
+tres y cinco columnas cortas, y un formulario de cuatro campos. Ocupaban dos
+bandas enteras del relato para eso. Sus rejillas internas de dos y tres
+columnas se apilan a una sola dentro del raíl (`.rail .ap-kpis`,
+`.rail .plan-form`, `.rail .ccy-list`), y las tablas pierden ahí el
+`min-width:640px` y el `nowrap`: en 400px lo único que hacían era empujar la
+tabla fuera de su tarjeta.
 
 ---
 

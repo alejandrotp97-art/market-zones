@@ -1,6 +1,5 @@
 /* Exposición geográfica — tokens de regime.css (enlazado antes). */
 
-.map-card{margin-bottom:14px;}
 .map-grid{display:grid;grid-template-columns:1fr 300px;gap:16px;align-items:start;}
 @media(max-width:900px){.map-grid{grid-template-columns:1fr;}}
 
@@ -74,3 +73,21 @@
 #mtip{color:#e8eaee;} #mtip .td{color:#9aa0ad;} #mtip b{color:#fff;}
 #mtip .tr{display:flex;justify-content:space-between;gap:16px;margin:2px 0;}
 #mtip .who{color:#9aa0ad;margin-top:5px;padding-top:5px;border-top:1px solid rgba(255,255,255,.14);}
+
+/* ── la miniatura del raíl ───────────────────────────────────────────────
+   En 400px de ancho el mapa mide 195 de alto, y ahí Suiza son dos píxeles.
+   Así que en el raíl el ratón se APAGA sobre los países: ofrecer un hover
+   que no se puede acertar es prometer algo que la miniatura no cumple. Lo
+   que sí se lee en pequeño es el ranking, y eso es lo que se deja al lado.
+   El detalle —hover con peso, valor y quién lo aporta— se pide ampliando. */
+.rail .map-grid{grid-template-columns:1fr;gap:10px;}
+.rail #wmap path{pointer-events:none;}
+.rail .map-host{cursor:zoom-in;}
+/* La leyenda de la escala y la referencia de las fuentes son material de
+   lectura detenida; en la miniatura sólo quitan sitio al mapa. Van en el
+   diálogo, que es donde uno se para a mirar. Las NOTAS no: ahí es donde se
+   dice qué NO está pintado, y eso tiene que verse siempre. */
+.rail .map-legend,.rail #geo-src{display:none;}
+.rail .map-side{max-height:none;overflow:visible;}
+.rail .map-side tbody tr:nth-child(n+6){display:none;}
+.rail #mtip{max-width:210px;}
