@@ -245,10 +245,13 @@
     if (lista) for (const tr of lista.querySelectorAll("tr.sel")) tr.classList.remove("sel");
   }
 
+  // Su hermana `hideTip` toleraba que faltaran las piezas y ésta no, con lo que
+  // la dureza de la otra no servía de nada: cualquier movimiento del ratón sobre
+  // el mapa reventaba igual. O las dos o ninguna.
   function showTipFor(iso, ev) {
     const c = (DATA && DATA.countries.find((x) => x.iso2 === iso)) || null;
     const tip = $("mtip");
-    if (!c) { hideTip(); return; }
+    if (!c || !tip) { hideTip(); return; }
     const who = c.contributors.map((k) =>
       `<div class="tr"><span>${esc(k.name)}</span><b>${eur(k.eur, 0)}</b></div>`).join("");
     tip.innerHTML = `<div class="td">${esc(c.name)}</div>
@@ -274,7 +277,8 @@
       tip.style.top = "8px";
     }
     for (const [k, n] of nodes) n.classList.toggle("sel", k === iso);
-    for (const tr of $("geo-rank-body").querySelectorAll("tr[data-iso]"))
+    const lista = $("geo-rank-body");
+    if (lista) for (const tr of lista.querySelectorAll("tr[data-iso]"))
       tr.classList.toggle("sel", tr.dataset.iso === iso);
   }
 
@@ -330,11 +334,20 @@
     const abrir = $("map-expand"), cerrar = $("map-close"), bloque = $("geo-body");
     if (!dlg || !destino || !hueco || !abrir || !cerrar || !bloque) return;
 
+    // Dónde nació la pulsación. Se declara aquí arriba porque la desarman tres
+    // sitios: abrir, cerrar y el propio clic.
+    let empezoFuera = false;
+
     const ampliar = () => {
       if (dlg.open) return;
       hideTip();
-      destino.appendChild(bloque);
+      empezoFuera = false;
+      // Abrir PRIMERO y mudar después. Al revés, si `showModal` fallara el bloque
+      // ya estaría dentro de un diálogo que nunca se abre —y que por tanto nunca
+      // emitirá `close`—, así que el mapa desaparecería del raíl para siempre sin
+      // un solo error en pantalla. Es el mismo razonamiento que ordena el regreso.
       dlg.showModal();
+      destino.appendChild(bloque);
     };
 
     // `close` y no el botón: el <dialog> también se cierra con Esc y pulsando
@@ -347,6 +360,7 @@
     dlg.addEventListener("close", () => {
       hueco.appendChild(bloque);
       hideTip();
+      empezoFuera = false;
     });
     cerrar.addEventListener("click", () => dlg.close());
 
@@ -368,10 +382,13 @@
     // para seleccionar cerraba el mapa. Y un clic sintético —de teclado o de
     // guion— llega sin coordenadas, o sea en el (0,0), que también cae fuera de
     // un diálogo centrado; sin pulsación previa que lo respalde, se ignora.
-    let empezoFuera = false;
     dlg.addEventListener("pointerdown", (ev) => { empezoFuera = fueraDelPanel(ev); });
+    // Y manda dónde empezó, PUNTO: exigirle además que suelte fuera dejaba sin
+    // cerrar el gesto que nace en el fondo y se suelta sobre el panel —que es un
+    // clic de fuera de manual—, y bastaba con que el diálogo creciera entre la
+    // pulsación y el soltar para que dejara de funcionar.
     dlg.addEventListener("click", (ev) => {
-      if (empezoFuera && fueraDelPanel(ev)) dlg.close();
+      if (empezoFuera && ev.target === dlg) dlg.close();
       empezoFuera = false;
     });
 
@@ -392,7 +409,10 @@
   // dejaba la de al lado abierta.
   function montarControles() {
     const selector = $("geo-class"), lista = $("geo-rank-body"), etiqueta = $("geo-filter");
-    if (selector && etiqueta) {
+    // Guardas separadas: atar el filtro a la etiqueta dejaba los botones puestos
+    // y mudos —sin error, sin aviso— el día que faltara el rótulo. Filtrar y
+    // rotular son dos cosas, y una no puede llevarse a la otra por delante.
+    if (selector) {
       selector.addEventListener("click", (ev) => {
         const b = ev.target.closest("button[data-clase]");
         if (!b || b.classList.contains("on")) return;
@@ -400,7 +420,7 @@
         clase = b.dataset.clase;
         // El selector vive en el diálogo, así que arriba hay que DECIR qué filtro
         // está puesto: un mapa filtrado que parece la cartera entera miente.
-        etiqueta.textContent = NOMBRE[clase] || clase;
+        if (etiqueta) etiqueta.textContent = NOMBRE[clase] || clase;
         load();
       });
     }
@@ -414,8 +434,12 @@
   }
 
   // Repintar al cambiar el tema: la rampa se elige en JS, así que un cambio de
-  // claro a oscuro no lo arregla el CSS solo.
-  window.matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => paint());
+  // claro a oscuro no lo arregla el CSS solo. Con las dos formas de la API,
+  // porque esto corre ANTES de `load()`: donde sólo exista la vieja, llamar a la
+  // moderna lanzaría aquí mismo y se llevaría por delante la descarga entera.
+  const tema = window.matchMedia("(prefers-color-scheme: light)");
+  if (tema.addEventListener) tema.addEventListener("change", () => paint());
+  else if (tema.addListener) tema.addListener(() => paint());
 
   // La cartera cambia cuando se añade, importa o borra un movimiento. cartera.js
   // avisa; el mapa no repregunta por su cuenta.

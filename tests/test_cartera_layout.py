@@ -62,11 +62,16 @@ def _estatico(nombre):
 # ascendencia pasaba a ser mentira.
 #
 # Los del SVG NO van aquí aunque en la plantilla se escriban solos: `path`,
-# `circle`, `use` y compañía admiten hijos —un `<title>` dentro es el patrón
-# normal de nombre accesible, y el mapa construye justo eso—, así que tratarlos
-# como vacíos colgaría a ese hijo del abuelo y respondería mal a cualquier
-# pregunta sobre él. Escritos como `<path/>`, html.parser ya los abre y los
-# cierra por su cuenta.
+# `circle`, `use` y compañía ADMITEN hijos —un `<title>` dentro es el patrón
+# normal de nombre accesible—, así que tratarlos como vacíos colgaría a ese hijo
+# del abuelo y respondería mal a cualquier pregunta sobre él. Hoy la plantilla
+# no trae ninguno con hijos (los `<title>` del mapa los crea el guion en el
+# navegador, y por aquí no pasan), pero la regla se escribe por lo que el
+# elemento PUEDE llevar, no por lo que hoy lleva.
+#
+# Se apoya en que `HTMLParser` reparte `<path/>` en un `handle_starttag` más un
+# `handle_endtag`, que es lo que hace por defecto: por eso abren y cierran
+# solos sin necesidad de listarlos.
 _VACIOS = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link",
            "meta", "param", "source", "track", "wbr"}
 
@@ -134,88 +139,76 @@ def _bajo(nodo, ident):
     return any(p["id"] == ident for p in nodo["padres"])
 
 
-_DELIMITADORES = "(){}"
-# Antes de un `/`, esto significa que lo que viene es una expresión regular y no
-# una división. Es la heurística de siempre, y aquí basta: sin ella, el `"` de
-# dentro de `/[<>&"']/g` abre una cadena que no se cierra nunca.
-_ANTES_DE_REGEX = "(,=:[!&|?{};\n"
+def _lineas(js):
+    return js.split("\n")
 
 
-def _sin_ruido(js):
-    """El mismo texto con los comentarios en blanco y los delimitadores que
-    viven DENTRO de una cadena neutralizados.
+def _es_comentario(linea):
+    return linea.lstrip().startswith(("//", "*", "/*"))
 
-    El contador de profundidad no sabe de comillas: una llave dentro de un
-    literal —y cartera.js está lleno de plantillas con `${...}`— le descuadra la
-    cuenta y devuelve un trozo cortado o de más, sin avisar. Las comillas y el
-    contenido de las cadenas se conservan, que es lo que se busca luego.
+
+def _linea(js, ancla):
+    """La línea de código —no de comentario— que contiene `ancla`."""
+    for l in _lineas(js):
+        if ancla in l and not _es_comentario(l):
+            return l
+    raise AssertionError(f"no aparece {ancla!r} fuera de un comentario")
+
+
+def _bloque(js, ancla):
+    """Las líneas del bloque que abre `ancla`, hasta el cierre a su misma sangría.
+
+    Por SANGRÍA y no contando llaves. Contar llaves obliga a saber de cadenas,
+    de plantillas anidadas, de expresiones regulares y de comentarios, y
+    equivocarse en cualquiera de las cuatro devuelve un trozo cortado o de más
+    sin avisar — y entonces cada `assert X in trozo` degenera en una búsqueda
+    por todo el fichero que se aprueba sola. Es un contrato más pobre, pero uno
+    que no miente: la sangría de este código es regular y cualquier cambio la
+    pasa por aquí.
+
+    El ancla se busca en código y no en comentarios: un comentario que
+    mencione la línea por delante de la línea real secuestraría el trozo.
     """
-    salida = []
-    modo, cierre, i = "codigo", "", 0
-    while i < len(js):
-        c = js[i]
-        if modo == "codigo":
-            dos = js[i:i + 2]
-            if dos == "//":
-                modo, cierre = "linea", "\n"
-            elif dos == "/*":
-                modo, cierre = "bloque", "*/"
-            elif c in "\"'`":
-                modo, cierre = "cadena", c
-            elif c == "/" and (next((x for x in reversed(salida) if not x.isspace()), "\n")
-                               in _ANTES_DE_REGEX):
-                modo, cierre = "regex", "/"
-            salida.append(c)
-        elif modo in ("linea", "bloque"):
-            salida.append("\n" if c == "\n" else " ")
-            if (modo == "linea" and c == "\n") or (modo == "bloque" and js[i - 1:i + 1] == "*/"):
-                modo = "codigo"
-        else:                                   # cadena o expresión regular
-            if c == "\\":
-                salida.append("  ")
-                i += 2
-                continue
-            salida.append("·" if c in _DELIMITADORES else c)
-            if c == cierre:
-                salida[-1] = c
-                modo = "codigo"
-        i += 1
-    return "".join(salida)
+    lineas = _lineas(js)
+    i = next((k for k, l in enumerate(lineas)
+              if ancla in l and not _es_comentario(l)), None)
+    if i is None:
+        raise AssertionError(f"no aparece {ancla!r} fuera de un comentario")
+    sangria = len(lineas[i]) - len(lineas[i].lstrip())
+    for j in range(i + 1, len(lineas)):
+        m = lineas[j]
+        if m.strip().startswith("}") and (len(m) - len(m.lstrip())) == sangria:
+            return "\n".join(lineas[i:j + 1])
+    raise AssertionError(f"el bloque de {ancla!r} no se cierra a su sangría")
 
 
-def _hasta_cerrar(js, ancla, abre, cierra):
-    """El trozo que va desde `ancla` hasta que se equilibra el primer `abre`
-    que aparece DESPUÉS de ella.
+def _solo_codigo(bloque):
+    """El bloque sin sus líneas de comentario.
 
-    Es lo que permite preguntar por lo que hay DENTRO de un oyente en vez de
-    buscar palabras sueltas por todo el fichero: las palabras sobreviven a que
-    borres el oyente, el cuerpo no.
+    Imprescindible para cualquier comparación de ORDEN: los comentarios de aquí
+    explican lo que hace el código y por tanto nombran las mismas llamadas, así
+    que un `bloque.index("showModal")` acababa señalando el comentario que está
+    por encima de las dos líneas, y la comparación no podía fallar nunca.
     """
-    js = _sin_ruido(js)
-    i = js.find(ancla)
-    assert i >= 0, f"no aparece {ancla!r}"
-    j = js.index(abre, i + len(ancla))
-    hondo = 0
-    for k in range(j, len(js)):
-        if js[k] == abre:
-            hondo += 1
-        elif js[k] == cierra:
-            hondo -= 1
-            if hondo == 0:
-                return js[i:k + 1]
-    raise AssertionError(f"{abre!r} sin cerrar tras {ancla!r}")
+    return "\n".join(l for l in _lineas(bloque) if not _es_comentario(l))
 
 
-def _cuerpo(js, ancla):
-    """El bloque `{…}` que sigue a `ancla`: el cuerpo de una función o de un
-    oyente escrito con llaves."""
-    return _hasta_cerrar(js, ancla, "{", "}")
+def _orden_en_el_arranque(js, *sentencias):
+    """Los números de línea de unas sentencias del ARRANQUE del módulo: las que
+    van a dos espacios de sangría, ya fuera de toda función.
 
-
-def _llamada(js, ancla):
-    """La llamada `(…)` que sigue a `ancla`, para las de una sola línea que no
-    abren bloque."""
-    return _hasta_cerrar(js, ancla, "(", ")")
+    Buscarlas por texto suelto cogía la llamada de dentro de un oyente, que está
+    más arriba pase lo que pase y hacía imposible que la comprobación fallara.
+    """
+    sitios = []
+    for s in sentencias:
+        for i, l in enumerate(_lineas(js)):
+            if l == "  " + s:
+                sitios.append(i)
+                break
+        else:
+            raise AssertionError(f"{s!r} no está en el arranque del módulo")
+    return sitios
 
 
 def test_el_mapa_esta_en_el_rail_y_no_en_la_columna_principal(cli):
@@ -246,13 +239,22 @@ def test_el_mapa_sale_del_rail_al_ampliar(cli):
     assert _dentro_de(a.por_id("geo-body"), "rail")
     assert a.por_id("geo-body")["padres"][-1]["id"] == "geo-slot"
 
-    montaje = _cuerpo(js, "function montarAmpliar")
+    montaje = _bloque(js, "function montarAmpliar")
     assert 'bloque = $("geo-body")' in montaje, montaje
     assert 'destino = $("map-dlg-host")' in montaje, montaje
 
-    ampliar = _cuerpo(js, "const ampliar =")
+    ampliar = _bloque(js, "const ampliar =")
     assert "destino.appendChild(bloque)" in ampliar, ampliar
-    assert "showModal" in ampliar, ampliar
+    # ABRIR primero y mudar después. Al revés, si `showModal` fallara el bloque
+    # ya estaría dentro de un diálogo que nunca se abre —y que por tanto nunca
+    # emitirá `close`—, así que el mapa desaparecería del raíl para siempre y sin
+    # un solo error en pantalla.
+    codigo = _solo_codigo(ampliar)
+    assert codigo.index("showModal") < codigo.index("destino.appendChild"), ampliar
+    # Y la bandera del clic-fuera se desarma al abrir: una pulsación sobre el
+    # fondo que nunca llegó a dar un clic —el ratón soltado fuera de la ventana,
+    # un menú contextual— la dejaba armada hasta la siguiente apertura.
+    assert "empezoFuera = false" in ampliar, ampliar
 
 
 def test_el_mapa_VUELVE_a_su_hueco_al_cerrar(cli):
@@ -266,18 +268,20 @@ def test_el_mapa_VUELVE_a_su_hueco_al_cerrar(cli):
     pulsando fuera — los tres caminos tienen que devolver el mapa."""
     js = _estatico("cartera-map.js")
 
-    cierre = _cuerpo(js, 'dlg.addEventListener("close"')
+    cierre = _bloque(js, 'dlg.addEventListener("close"')
     assert "hueco.appendChild(bloque)" in cierre, cierre
 
     # Y va PRIMERO. Limpiar el resaltado es cosmético; devolver el mapa es lo
     # único que no puede quedarse sin hacer. Con la limpieza delante, cualquier
     # excepción suya dejaba el mapa varado en un diálogo cerrado y el raíl
     # vacío, sin error visible en pantalla.
-    assert cierre.index("hueco.appendChild") < cierre.index("hideTip()"), cierre
+    codigo = _solo_codigo(cierre)
+    assert codigo.index("hueco.appendChild") < codigo.index("hideTip()"), cierre
+    assert "empezoFuera = false" in cierre, cierre
 
     # Y los tres caminos existen: el botón, y el clic fuera. Esc lo pone el
     # propio <dialog> por ser modal.
-    assert "close()" in _llamada(js, "cerrar.addEventListener")
+    assert "close()" in _linea(js, "cerrar.addEventListener")
 
 
 def test_arrastrar_la_barra_del_dialogo_no_lo_cierra(cli):
@@ -288,7 +292,7 @@ def test_arrastrar_la_barra_del_dialogo_no_lo_cierra(cli):
     raíl a media lectura. Fuera es fuera del RECTÁNGULO."""
     js = _estatico("cartera-map.js")
 
-    medida = _cuerpo(js, "const fueraDelPanel =")
+    medida = _bloque(js, "const fueraDelPanel =")
     assert "getBoundingClientRect" in medida, medida
     assert "clientX" in medida and "clientY" in medida, medida
 
@@ -297,10 +301,13 @@ def test_arrastrar_la_barra_del_dialogo_no_lo_cierra(cli):
     # fuera; juzgando sólo el clic, arrastrar para seleccionar cerraba el mapa.
     # Un clic sintético llega además sin coordenadas —en el (0,0)—, que también
     # cae fuera de un diálogo centrado.
-    assert "empezoFuera" in _cuerpo(js, 'dlg.addEventListener("pointerdown"'), js
-    clic = _cuerpo(js, 'dlg.addEventListener("click"')
+    assert "empezoFuera" in _linea(js, 'dlg.addEventListener("pointerdown"'), js
+    clic = _bloque(js, 'dlg.addEventListener("click"')
     assert "empezoFuera &&" in clic, clic
-    assert "fueraDelPanel(ev)" in clic, clic
+    # Y manda SÓLO dónde empezó. Exigir además que suelte fuera dejaba sin cerrar
+    # el gesto que nace en el fondo y se suelta sobre el panel, que es un clic de
+    # fuera de manual.
+    assert "fueraDelPanel" not in clic, clic
 
 
 def test_el_mapa_no_depende_de_su_propio_herraje(cli):
@@ -314,28 +321,38 @@ def test_el_mapa_no_depende_de_su_propio_herraje(cli):
     js = _estatico("cartera-map.js")
 
     for funcion in ("function montarAmpliar", "function montarControles"):
-        montaje = _cuerpo(js, funcion)
-        # La guarda cubre TODO lo que el montaje busca, no una pieza de muestra:
-        # con `if (!dlg) return;` a secas el test seguía en verde mientras las
-        # otras cuatro reventaban con null.
-        buscados = re.findall(r'(\w+) = \$\("([^"]+)"\)', montaje)
+        montaje = _bloque(js, funcion)
+        # Cada elemento que se busca queda atado a un nombre, y ese nombre se
+        # comprueba ANTES de usarse. Las dos mitades importan: sin la primera, un
+        # `$("...")` metido en medio de una expresión se escapa del control; sin
+        # la segunda, valía como guarda cualquier `if` que mencionara la variable
+        # —`if (dlg.open)`, por ejemplo— aunque fuera después de haberla usado.
+        # Sobre el bloque SIN comentarios, como el resto del test: los de aquí
+        # explican el código citándolo, así que un comentario que mencione un
+        # `$("...")` descuadra el conteo y acusa de un defecto que no existe.
+        codigo = _solo_codigo(montaje)
+        assert codigo.count('$("') == len(re.findall(r'\w+ = \$\("', codigo)), \
+            f"{funcion}: hay búsquedas sueltas, sin nombre al que atarlas"
+        buscados = re.findall(r'(\w+) = \$\("([^"]+)"\)', codigo)
         assert buscados, funcion
-        # Vale tanto la salida temprana negada como el `if (a && b)` positivo:
-        # lo que se exige es que NADA se use sin haberse comprobado antes.
         for variable, ident in buscados:
-            assert re.search(r"if \([^)]*\b" + variable + r"\b", montaje), (funcion, ident)
-        # Y la guarda sale ANTES de colgar nada: si falta una pieza, no se monta
-        # media cosa.
-        guarda = re.search(r"if \([^)]*\)\s*\{?\s*(return;)?", montaje)
-        assert guarda.start() < montaje.index("addEventListener"), funcion
+            # Comprobar que EXISTE: negada, o a secas. `if (dlg.open)` menciona la
+            # variable pero no dice nada de si está, y colaba como guarda.
+            comprobada = re.search(
+                r"if \([^)]*(?:!" + variable + r"\b|\b" + variable + r"\b(?!\s*\.))", codigo)
+            assert comprobada, f"{funcion}: {ident} se usa sin comprobar que exista"
+            usada = re.search(r"\b" + variable + r"\.", codigo)
+            assert usada is None or comprobada.start() < usada.start(), \
+                f"{funcion}: {ident} se usa antes de comprobarlo"
 
     # Y lo esencial va antes: el mapa pide sus datos y queda vivo, y sólo
-    # después se le cuelgan los mandos y el herraje. `rindex` y no `index`: la
-    # primera aparición de `load();` es la de dentro del oyente del filtro, que
-    # está por encima de todo esto pasara lo que pasara — comparar contra ella
-    # dejaba pasar justo el intercambio que este test dice vigilar.
-    assert js.rindex("load();") < js.rindex("montarControles();")
-    assert js.rindex("load();") < js.rindex("montarAmpliar();")
+    # después se le cuelgan los mandos y el herraje. Se miran las sentencias del
+    # ARRANQUE —las de dos espacios de sangría—; buscándolas por texto suelto se
+    # cogía el `load();` de dentro del oyente del filtro, que está más arriba
+    # pase lo que pase, y la comprobación no podía fallar nunca.
+    arranca, mandos, herraje = _orden_en_el_arranque(
+        js, "load();", "montarControles();", "montarAmpliar();")
+    assert arranca < mandos and arranca < herraje
 
 
 def test_todos_los_ganchos_del_mapa_existen_en_la_plantilla(cli):
@@ -370,18 +387,58 @@ def test_todos_los_ganchos_de_la_cartera_existen(cli):
 
     faltan = sorted(i for i in ids if f'id="{i}"' not in h and i not in _PINTADOS_EN_CALIENTE)
     assert not faltan, faltan
-    # Y al revés: una excepción que ya no hace falta se retira, o la lista se
-    # convierte en un cajón donde esconder ganchos rotos.
     # Y al revés, con dientes. Que un id esté en la lista no puede ser una
-    # amnistía: hay que ver que ALGUIEN lo pinta. Cada exento tiene que aparecer
-    # en el guion en algún sitio que no sea su propia búsqueda —el
-    # `campo("g-capital", …)` o el `id="rb-go"` que lo escribe—; si sólo aparece
-    # cuando se busca, es un gancho roto escondido en la lista.
+    # amnistía: hay que VER quién lo pinta, y en su sitio de pintarlo. Contar
+    # menciones no valía —lo satisfacía un comentario, una constante suelta o
+    # código muerto—, así que se exige la forma exacta con la que este guion
+    # escribe cada uno: el `id="rb-go"` de dentro de la plantilla de texto, o el
+    # `campo("g-capital", …)` que la genera.
     js = _estatico("cartera.js")
     for ident in sorted(_PINTADOS_EN_CALIENTE):
         assert ident in ids, f"{ident} ya no lo busca nadie: sobra de la lista"
-        assert js.count(f'"{ident}"') > js.count(f'$("{ident}")'), \
+        assert f'id="{ident}"' in js or f'campo("{ident}"' in js, \
             f"{ident} se busca pero no lo pinta nadie"
+
+
+def test_el_tooltip_tampoco_da_por_hecho_que_esten_sus_piezas(cli):
+    """Endurecer `hideTip` y dejar a `showTipFor` como estaba no compraba nada:
+    la segunda se alcanza desde el movimiento del ratón sobre el mapa, desde el
+    foco y desde la lista, así que en el mismo escenario que la primera dice
+    cubrir —falta un elemento— reventaba igual a la primera pasada del ratón."""
+    js = _estatico("cartera-map.js")
+
+    mostrar = _bloque(js, "function showTipFor")
+    assert "!tip" in mostrar, mostrar
+    assert "if (lista)" in mostrar, mostrar
+
+
+def test_el_filtro_no_depende_del_rotulo(cli):
+    """Filtrar y rotular son dos capacidades, y una guarda común las ata: sin el
+    rótulo, los botones del diálogo se quedaban puestos y MUDOS —sin error, sin
+    aviso, sin recargar el mapa—. Cada rama con la suya."""
+    montaje = _bloque(_estatico("cartera-map.js"), "function montarControles")
+
+    # Sin las llaves: quitarlas alrededor de una sola sentencia es idéntico en
+    # comportamiento, y este test hablaba de formato en vez de la guarda.
+    for variable in ("selector", "lista", "etiqueta"):
+        assert f"if ({variable})" in _solo_codigo(montaje), (
+            f"{variable} se usa sin comprobar que exista")
+
+
+def test_el_cambio_de_tema_no_puede_tumbar_el_modulo(cli):
+    """Se suscribe ANTES de `load()`, así que es de los pocos sitios donde una
+    API que no exista se lleva por delante la descarga entera. `addEventListener`
+    sobre un MediaQueryList es la forma moderna; donde sólo esté la antigua, hay
+    que usar la antigua en vez de reventar."""
+    js = _estatico("cartera-map.js")
+
+    assert "tema.addEventListener" in js
+    assert "tema.addListener" in js
+    # `_linea` ya revienta si la cadena sólo aparece en un comentario, así que
+    # afirmar que está en lo que devuelve no puede fallar nunca. Lo que hay que
+    # exigir es la FORMA: que la moderna se use bajo una guarda, no a pelo.
+    assert _linea(js, "tema.addEventListener").lstrip().startswith("if ("), (
+        "la API moderna se usa sin comprobar antes que exista")
 
 
 def test_el_selector_de_clase_vive_en_el_dialogo(cli):
@@ -393,8 +450,11 @@ def test_el_selector_de_clase_vive_en_el_dialogo(cli):
     a.por_id("geo-filter")
     # Y alguien la escribe: dentro del oyente del selector, no en cualquier
     # parte del fichero.
-    assert "etiqueta.textContent" in _cuerpo(_estatico("cartera-map.js"),
-                                             "function montarControles")
+    # Dentro del oyente del SELECTOR, no en cualquier parte de la función: el
+    # cuerpo entero incluye también la rama del ranking, y ahí el rótulo no se
+    # actualizaría al cambiar de filtro.
+    assert "etiqueta.textContent" in _bloque(_estatico("cartera-map.js"),
+                                             'selector.addEventListener("click"')
 
 
 def test_las_tres_lecturas_de_composicion_comparten_tarjeta(cli):
@@ -413,7 +473,7 @@ def test_las_tres_lecturas_de_composicion_comparten_tarjeta(cli):
     for gancho in ("clase", "clase-legend", "ccy", "ccy-legend"):
         a.por_id(gancho)
 
-    conmutador = _cuerpo(_estatico("cartera.js"), '$("comp-tabs").addEventListener')
+    conmutador = _bloque(_estatico("cartera.js"), '$("comp-tabs").addEventListener')
     assert "#comp-card .pane" in conmutador, conmutador
     assert "hidden" in conmutador, conmutador
 
