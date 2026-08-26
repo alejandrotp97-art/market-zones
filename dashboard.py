@@ -1986,16 +1986,25 @@ def _cartera_correlacion(days: int = CORR_DAYS, benchmark: str = "SPY", payload=
                 "eff_n_corr": (1.0 if abiertas else 0.0),
                 "excluded": [], "obs": 0, "days": days}
 
+    # El nombre se resuelve ANTES del bucle porque lo necesitan los dos lados:
+    # las filas de la matriz y la nota de lo que se queda fuera. Un símbolo como
+    # `0P0001CLDK.F` no identifica nada a simple vista, y para una posición
+    # excluida esa nota es su ÚNICA mención en toda la tarjeta.
+    nombre = {p["ticker"]: (p.get("name") or p["ticker"]) for p in abiertas}
+
+    def fuera(t, por):
+        return {"ticker": t, "name": nombre.get(t, t), "why": por}
+
     series, excluidas = {}, []
     for p in abiertas:
         t = p["ticker"]
         s = _close_series(t)
         if s is None or not len(s):
-            excluidas.append({"ticker": t, "why": "sin histórico"})
+            excluidas.append(fuera(t, "sin histórico"))
             continue
         cu = p.get("ccy")
         if not cu or cu == "?":
-            excluidas.append({"ticker": t, "why": "sin divisa"})
+            excluidas.append(fuera(t, "sin divisa"))
             continue
         base, f = _ccy_base_factor(cu)
         if base == BASE_CCY:
@@ -2003,7 +2012,7 @@ def _cartera_correlacion(days: int = CORR_DAYS, benchmark: str = "SPY", payload=
         else:
             fx = _fx_series_eur(cu)
             if fx is None or not len(fx):
-                excluidas.append({"ticker": t, "why": "sin tipo de cambio"})
+                excluidas.append(fuera(t, "sin tipo de cambio"))
                 continue
             eur = s * fx.reindex(s.index.union(fx.index)).sort_index().ffill().reindex(s.index)
         # El índice se NORMALIZA a fecha antes de guardarlo. `_close_series`
@@ -2082,7 +2091,6 @@ def _cartera_correlacion(days: int = CORR_DAYS, benchmark: str = "SPY", payload=
             if peor is None or r > peor["rho"]:
                 peor = {"a": tk[i], "b": tk[j], "rho": round(r, 3)}
 
-    nombre = {p["ticker"]: (p.get("name") or p["ticker"]) for p in abiertas}
     return {"n": len(abiertas), "tickers": tk,
             "names": [nombre.get(t, t) for t in tk],
             "weights": [round(float(x) * 100, 2) for x in w],

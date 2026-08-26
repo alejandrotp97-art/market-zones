@@ -997,6 +997,27 @@
     }
     leg.textContent = `${d.obs} sesiones · último año`;
     const n = d.tickers.length;
+    // Un fondo cotiza aquí como `0P0001CLDK.F`, y la cabecera de la matriz lo
+    // recortaba a seis caracteres: dos posiciones distintas salían las dos como
+    // `0P0001`. Recortar un identificador opaco no lo hace legible, lo hace
+    // AMBIGUO. Manda el nombre, que es como se llama al activo en todas partes
+    // menos aquí; el símbolo se queda en el `title` para casarlo con el bróker.
+    //
+    // El nombre se casa con su símbolo recorriendo los SÍMBOLOS: las dos listas
+    // vienen paralelas, y una fila rotulada con el nombre de otra no se ve
+    // rota — se ve tranquila y miente.
+    //
+    // Las columnas de la matriz van NUMERADAS como las filas. Un nombre entero
+    // en cada cabecera multiplica el ancho de la tabla por el número de
+    // posiciones, y recortarlo es volver al problema de partida: el número no
+    // se recorta y no se repite.
+    //
+    // Las dos tablas se crean SIN prototipo: con `{}`, un activo que se llamara
+    // `toString` o `constructor` resolvería contra `Object.prototype` y la fila
+    // saldría rotulada con el código de una función.
+    const rotulos = Object.create(null), orden = Object.create(null);
+    d.tickers.forEach((t, i) => { rotulos[t] = (d.names || [])[i] || t; orden[t] = i + 1; });
+    const nombre = (t) => rotulos[t] || t;
     // Verde = se mueven al revés (diversifica). Rojo = son la misma apuesta.
     // La DIAGONAL va en gris: un activo correlaciona 1,00 consigo mismo por
     // definición, y pintarla del rojo más intenso de la tabla dirige la vista
@@ -1019,22 +1040,22 @@
         cinco fondos del mismo índice son una sola apuesta repartida en cinco filas.</p>
       ${betaBloque()}
       ${d.vs_benchmark ? `<div class="ex-h" style="margin-top:14px">Cada posición contra ${esc(d.benchmark_ticker)}</div>
-        <div class="ccy-list">${Object.entries(d.vs_benchmark)
+        <div class="ccy-list corr-vs">${Object.entries(d.vs_benchmark)
           .sort((a, b) => b[1] - a[1]).map(([t, v]) => `<div class="ccy-row">
             <i style="background:${v >= 0.7 ? "#cf5b3a" : v >= 0.4 ? "#d99a2b" : "#3fae6b"}"></i>
-            <span class="ccy-n">${esc(t.slice(0, 12))}</span><b>${v}</b>
+            <span class="ccy-n" title="${esc(t)}">${esc(nombre(t))}</span><b>${v}</b>
             <span class="mut">${v >= 0.7 ? "va con el mercado" : v >= 0.4 ? "a medias" : "va por su cuenta"}</span>
           </div>`).join("")}</div>
         <p class="mut small">La beta describe el conjunto y no señala a ninguna.
           Esto dice <b>cuál</b> de tus posiciones te ata al mercado.</p>` : ""}
-      ${mc ? `<p class="perf-note">Lo que más se parece: <b>${esc(mc.a)}</b> y <b>${esc(mc.b)}</b>,
+      ${mc ? `<p class="perf-note">Lo que más se parece: <b>${esc(nombre(mc.a))}</b> y <b>${esc(nombre(mc.b))}</b>,
         correlación <b>${mc.rho}</b>.${mc.rho > 0.8 ? " A ese nivel, son prácticamente el mismo activo." : ""}</p>` : ""}
       <div class="scroll"><table class="tbl corr-tbl">
-        <thead><tr><th></th>${d.tickers.map((t) => `<th class="num">${esc(t.slice(0, 6))}</th>`).join("")}</tr></thead>
-        <tbody>${d.tickers.map((t, i) => `<tr><td class="sym">${esc(t.slice(0, 12))}</td>${
+        <thead><tr><th></th>${d.tickers.map((t) => `<th class="num" title="${esc(orden[t] + ". " + nombre(t))}">${orden[t]}</th>`).join("")}</tr></thead>
+        <tbody>${d.tickers.map((t, i) => `<tr><td class="sym" title="${esc(nombre(t) + " · " + t)}"><span class="ix">${orden[t]}</span><span class="corr-nm">${esc(nombre(t))}</span></td>${
           d.matrix[i].map((v, j) => cell(v, i === j)).join("")}</tr>`).join("")}</tbody></table></div>
       ${(d.excluded || []).length ? `<p class="mut small">⚠ Fuera de la matriz:
-        ${d.excluded.map((x) => esc(x.ticker) + " (" + esc(x.why) + ")").join(", ")}.</p>` : ""}`;
+        ${d.excluded.map((x) => esc(x.name || x.ticker) + " (" + esc(x.why) + ")").join(", ")}.</p>` : ""}`;
   }
 
   // ── evolución de la cartera + benchmark ──────────────────────────────

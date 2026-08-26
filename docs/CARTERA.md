@@ -317,6 +317,29 @@ distintas como para cinco fondos del mismo índice.
 - **Con menos de 60 sesiones en común no se publica correlación**: es ruido con
   dos decimales.
 - **Los pesos se renormalizan** sobre lo que entra en la matriz.
+- **La tarjeta se rotula por NOMBRE, no por el símbolo.** Un fondo cotiza aquí
+  como `0P0001CLDK.F`; la cabecera lo recortaba a seis caracteres y dos
+  posiciones distintas salían las dos como `0P0001`. Recortar un identificador
+  opaco no lo hace legible, lo hace ambiguo.
+- **Las columnas van numeradas como las filas.** Un nombre entero por cabecera
+  multiplica el ancho de la tabla por el número de posiciones, y recortarlo es
+  volver al problema de partida.
+- **Cada `title` lleva lo que su rótulo NO enseña.** La cabecera enseña el
+  número y su `title` da el nombre; la fila enseña el nombre —que puede venir
+  cortado— y su `title` da el nombre entero y el símbolo; el ranking contra el
+  índice enseña el nombre y su `title` da el símbolo, que es con lo que se casa
+  el extracto del bróker.
+- **Los nombres viajan en una lista PARALELA a los símbolos** (`names` /
+  `tickers`) y se casan por posición. Construirla sobre las posiciones abiertas
+  en vez de sobre las columnas la deja corrida en cuanto una posición se
+  excluye — y una matriz mal rotulada no se ve rota: se ve tranquila y miente.
+- **La clase del rótulo es PROPIA, no reutilizada.** Se llamó `nm` y `.nm` ya
+  existía suelta en la hoja con `white-space:normal`: acotarla a `.corr-tbl`
+  gana en especificidad sólo en lo que declara, así que el `text-overflow` no
+  se pintaba nunca y el rótulo heredaba color y tamaño de otra cosa. El estilo
+  efectivo es la CASCADA de todas las reglas que casan, no la regla propia.
+- **Lo excluido también dice su nombre**: esa nota es su única mención en toda
+  la tarjeta, porque no tiene ni fila ni columna ni puesto en el ranking.
 
 ### 6.6 Importación / exportación
 
@@ -411,23 +434,26 @@ Ordenados por lo que aportarían a quien tiene dinero dentro.
 
 ## 9. Cómo se comprueba
 
-471 tests herméticos: toda llamada saliente está simulada. El CI corre en
+599 tests herméticos: toda llamada saliente está simulada. El CI corre en
 3.11 / 3.12 / 3.14 y repite la suite con un **guardia de red** activo
 (`MZ_NO_NETWORK=1`, en `conftest.py`) que intercepta `connect`, `connect_ex`,
 `create_connection` y `getaddrinfo`.
 
 | Fichero | Tests | Cubre |
 |---|---:|---|
-| `tests/test_returns.py` | 42 | TWR, TIR, caída, volatilidad, Sharpe, N efectivo, rebalanceo |
-| `tests/test_cartera_rendimiento.py` | 28 | ventanas, resembrado, costes, correlación, contribución |
+| `tests/test_cartera_rendimiento.py` | 52 | ventanas, resembrado, costes, correlación, contribución |
+| `tests/test_returns.py` | 48 | TWR, TIR, caída, volatilidad, Sharpe, N efectivo, rebalanceo |
+| `tests/test_cartera_guard.py` | 32 | el libro no se sirve sin declarar login |
+| `tests/test_positions_domain.py` | 27 | la aritmética del dinero, sin Flask ni red |
 | `tests/test_cartera.py` | 26 | contabilidad y vocabulario |
-| `tests/test_positions_domain.py` | 25 | la aritmética del dinero, sin Flask ni red |
 | `tests/test_cartera_dividendos_edicion.py` | 22 | dividendos, corrección, zonas, divisa |
+| `tests/test_cartera_backup.py` | 18 | copia, verificación, rotación |
 | `tests/test_geo.py` | 18 | transparencia por país |
-| `tests/test_cartera_backup.py` | 16 | copia, verificación, rotación |
+| `tests/test_instrument_name.py` | 16 | identidad del instrumento |
+| `tests/test_cartera_layout.py` | 16 | el armazón de dos columnas y el mapa que se muda |
 | `tests/test_alertas_cartera.py` | 13 | cuándo avisa y, sobre todo, cuándo calla |
-| `tests/test_instrument_name.py` | 9 | identidad del instrumento |
-| `tests/test_cartera_guard.py` | 7 | el libro no se sirve sin declarar login |
+| `tests/test_cartera_movimientos_page.py` | 9 | el alta va arriba, no al final |
+| `tests/test_cartera_correlacion_nombres.py` | 9 | la matriz se rotula por nombre, no por símbolo |
 | `tests/test_history_proxy.py` | 7 | histórico prestado |
 
 **Verificaciones externas, que valen más que un test propio:**

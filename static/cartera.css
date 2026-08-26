@@ -252,7 +252,34 @@ table.yr-tbl td{padding:5px 10px;}
 table.corr-tbl{min-width:0;font-size:11.5px;}
 table.corr-tbl td.cm{text-align:right;font-family:var(--mono);padding:5px 8px;
   border-bottom:1px solid var(--panel);}
-table.corr-tbl td.sym{font-size:11px;}
+/* El rótulo de la fila es el NOMBRE del activo, no su símbolo: se sale del
+   monoespaciado y de la negrita que `.tbl .sym` reserva para los tickers.
+
+   Se llama `corr-nm` y no `nm` porque `.nm` YA EXISTE arriba, suelto y sin
+   contenedor, con `white-space:normal` dentro. Acotarlo a `.corr-tbl` gana en
+   especificidad SÓLO en lo que se declara: el `white-space` seguía llegando de
+   allí, y con envoltura de línea `text-overflow:ellipsis` no se pinta NUNCA.
+   Heredaba además su color apagado y su tamaño, que anulaban los de la celda.
+   Un nombre propio corta las tres herencias de raíz; el `nowrap` explícito se
+   escribe igual, para no depender de qué declare la regla de al lado.
+
+   El corte va en un elemento de LÍNEA dentro de la celda, no en la celda. En
+   una tabla de ancho automático el `max-width` de un `td` no se respeta —el
+   navegador dimensiona la columna por su contenido— y un fondo de sesenta
+   caracteres se llevaba la matriz entera de paseo a lo ancho. */
+table.corr-tbl td.sym{font-family:inherit;font-weight:500;font-size:11.5px;}
+.corr-tbl .corr-nm{display:inline-block;max-width:260px;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;vertical-align:bottom;}
+.corr-tbl .ix{display:inline-block;min-width:15px;margin-right:7px;
+  font-family:var(--mono);font-size:10px;color:var(--muted);text-align:right;}
+
+/* `.ccy-row` nació para `EUR`, `USD`, `GBP` y clava esa columna a 42px. La
+   lista contra el índice reutiliza la rejilla y ahora escribe nombres: sin
+   esta excepción el rótulo se salía por encima de la cifra y los dos se leían
+   pisados el uno sobre el otro. */
+.corr-vs .ccy-row{grid-template-columns:9px minmax(0,1fr) auto auto;}
+.corr-vs .ccy-n{font-family:inherit;font-size:12px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 
 @media(max-width:900px){.perf-grid,.perf-two{grid-template-columns:1fr;}}
 table.corr-tbl td.cm.diag{background:var(--panel2);color:var(--faint);}
