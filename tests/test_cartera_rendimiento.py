@@ -642,6 +642,86 @@ def test_la_correlacion_contra_el_indice_va_posicion_a_posicion(libro, monkeypat
     assert len(c["tickers"]) == 2
 
 
+# ── el rótulo: la matriz se lee por NOMBRE, no por el símbolo ─────────────
+# Un fondo cotiza aquí como `0P0001CLDK.F`. Eso no identifica nada a simple
+# vista, y el panel lo recortaba a seis caracteres para la cabecera: dos
+# posiciones distintas salían las dos como `0P0001`. Para poder rotular con el
+# nombre, la carga útil tiene que traerlo —y traerlo CUADRADO con los símbolos.
+def _tres_posiciones(libro, monkeypatch, muda="MUDA"):
+    """Tres posiciones abiertas de las que UNA no tiene histórico.
+
+    La muda es la más grande a propósito. Las posiciones salen ordenadas por
+    valor de mercado, así que encabeza la lista de la cartera y NO la de la
+    matriz: cualquier lista de nombres construida sobre la cartera en vez de
+    sobre las columnas sale corrida justo aquí.
+    """
+    import numpy as np
+    idx = pd.bdate_range("2024-01-01", periods=300)
+
+    def serie(semilla):
+        r = np.random.default_rng(semilla)
+        return pd.Series(100 * np.cumprod(1 + r.normal(0, 0.01, 300)), index=idx)
+
+    mundo, bonos = serie(1), serie(2)
+    monkeypatch.setattr(D, "_close_series",
+                        lambda t: None if t == muda else (mundo if t == "AAA" else bonos))
+    monkeypatch.setattr(D, "_quote_meta", lambda t: (100.0, "EUR"))
+    monkeypatch.setattr(D, "_prefetch", lambda fn, ts: None)
+    _post(libro, ticker=muda, name="Fondo Recién Comprado", side="buy",
+          quantity=100, price=100)
+    # Los NOMBRES van en orden alfabético INVERSO al de los símbolos y al del
+    # valor de mercado (AAA vale el doble que BBB y se llama «Vanguard»). Si los
+    # tres órdenes coincidieran, una lista de nombres ORDENADA pasaría el test
+    # sin estar casada con nada — que es exactamente el fallo a cazar.
+    _post(libro, ticker="AAA", name="Vanguard Global Stock Index", side="buy",
+          quantity=10, price=100)
+    _post(libro, ticker="BBB", name="Amundi Index Euro Corporate", side="buy",
+          quantity=5, price=100)
+
+
+def test_el_nombre_de_cada_fila_va_pegado_a_su_simbolo(libro, monkeypatch):
+    """Los nombres viajan en una lista PARALELA a los símbolos, y la tarjeta
+    rotula fila a fila por posición. Si las dos listas se ordenan distinto, cada
+    fila queda etiquetada con el nombre de otra y nada en la pantalla lo delata:
+    una matriz mal rotulada no se ve rota, se ve tranquila y dice mentiras."""
+    _tres_posiciones(libro, monkeypatch)
+
+    c = D._cartera_correlacion()
+
+    assert len(c["names"]) == len(c["tickers"])
+    assert dict(zip(c["tickers"], c["names"], strict=True)) == {
+        "AAA": "Vanguard Global Stock Index",
+        "BBB": "Amundi Index Euro Corporate",
+    }
+
+
+def test_lo_que_queda_fuera_de_la_matriz_tambien_dice_su_nombre(libro, monkeypatch):
+    """La nota de «fuera de la matriz» es la ÚNICA mención de esas posiciones en
+    toda la tarjeta: no tienen fila, no tienen columna y no aparecen en el
+    ranking contra el índice. Publicarla con el símbolo pelado obliga a bajar a
+    la tabla de posiciones para averiguar de cuál se está hablando, que es
+    exactamente el trabajo que la tarjeta debería ahorrar."""
+    _tres_posiciones(libro, monkeypatch)
+
+    c = D._cartera_correlacion()
+
+    fuera = {x["ticker"]: x for x in c["excluded"]}
+    assert fuera["MUDA"]["name"] == "Fondo Recién Comprado"
+    assert fuera["MUDA"]["why"] == "sin histórico"
+
+
+def test_sin_nombre_apuntado_el_rotulo_cae_en_el_simbolo(libro, monkeypatch):
+    """Un movimiento se puede dar de alta sin nombre. Entonces el símbolo es lo
+    único que hay, y vale: lo que no puede pasar es que la fila salga en blanco
+    o con un `null` escrito."""
+    _tres_posiciones(libro, monkeypatch)
+    _post(libro, ticker="CCC", side="buy", quantity=1, price=100)
+
+    c = D._cartera_correlacion()
+
+    assert dict(zip(c["tickers"], c["names"], strict=True))["CCC"] == "CCC"
+
+
 def test_serie_y_splits_no_pueden_desincronizarse(libro, monkeypatch):
     """BUG REAL. Vivían en dos cachés paralelas, y `_close_series` sólo guardaba
     los splits cuando FALLABA la suya. En cuanto la de splits se desalojaba
