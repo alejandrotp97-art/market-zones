@@ -117,6 +117,17 @@ def test_las_clases_llevan_su_nombre_en_castellano():
     assert r["rows"][0]["name"] == "Materias primas"
 
 
+def test_las_criptos_tambien_tienen_su_nombre():
+    """Sin la traducción, la tarjeta de clases enseñaría «crypto» junto a
+    «Renta variable»: una etiqueta en inglés en una pantalla en castellano, y
+    además distinta de la que usa el mapa de países."""
+    from cartera.exposure import by_asset_class
+    r = by_asset_class([pos("BTC-EUR", "EUR", 100)],
+                       {"BTC-EUR": {"asset_class": "crypto"}})
+    assert r["rows"][0]["class"] == "crypto"
+    assert r["rows"][0]["name"] == "Cripto"
+
+
 def test_una_posicion_sin_valorar_no_entra_en_el_reparto():
     from cartera.exposure import by_asset_class
     r = by_asset_class([pos("A", "EUR", 100), pos("B", "EUR", None, valued=False)],

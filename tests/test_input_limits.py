@@ -156,6 +156,28 @@ def test_isin_lookups_are_capped_and_memoised():
         D._resolve_symbol = orig
 
 
+def test_free_text_lookups_share_the_isin_cap():
+    """Lo que cuesta una petición no es el ISIN: es cada consulta DISTINTA. Un
+    archivo de nombres escritos a mano —«Fondo XYZ Global» es lo normal en un
+    extracto— tiene que llevar el MISMO tope que uno de ISIN, o el texto libre
+    se convierte en un amplificador de peticiones contra Yahoo."""
+    llamadas = []
+    orig = D._resolve_symbol
+    D._resolve_symbol = lambda q: (llamadas.append(q), ("", "", ""))[1]
+    try:
+        head = "Fecha,Ticker,Tipo,Cantidad,Precio\n"
+        body = "".join(f"01/01/2024,Fondo {i} Global,Compra,1,1\n" for i in range(300))
+        D._parse_upload("x.csv", (head + body).encode())
+        assert len(llamadas) <= D.MAX_ISIN_LOOKUPS, f"{len(llamadas)} outbound lookups"
+        # y un nombre repetido tampoco paga dos veces
+        llamadas.clear()
+        rep = "".join("01/01/2024,Fondo Repetido Global,Compra,1,1\n" for _ in range(200))
+        D._parse_upload("x.csv", (head + rep).encode())
+        assert len(llamadas) == 1, f"{len(llamadas)} lookups for one distinct name"
+    finally:
+        D._resolve_symbol = orig
+
+
 def test_separator_sniffing_still_handles_real_exports():
     for sep in (",", ";", "\t", "|"):
         rows, _, detected = D._parse_upload("x.csv", _csv(3, sep))

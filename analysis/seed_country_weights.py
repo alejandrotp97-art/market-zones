@@ -77,6 +77,14 @@ PROXIES = {
         "asset_class": "commodity", "proxy_isin": None,
         "proxy_name": None,
         "proxy_note": "el oro físico no tiene país de exposición"},
+    "IE00BZ3XGLD1.SG": {
+        "asset_class": "commodity", "proxy_isin": None,
+        "proxy_name": None,
+        "proxy_note": "oro apalancado, también sin país de exposición"},
+    "BTC-EUR": {
+        "asset_class": "crypto", "proxy_isin": None,
+        "proxy_name": None,
+        "proxy_note": "el bitcoin no tiene país de exposición"},
 }
 
 # Asset class for auto-discovered tickers. justETF does not label this in a form

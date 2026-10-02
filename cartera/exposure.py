@@ -127,7 +127,8 @@ def by_economic_currency(countries, mapped_eur=None, base="EUR"):
 
 # ── clase de activo ───────────────────────────────────────────────────────
 CLASES_ES = {"equity": "Renta variable", "bond": "Renta fija",
-             "commodity": "Materias primas", "cash": "Liquidez"}
+             "commodity": "Materias primas", "cash": "Liquidez",
+             "crypto": "Cripto"}
 
 
 def by_asset_class(positions, instruments, base="EUR"):
