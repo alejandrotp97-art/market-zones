@@ -53,11 +53,29 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 # El mismo origen que usa el panel, para que ambos miren siempre al mismo sitio
 # cuando una instancia mueve su libro con la variable de entorno.
 DEFAULT_DB = os.environ.get("CARTERA_DB") or os.path.join(HERE, "cartera.db")
-DEFAULT_DIR = os.environ.get("CARTERA_BACKUP_DIR") or os.path.join(HERE, "backups")
+
+
+def _dir_for(db: str) -> str:
+    """Dónde viven las copias de ESTA base: al lado suyo, siempre.
+
+    Las instancias comparten código y no comparten libro, así que también
+    tendrían que poder no compartir carpeta de copias: si el destino no se
+    deriva de la base que se copia, dos libros acaban rotando en el mismo cubo
+    y el más reciente expulsa al otro.
+    """
+    return os.environ.get("CARTERA_BACKUP_DIR") or os.path.join(
+        os.path.dirname(os.path.abspath(db)), "backups")
+
+
+DEFAULT_DIR = _dir_for(DEFAULT_DB)
 DEFAULT_KEEP = 14
 PREFIX, SUFFIX = "cartera-", ".db"
 
 EXIT_OK, EXIT_FAIL, EXIT_NOOP = 0, 1, 2
+
+
+class BackupDeOtroLibro(ValueError):
+    """Se intentó escribir una copia de OTRO libro en la carpeta de éste."""
 
 
 def _log(msg: str, quiet: bool = False) -> None:
@@ -143,6 +161,17 @@ def verify(path: str) -> tuple[bool, str]:
 
 def make_backup(db: str, dest_dir: str, keep: int = DEFAULT_KEEP,
                 quiet: bool = False) -> int:
+    # La carpeta de copias de la instancia pertenece a la base de la instancia.
+    # Aquí se cumple esa regla donde nadie puede olvidarse de aplicarla: el
+    # destino ya estaba calculado a mano cuando llegamos, y el error es mejor
+    # que una rotación diaria que fue expulsando las copias buenas por las de
+    # un libro de prueba mientras la suite seguía en verde.
+    if (os.path.abspath(dest_dir) == os.path.abspath(DEFAULT_DIR)
+            and os.path.abspath(db) != os.path.abspath(DEFAULT_DB)):
+        raise BackupDeOtroLibro(
+            f"la carpeta de copias {DEFAULT_DIR} es de {DEFAULT_DB}; "
+            f"no se copia {db} ahí. Usa _dir_for(db) o elige un destino propio.")
+
     if not os.path.exists(db):
         _log(f"No hay base todavía en {db}: nada que copiar.", quiet)
         return EXIT_NOOP
@@ -215,8 +244,8 @@ def make_backup(db: str, dest_dir: str, keep: int = DEFAULT_KEEP,
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--db", default=DEFAULT_DB, help="base a copiar")
-    p.add_argument("--dir", default=DEFAULT_DIR, dest="dest",
-                   help="dónde guardar las copias")
+    p.add_argument("--dir", default=None, dest="dest",
+                   help="dónde guardar las copias (por defecto, al lado de la base)")
     p.add_argument("--keep", type=int, default=DEFAULT_KEEP,
                    help=f"copias distintas a conservar (por defecto {DEFAULT_KEEP})")
     p.add_argument("--quiet", action="store_true")
@@ -225,6 +254,11 @@ def main(argv=None) -> int:
     p.add_argument("--restore", metavar="FICHERO",
                    help="imprimir los pasos de restauración (no toca nada)")
     a = p.parse_args(argv)
+
+    if a.dest is None:
+        # Por defecto, al lado de la base indicada: `--db /otra/cartera.db` no
+        # puede volcar en la carpeta de copias de ESTA instancia.
+        a.dest = _dir_for(a.db)
 
     if a.verify:
         ok, detail = verify(a.verify)

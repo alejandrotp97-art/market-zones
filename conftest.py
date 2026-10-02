@@ -91,3 +91,25 @@ def pytest_configure(config):
 @pytest.fixture(scope="session")
 def red_bloqueada():
     return _BLOQUEADO
+
+
+@pytest.fixture(autouse=True)
+def cartera_aislada(tmp_path, monkeypatch):
+    """Ningún test puede abrir la cartera viva.
+
+    `CARTERA_DB` es el único estado personal del proyecto, y también su única
+    frontera de aislamiento: un test que no lo toca apunta al fichero real. Dos
+    daños distintos salieron de ahí y ninguno avisa mientras la suite esté en
+    verde: la suite leía (y, desde que `_cartera_conn` migra texto libre,
+    reescribía) la cartera de verdad, y una aplicación de split desde un libro
+    de test rotó fuera las 14 copias diarias de producción —rotación diaria,
+    `keep=14`, irreversible— y las sustituyó por copias de datos sintéticos.
+
+    Como en la red, el punto es que el aislamiento sea el CASO POR DEFECTO: un
+    fixture nuevo que se olvide de redirigir la base escribe en un temporal, no
+    en la cartera de nadie. Quien necesite la real lo dice a mano, que es
+    caro de escribir y por eso no se hace sin querer.
+    """
+    import dashboard as D
+    monkeypatch.setattr(D, "CARTERA_DB", str(tmp_path / "cartera.db"))
+

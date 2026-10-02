@@ -799,3 +799,39 @@ def test_serie_y_splits_no_pueden_desincronizarse(libro, monkeypatch):
     # segunda llamada: la entrada sigue completa y NO se vuelve a pedir nada
     assert D._splits_of("AAA") == [{"date": "2024-06-10", "ratio": 10.0}]
     assert len(llamadas) == 1
+
+
+# ── la copia previa de un split vive JUNTO a su base ──────────────────────
+def test_el_directorio_de_copias_sigue_a_la_base(tmp_path, monkeypatch):
+    """`CARTERA_DB` es la única frontera entre instancias: si apunta a otro libro,
+    su copia no puede caer en la carpeta de copias de ESTA cartera."""
+    monkeypatch.delenv("CARTERA_BACKUP_DIR", raising=False)
+    monkeypatch.setattr(D, "CARTERA_DB", str(tmp_path / "otra" / "libro.db"))
+    assert D._backup_dir() == str(tmp_path / "otra" / "backups")
+
+
+def test_por_defecto_el_directorio_de_copias_es_el_de_siempre(tmp_path, monkeypatch):
+    import backup_cartera as bk
+    monkeypatch.delenv("CARTERA_BACKUP_DIR", raising=False)
+    monkeypatch.setattr(D, "CARTERA_DB",
+                        os.path.join(os.path.dirname(os.path.abspath(D.__file__)),
+                                     "cartera.db"))
+    assert D._backup_dir() == bk.DEFAULT_DIR
+
+
+def test_la_copia_de_un_split_cae_junto_a_su_base(libro, tmp_path, monkeypatch):
+    """El fallo real: aplicar un split desde una base temporal rotó fuera las
+    14 copias diarias de la cartera viva y las sustituyó por copias de un libro
+    de un test. La rotación es irreversible, así que el destino tiene que ser
+    imposible de apuntar al sitio equivocado."""
+    monkeypatch.setattr(D, "_splits_of", lambda t: [{"date": "2024-06-10", "ratio": 10.0}])
+    _post(libro, ticker="AAA", side="buy", quantity=10, price=400, date="2023-05-01")
+
+    r = libro.post("/api/cartera/splits",
+                   json={"ticker": "AAA", "date": "2024-06-10", "action": "apply"},
+                   headers={D.CSRF_HEADER: "1"})
+
+    assert r.status_code == 200, r.get_data(as_text=True)
+    destino = tmp_path / "backups"
+    assert destino.is_dir() and any(destino.iterdir()), \
+        "la copia no acabó junto a la base de la que sale"

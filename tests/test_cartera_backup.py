@@ -15,6 +15,8 @@ import stat
 import sys
 import tempfile
 
+import pytest
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import backup_cartera as B
@@ -346,3 +348,59 @@ if __name__ == "__main__":
     for f in fns:
         f()
         print("PASS", f.__name__)
+
+
+# ── la carpeta de copias es de UN solo libro ──────────────────────────────
+def test_la_carpeta_de_copias_de_la_instancia_no_admite_otro_libro():
+    """El fallo real: una copia de un libro de TEST entró en la carpeta de
+    copias de producción y la rotación diaria fue expulsando, una por día, las
+    14 copias de la cartera de verdad.
+
+    No basta con derivar el destino en cada llamada: quien llegue mañana con el
+    destino puesto a mano —otro script, un refactor, una prueba— tiene que
+    chocar contra el que escribe, no contra la buena voluntad de quien lo llamó.
+    """
+    db = _fresh_db()                      # un libro que NO es el de la instancia
+    antes = len(B.existing(B.DEFAULT_DIR))
+
+    with pytest.raises(B.BackupDeOtroLibro):
+        B.make_backup(db, B.DEFAULT_DIR, quiet=True)
+
+    assert len(B.existing(B.DEFAULT_DIR)) == antes, "ha escrito en la carpeta ajena"
+
+
+def test_un_libro_ajeno_se_puede_copiar_en_su_propia_carpeta():
+    """La regla protege la carpeta, no la operación: copiar un libro de test es
+    legítimo si la copia va donde vive ese libro."""
+    db = _fresh_db()
+    dest = os.path.join(tempfile.mkdtemp(), "backups")
+
+    assert B.make_backup(db, dest, quiet=True) == B.EXIT_OK
+    assert len(B.existing(dest)) == 1
+
+
+def test_por_defecto_el_cli_copia_junto_a_la_base_que_le_indican():
+    """`backup_cartera.py --db /otra/cartera.db` sin `--dir` apuntaba a la
+    carpeta de copias de ESTA instancia: otro origen, mismo cubo. Por defecto el
+    destino lo da la base que se va a copiar."""
+    db = _fresh_db()
+    antes = len(B.existing(B.DEFAULT_DIR))
+
+    assert B.main(["--db", db, "--quiet"]) == B.EXIT_OK
+
+    assert len(B.existing(B.DEFAULT_DIR)) == antes, "ha tocado la carpeta ajena"
+    assert len(B.existing(os.path.join(os.path.dirname(db), "backups"))) == 1
+
+
+def test_dos_libros_en_la_misma_carpeta_no_comparten_cubo(tmp_path, monkeypatch):
+    """`nacho.db` y `nico.db` viven en la MISMA carpeta, así que derivar el
+    destino «al lado de la base» les daría el mismo cubo: una rotación para dos
+    libros distintos, listados mezclados y ningún modo de saber qué copia es de
+    quién. `CARTERA_BACKUP_DIR` es la salida — una variable por instancia."""
+    db = str(tmp_path / "nacho.db")
+
+    monkeypatch.delenv("CARTERA_BACKUP_DIR", raising=False)
+    assert B._dir_for(db) == str(tmp_path / "backups")
+
+    monkeypatch.setenv("CARTERA_BACKUP_DIR", str(tmp_path / "copia-nacho"))
+    assert B._dir_for(db) == str(tmp_path / "copia-nacho")

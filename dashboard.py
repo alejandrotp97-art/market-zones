@@ -838,6 +838,19 @@ CARTERA_DB = os.environ.get("CARTERA_DB") or os.path.join(
 _price_cache: dict[str, tuple[float, float | None]] = {}
 
 
+def _backup_dir() -> str:
+    """Dónde cae una copia de ESTA cartera: junto a la base, no al proyecto.
+
+    `CARTERA_DB` es la única frontera entre instancias. Si apunta a otro libro —otra
+    instancia, el temporal de una suite— su copia no puede ir a la carpeta de
+    copias de éste: allí se mezclarían dos libros y la rotación (`keep=14`,
+    diaria) empujaría fuera las copias buenas por las de un tercero. La
+    rotación no se puede deshacer, así que el destino se deriva, no se elige.
+    """
+    import backup_cartera as _bk  # una sola definición de la regla
+    return _bk._dir_for(CARTERA_DB)
+
+
 def _cartera_conn():
     c = sqlite3.connect(CARTERA_DB)
     # SQLite creates the file with 0644 minus umask, so on a shared host every
@@ -3028,7 +3041,7 @@ def api_cartera_splits_resolver():
         # Devuelve un CÓDIGO de salida, no una ruta: 0 copia nueva, 2 idéntica a
         # la anterior (que también deja el libro a salvo), 1 fallo. Se traduce
         # aquí porque un entero suelto en la respuesta no le dice nada a nadie.
-        rc = _bk.make_backup(CARTERA_DB, _bk.DEFAULT_DIR, quiet=True)
+        rc = _bk.make_backup(CARTERA_DB, _backup_dir(), quiet=True)
         copia = {0: "copia nueva guardada",
                  2: "ya había una copia idéntica"}.get(rc, "la copia falló")
     except Exception as e:
