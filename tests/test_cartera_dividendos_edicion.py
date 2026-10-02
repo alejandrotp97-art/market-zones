@@ -275,6 +275,61 @@ def test_un_instrumento_sin_historico_se_dice_con_su_nombre(libro, monkeypatch):
     assert d["pending"] == []                     # asentado: no se reintenta
 
 
+def test_una_linea_sin_serie_propia_toma_la_zona_de_su_hermano(libro, monkeypatch):
+    """La de Stuttgart cotiza y Yahoo no le da NI UNA barra diaria. La de Milán
+    —mismo Gestora Delta Gold 3x, misma divisa, 0,5% más caro— sí la tiene. La zona
+    se guarda BAJO el ticker real: la tarjeta nombra lo que se tiene, no lo que
+    se le prestó."""
+    def zona(s):
+        if s == "IE00BZ3XGLD1.SG":
+            raise D.NoHistory("sin barras en Stuttgart")
+        return {"zone": "Acumulación", "score": 41.0, "dwell": 2, "close": 118.31,
+                "model": "full", "date": "2026-10-01"}
+    monkeypatch.setattr(D, "_zone_of", zona)
+    _post(libro, ticker="IE00BZ3XGLD1.SG", side="buy", quantity=10, price=117.75)
+
+    d = libro.get("/api/cartera/zonas").get_json()
+
+    assert d["zones"]["IE00BZ3XGLD1.SG"]["zone"] == "Acumulación"
+    assert d["pending"] == []
+
+
+def test_si_el_hermano_tampoco_tiene_serie_se_dice_igual(libro, monkeypatch):
+    """Nadie puede puntuar este instrumento, y decirlo con su nombre sigue
+    siendo la respuesta: no se inventa una zona que no calculó nadie."""
+    def nadie(s):
+        raise D.NoHistory("tampoco aquí")
+    monkeypatch.setattr(D, "_zone_of", nadie)
+    _post(libro, ticker="IE00BZ3XGLD1.SG", side="buy", quantity=10, price=117.75)
+
+    d = libro.get("/api/cartera/zonas").get_json()
+
+    assert d["zones"]["IE00BZ3XGLD1.SG"] == {"error": "sin histórico que puntuar"}
+    assert d["pending"] == []
+
+
+def test_la_cobertura_de_zona_tambien_cuenta_la_zona_prestada(libro, monkeypatch):
+    """La cabecera lee la caché de zonas BAJO el ticker real. Si el préstamo
+    sólo quedase con la clave del hermano, esa tarjeta diría «todavía no lo sé»
+    sobre una zona que la de zonas enseña sin descargar nada: dos piezas de la
+    misma pantalla, dos lecturas distintas de la misma caché."""
+    def zona(s):
+        if s == "IE00BZ3XGLD1.SG":
+            raise D.NoHistory("sin barras en Stuttgart")
+        return {"zone": "Acumulación", "score": 41.0, "dwell": 2, "close": 118.31,
+                "model": "full", "date": "2026-10-01"}
+    monkeypatch.setattr(D, "_zone_of", zona)
+    monkeypatch.setattr(D, "_zone_cache", {})
+    monkeypatch.setattr(D, "_close_series", lambda t: None)
+    monkeypatch.setattr(D, "_quote_meta", lambda t: (117.75, "EUR"))
+    monkeypatch.setattr(D, "_prefetch", lambda fn, ts: None)
+    _post(libro, ticker="IE00BZ3XGLD1.SG", side="buy", quantity=10, price=117.75)
+
+    libro.get("/api/cartera/zonas").get_json()
+
+    assert D._cartera_estado()["coverage"]["zona"] == 100.0
+
+
 def test_un_tropiezo_pasajero_vuelve_a_la_cola(libro, monkeypatch):
     """Un fallo de red no puede quedar cacheado como «este activo no tiene
     zona»: el cliente vuelve a preguntar y la casilla se rellena sola."""

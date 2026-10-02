@@ -14,6 +14,7 @@ import os
 import sys
 
 import pandas as pd
+import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -84,6 +85,117 @@ def test_the_configured_map_is_shaped_correctly():
     for orig, via in D.HISTORY_PROXY.items():
         assert orig != via
         assert isinstance(via, str) and via.strip() == via and via
+
+
+def test_the_leveraged_gold_line_has_a_sibling_in_milan():
+    """Gestora Delta Gold 3x on Stuttgart answers a live quote and NO daily bars at
+    all: it is priced but cannot be charted. `OROX3.MI` is the same instrument on
+    Borsa Italiana, same currency, quoted 0.5% away — inside the gate below."""
+    assert D.HISTORY_PROXY["IE00BZ3XGLD1.SG"] == "OROX3.MI"
+
+
+def test_the_milan_sibling_of_the_leveraged_gold_passes_the_gate():
+    """Measured against the user's own SG fills (ratios 1.0008 / 1.0115 /
+    0.9773): the two plazas arbitrage each other, so the deviation is a venue
+    spread, not a different asset."""
+    _stub({"OROX3.MI": _series(px=118.31)},
+          {"IE00BZ3XGLD1.SG": (117.75, "EUR"), "OROX3.MI": (118.31, "EUR")})
+    s, dev = D._proxy_series("IE00BZ3XGLD1.SG", "OROX3.MI")
+    assert s is not None
+    assert dev < 0.005, f"deviation {dev}"
+
+
+
+# ── las dos plazas no baten al mismo ritmo ────────────────────────────────
+def _rango(valores):
+    """Una serie con rango de verdad: lo que se negoció, no un precio fijo."""
+    idx = pd.bdate_range("2024-01-01", periods=len(valores))
+    return pd.Series([float(v) for v in valores], index=idx)
+
+
+def test_un_desvio_por_retraso_de_plaza_no_saca_al_instrumento():
+    """Lo que le pasó al oro 3x un viernes: Milán cierra con su cierre del día
+    y la cotización de Stuttgart, mucho más líquida a ratos, sigue imprimiendo
+    operaciones atrasadas. Los dos precios son del MISMO instrumento y aun así
+    se quedan 3 puntos separados, que es más del doble del umbral: con la
+    regla estricta la posición desaparecía de la historia, la correlación y las
+    zonas según la hora a la que se abriera el panel."""
+    _stub({"OROX3.MI": _rango([123.02, 125.25, 111.59, 114.95, 114.38, 114.25])},
+          {"IE00BZ3XGLD1.SG": (117.75, "EUR"), "OROX3.MI": (114.25, "EUR")})
+
+    s, dev = D._proxy_series("IE00BZ3XGLD1.SG", "OROX3.MI")
+
+    assert s is not None, "un retraso de plaza no debería sacar al instrumento"
+    assert dev == pytest.approx(abs(114.25 / 117.75 - 1)), dev
+
+
+def test_un_instrumento_distinto_no_entra_por_la_ventana():
+    """La misma admisión, pero contra lo que el proxy NEGOCIA de verdad. La otra
+    clase de participación cotiza a mitad de precio y tiene rango de sobra: ni
+    con rango ni sin él su precio cae dentro de la ventana."""
+    _stub({"P": _rango([70.0, 72.0, 74.0, 76.0, 78.0, 80.0])},
+          {"O": (139.92, "EUR"), "P": (74.7, "EUR")})
+
+    s, why = D._proxy_series("O", "P")
+
+    assert s is None and "desvío" in why, why
+
+
+def test_la_ventana_de_hoy_cuenta_tambien(monkeypatch):
+    """La serie propia del proxy ya dice dónde ha estado; lo cotizado HOY dice
+    dónde está ahora. Las dos cosas juntas son la ventana."""
+    _stub({"P": _rango([114.25] * 6)},
+          {"O": (117.75, "EUR"), "P": (114.25, "EUR")})
+    monkeypatch.setattr(D, "_ventana", lambda t: (113.57, 121.0))
+
+    s, dev = D._proxy_series("O", "P")
+
+    assert s is not None, "el rango de hoy debería contar"
+    assert dev == pytest.approx(abs(114.25 / 117.75 - 1)), dev
+
+
+def test_sin_ventana_y_sin_rango_la_barra_sigue_en_su_sitio():
+    """Si no hay nada con qué ensanchar la comparación, manda el umbral: la
+    comprobación estricta es el caso por defecto, no la excepción."""
+    _stub({"P": _rango([114.25] * 6)},
+          {"O": (117.75, "EUR"), "P": (114.25, "EUR")})
+
+    s, why = D._proxy_series("O", "P")
+
+    assert s is None and "desvío" in why, why
+
+
+
+# ── the ONE helper every consumer of a series goes through ───────────────
+def test_its_own_series_is_returned_as_its_own():
+    """`_close_series` stays PURE: it never hands back a borrowed series, or the
+    disclosure the resolver and the chart make about whose series it is would
+    be a guess."""
+    _stub({"BTC-EUR": _series(), "OROX3.MI": _series(px=118.31)},
+          {"BTC-EUR": (76000.0, "EUR"), "OROX3.MI": (118.31, "EUR")})
+    s, via, motivo = D._serie_de("BTC-EUR")
+    assert s is not None and via is None and motivo is None
+
+
+def test_a_ticker_with_no_proxy_at_all_comes_back_empty():
+    _stub({}, {"SINHISTORICO": (100.0, "EUR")})
+    assert D._serie_de("SINHISTORICO") == (None, None, None)
+
+
+def test_a_refused_proxy_says_who_refused_and_why():
+    """The reason travels with the symbol: «sin histórico» and «half the price»
+    are different facts, and only the second one is worth going to look at."""
+    _stub({"OROX3.MI": _series(px=74.7)},
+          {"IE00BZ3XGLD1.SG": (117.75, "EUR"), "OROX3.MI": (74.7, "EUR")})
+    s, via, motivo = D._serie_de("IE00BZ3XGLD1.SG")
+    assert s is None and via == "OROX3.MI" and "desvío" in motivo, motivo
+
+
+def test_a_proxy_that_passes_is_returned_with_the_symbol_it_came_from():
+    _stub({"OROX3.MI": _series(px=118.31)},
+          {"IE00BZ3XGLD1.SG": (117.75, "EUR"), "OROX3.MI": (118.31, "EUR")})
+    s, via, motivo = D._serie_de("IE00BZ3XGLD1.SG")
+    assert s is not None and via == "OROX3.MI" and motivo is None
 
 
 if __name__ == "__main__":
