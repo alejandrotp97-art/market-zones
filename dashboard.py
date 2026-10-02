@@ -897,6 +897,39 @@ def _cartera_conn():
     # teclearlas cada vez garantiza que un día se teclee otra cifra distinta.
     if "pending_losses" not in goal_cols:
         c.execute("ALTER TABLE portfolio_goal ADD COLUMN pending_losses REAL")
+    # El libro guarda lo que teclea la persona, y «BITCOIN EUR» se apuntó como
+    # ticker porque no había nada que lo tradujese: no es un símbolo de Yahoo,
+    # no tiene divisa y la posición se caía de todos los totales. Ahora esa
+    # traducción ocurre EN LA ENTRADA (`SYMBOL_ALIASES`), pero las filas viejas
+    # siguen en el fichero —y una copia de seguridad restaurada las trae igual,
+    # por eso vive aquí, con las demás migraciones, y no en un script suelto que
+    # habría que acordarse de correr.
+    #
+    # Se comprueba ANTES de tocar nada, para que el camino común —una cartera
+    # sin texto viejo— siga siendo una consulta que no encuentra nada. Y es
+    # idempotente: se ejecuta en CADA conexión.
+    for viejo, (nuevo, nombre, kind) in SYMBOL_ALIASES.items():
+        if not c.execute("SELECT 1 FROM movements WHERE ticker=? LIMIT 1",
+                         (viejo,)).fetchone():
+            continue
+        c.execute("UPDATE movements SET ticker=? WHERE ticker=?", (nuevo, viejo))
+        # Sólo las filas sin nombre se completan con el del alias: la que ya
+        # tenía uno es la que la persona escribió, y reemplazarla por un nombre
+        # de catálogo la cambiaría a sus ojos.
+        c.execute("UPDATE movements SET name=?, kind=? WHERE ticker=? "
+                  "AND (name IS NULL OR name='')", (nombre, kind, nuevo))
+        if c.execute("SELECT 1 FROM instrument_meta WHERE ticker=? LIMIT 1",
+                     (viejo,)).fetchone():
+            # `instrument_meta` lleva el ticker como clave primaria: renombrar
+            # sobre una fila que ya existe en el destino reventaría con una
+            # violación de clave. Gana lo que ya estaba en el símbolo bueno.
+            if c.execute("SELECT 1 FROM instrument_meta WHERE ticker=? LIMIT 1",
+                         (nuevo,)).fetchone():
+                c.execute("DELETE FROM instrument_meta WHERE ticker=?", (viejo,))
+            else:
+                c.execute("UPDATE instrument_meta SET ticker=? WHERE ticker=?",
+                          (nuevo, viejo))
+    c.commit()
     return c
 
 
@@ -918,6 +951,15 @@ def _portfolio_goal():
 _search_cache: dict[str, tuple[float, list]] = {}
 _KIND_ES = {"EQUITY": "Acción", "ETF": "ETF", "MUTUALFUND": "Fondo", "INDEX": "Índice",
             "CRYPTOCURRENCY": "Cripto", "CURRENCY": "Divisa", "FUTURE": "Futuro"}
+
+# Traducción de un ticker escrito a MANO a un símbolo de Yahoo. Clave en
+# mayúsculas, valor (símbolo, nombre, tipo). Se consulta ANTES de cualquier
+# llamada a la red, y tiene que ser así: «BITCOIN EUR» es literalmente el
+# rótulo que Yahoo pone a `BTC-EUR`, pero buscarlo devuelve PRIMERO un contrato
+# de futuros de microbitcoin —que es lo que más se mueve— y sin este puente la
+# posición no tiene divisa, así que se cae de todos los totales del panel, de la
+# historia, de la correlación y del mapa.
+SYMBOL_ALIASES = {"BITCOIN EUR": ("BTC-EUR", "Bitcoin EUR", "Cripto")}
 
 
 def _yahoo_search(q: str, limit: int = 12) -> list:
@@ -955,6 +997,11 @@ def _resolve_symbol(query: str):
     q = str(query or "").strip()
     if not q:
         return "", "", ""
+    # El atajo local, antes que la red: es un hecho conocido, no una búsqueda, y
+    # una cartera con bitcoin no puede depender de que Yahoo conteste.
+    alias = SYMBOL_ALIASES.get(q.upper())
+    if alias:
+        return alias
     if _looks_like_isin(q) or " " in q:
         res = _yahoo_search(q)
         # An ISIN names ONE instrument, so the listing whose symbol is built from
@@ -967,6 +1014,14 @@ def _resolve_symbol(query: str):
             for r in res:
                 if _symbol_isin(r["symbol"]) == want:
                     return r["symbol"], r["name"], r["kind"]
+        # The query may BE the instrument's own name: Yahoo labels BTC-EUR
+        # shortname "Bitcoin EUR", and the first hit for "BITCOIN EUR" is a micro
+        # futures contract nobody asked for — `res[0]` there would book a
+        # derivative where the user keeps their savings. An exact name match is
+        # as close to naming ONE instrument as free text gets.
+        for r in res:
+            if str(r["name"] or "").strip().casefold() == q.casefold():
+                return r["symbol"], r["name"], r["kind"]
         # prefer ETF/fund/equity over indices; keep first otherwise
         for pref in ("ETF", "Fondo", "Acción"):
             for r in res:
@@ -1513,9 +1568,10 @@ def _parse_upload(filename: str, data: bytes):
     # al revés, una nota que sea sólo un tabulador vuelve como apóstrofo.
     _des = _csv_text_read if list(df.columns) == CARTERA_EXPORT_COLS else str
     rows, errors = [], []
-    # Each distinct ISIN costs one outbound Yahoo search, so a crafted file is
-    # a request amplifier pointed at a third party. Resolutions are memoised
-    # per file and capped; past the cap the raw ISIN is kept as the ticker.
+    # Each distinct LOOKUP —an ISIN or a free-text name with a space— costs one
+    # outbound Yahoo search, so a crafted file is a request amplifier pointed at
+    # a third party. Resolutions are memoised per file and capped; past the cap
+    # the raw ticker is kept as it came.
     resolved: dict[str, tuple] = {}
     for i, row in df.iterrows():
         try:
@@ -1524,7 +1580,9 @@ def _parse_upload(filename: str, data: bytes):
                 continue
             nm = (_des(str(row[cols["name"]])).strip() if "name" in cols and pd.notna(row[cols["name"]]) else "")
             tk, kind = raw.upper(), ""
-            if _looks_like_isin(raw):                 # ISIN column -> resolve to a Yahoo symbol
+            # Un ISIN o un nombre con espacios: los dos son texto que hay que
+            # traducir a un símbolo; un código de una sola palabra ya lo es.
+            if _looks_like_isin(raw) or " " in raw:
                 if raw in resolved:
                     sym, rn, kd = resolved[raw]
                 elif len(resolved) < MAX_ISIN_LOOKUPS:
@@ -1732,7 +1790,7 @@ def api_cartera_add():
     name = str(d.get("name", "")).strip()
     kind = str(d.get("kind", "")).strip()
     tk = raw.upper()
-    if _looks_like_isin(raw) and not d.get("symbol"):    # entered an ISIN -> resolve
+    if not d.get("symbol"):                   # ISIN o texto libre -> símbolo
         sym, rn, kd = _resolve_symbol(raw)
         if sym:
             tk, kind, name = sym, (kind or kd), (name or rn)
@@ -2388,7 +2446,7 @@ def api_cartera_edit(mid):
         if "ticker" in d and str(d["ticker"]).strip():
             tk = str(d["ticker"]).strip().upper()
             name, kind = str(d.get("name", "")).strip(), str(d.get("kind", "")).strip()
-            if _looks_like_isin(tk) and not d.get("symbol"):
+            if not d.get("symbol"):            # ISIN o texto libre -> símbolo
                 sym, rn, kd = _resolve_symbol(tk)
                 if sym:
                     tk, kind, name = sym, (kind or kd), (name or rn)

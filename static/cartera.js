@@ -829,7 +829,8 @@
       box.innerHTML = `<div class="mut">Todavía no hay clasificación para tus posiciones.</div>`;
       return;
     }
-    const COL = { equity: "#3fae6b", bond: "#4a90d9", commodity: "#b0873f", cash: "#7c828e" };
+    const COL = { equity: "#3fae6b", bond: "#4a90d9", commodity: "#b0873f",
+                  cash: "#7c828e", crypto: "#8a63d2" };
     leg.textContent = d.unclassified_pct ? `${d.unclassified_pct}% sin clasificar` : "";
     box.innerHTML = `
       <div class="ccy-bar">${d.rows.map((r) => `<span class="ccy-seg"

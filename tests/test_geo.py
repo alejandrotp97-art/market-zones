@@ -85,6 +85,27 @@ def test_gold_never_paints_a_country():
     assert res["mapped_eur"] == 0.0
 
 
+def test_crypto_is_an_asset_class_and_paints_no_country():
+    """El bitcoin no vive en ningún país, igual que el oro: no es un hueco de
+    datos sino una propiedad del activo, y tiene que entrar en su propio saco
+    en vez de quedarse en `unmapped` como si faltara la tabla."""
+    tabla = {"as_of": "2026-10-01", "instruments": {
+        "BTC-EUR": {"name": "Bitcoin EUR", "asset_class": "crypto",
+                    "no_geography": True, "weights": {}, "other": 0.0,
+                    "proxy": None, "source": None, "as_of": "2026-10-01"}}}
+    res = G.country_exposure([_pos("BTC-EUR", 500.0)], tabla)
+
+    assert "crypto" in G.ASSET_CLASSES, "la ruta /api/cartera/geo la rechazaría"
+    assert res["countries"] == []
+    assert res["no_geography_eur"] == 500.0
+    assert res["unmapped_eur"] == 0.0
+    # y el filtro por clase la encuentra, sin devolver lo que no es de esa clase
+    por_clase = G.country_exposure([_pos("BTC-EUR", 500.0)], tabla, asset_class="crypto")
+    assert por_clase["no_geography_eur"] == 500.0
+    assert G.country_exposure([_pos("BTC-EUR", 500.0)], tabla,
+                              asset_class="equity")["total_eur"] == 0.0
+
+
 def test_instrument_missing_from_the_table_is_reported_not_dropped():
     res = G.country_exposure(
         [_pos("WORLD", 1000.0), _pos("MYSTERY", 500.0)], TABLE)
@@ -188,6 +209,26 @@ def test_gold_is_not_a_proxy_and_needs_nobody():
     r = S.resolve("FR0013416716.SG", "Amundi Physical Gold")
     assert r["proxy_isin"] is None
     assert r["is_proxy"] is False and r["needs_proxy"] is False
+
+
+def test_the_leveraged_gold_line_has_no_country_either():
+    """Sin entrada en `PROXIES`, el ISIN del propio ticker hace pensar que es un
+    ETF de renta variable perfilado por justETF: clase equivocada y país
+    inventado. Tampoco red: la comprobación es local."""
+    r = S.resolve("IE00BZ3XGLD1.SG", "Gestora Delta Gold 3x Daily Leverage")
+    assert r["proxy_isin"] is None
+    assert r["asset_class"] == "commodity"
+    assert r["needs_proxy"] is False and r["is_proxy"] is False
+
+
+def test_bitcoin_has_no_country_either():
+    """El timer semanal de siembra recorre TODOS los títulos en cartera: sin la
+    entrada en `PROXIES`, la siguiente pasada lo devolvería a `needs_proxy` y
+    borraría lo que se escriba hoy en el JSON."""
+    r = S.resolve("BTC-EUR", "Bitcoin EUR")
+    assert r["proxy_isin"] is None
+    assert r["asset_class"] == "crypto"
+    assert r["needs_proxy"] is False and r["is_proxy"] is False
 
 
 def test_unknown_fund_asks_for_a_human_choice_instead_of_guessing():
