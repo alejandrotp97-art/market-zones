@@ -1391,7 +1391,7 @@ def _catalogo_resolver(isin: str, perf_id: str = "", nombre: str = "") -> dict:
         # Sin serie propia la línea aún puede dibujarse si tiene un proxy
         # comprobado a mano en `HISTORY_PROXY`. Avisar de «sin histórico» sobre
         # una que el panel pinta perfectamente sería asustar sin motivo — y son
-        # justo las dos líneas de Stuttgart que ya están en esa tabla.
+        # justo las tres líneas de Stuttgart que ya están en esa tabla.
         hay = bool(serie is not None and len(serie) > 5)
         opciones.append({"symbol": sym, "name": r.get("name") or "",
                          "kind": r.get("kind") or "", "price": price, "ccy": ccy,
@@ -1405,11 +1405,12 @@ def _catalogo_resolver(isin: str, perf_id: str = "", nombre: str = "") -> dict:
             "base_ccy": BASE_CCY, "denom_ccy": ficha.get("ccy")}
 
 
-_meta_cache: dict[str, tuple[float, tuple]] = {}
+META_TTL = 120                         # seconds a chart-meta entry stays fresh
+_meta_cache: dict[str, tuple[float, dict]] = {}
 
 # ── History proxies ───────────────────────────────────────────────────────
 # Some listings are priceable but not chartable: Yahoo answers with `meta` (so
-# a live quote exists) and no `timestamp` array at all. Both of these are the
+# a live quote exists) and no `timestamp` array at all. All of these are the
 # Stuttgart line of an instrument that also trades elsewhere, and the sibling
 # listing DOES carry history — same ISIN, same currency, arbitraged against
 # each other, so it is the same asset read through another window rather than
@@ -1425,8 +1426,10 @@ _meta_cache: dict[str, tuple[float, tuple]] = {}
 HISTORY_PROXY = {
     "IE000M7V94E1.SG": "NUKL.DE",   # VanEck Uranium & Nuclear UCITS, Xetra, EUR
     "FR0013416716.SG": "GOLD.MI",   # Amundi Physical Gold ETC, Milan, EUR
+    "IE00BZ3XGLD1.SG": "OROX3.MI",   # Gestora Delta Gold 3x Daily Leverage, Borsa Italiana, EUR
 }
 PROXY_MAX_DEV = 0.02            # a sibling further than 2% away is not the same line
+PROXY_VENTANA = 10              # sesiones que componen la ventana de cotización
 
 
 # Full instrument name for the header. Yahoo answers "Tesla, Inc." / "Amazon.com,
@@ -1437,9 +1440,9 @@ PROXY_MAX_DEV = 0.02            # a sibling further than 2% away is not the same
 def _quote_meta(symbol: str):
     """(live price, currency) from Yahoo chart meta. Cached ~120s (near real-time)."""
     t = symbol.upper().strip()
-    hit = _meta_cache.get(t)
-    if hit and time.time() - hit[0] < 120:
-        return hit[1]
+    m = _meta_bruto(t)
+    if m is not None:
+        return (m.get("regularMarketPrice"), m.get("currency"))
     try:
         # Same validation as fetch_daily: encoding alone would stop the URL
         # being steered, but rejecting a bad shape avoids the pointless
@@ -1449,11 +1452,33 @@ def _quote_meta(symbol: str):
         m = json.load(urllib.request.urlopen(
             urllib.request.Request(u, headers={"User-Agent": "Mozilla/5.0"}), timeout=12)
         )["chart"]["result"][0]["meta"]
-        res = (m.get("regularMarketPrice"), m.get("currency"))
     except Exception:
         return (None, None)                       # transient -> do not cache
-    _cache_put(_meta_cache, t, (time.time(), res), cap=256)
-    return res
+    _cache_put(_meta_cache, t, (time.time(), m), cap=256)
+    return (m.get("regularMarketPrice"), m.get("currency"))
+
+
+def _meta_bruto(symbol: str):
+    """La ficha de cotización YA TRAÍDA, o `None` si no está (o caducó).
+
+    No sale a la red por su cuenta: pedir un detalle más no puede convertir una
+    lectura en dos peticiones, y que en los tests `_quote_meta` esté
+    reemplazado hace que «nobody la trajo» se interprete como «no lo sé», con
+    lo que manda la comprobación estricta en lugar de una ventana inventada.
+    """
+    t = symbol.upper().strip()
+    hit = _meta_cache.get(t)
+    if not hit or time.time() - hit[0] >= META_TTL:
+        return None
+    return hit[1]
+
+
+def _ventana(symbol: str):
+    """(mín, máx) que el símbolo ha cotizado HOY, si su ficha está traída."""
+    m = _meta_bruto(symbol)
+    if not m:
+        return (None, None)
+    return (m.get("regularMarketDayLow"), m.get("regularMarketDayHigh"))
 
 
 def _last_price(ticker: str):
@@ -2056,7 +2081,10 @@ def _cartera_correlacion(days: int = CORR_DAYS, benchmark: str = "SPY", payload=
     series, excluidas = {}, []
     for p in abiertas:
         t = p["ticker"]
-        s = _close_series(t)
+        # `_serie_de` y no `_close_series`: una línea sin serie propia la pinta
+        # la gráfica con la de su hermano, y esta tarjeta no puede ser la única
+        # que se entera de que existe.
+        s = _serie_de(t)[0]
         if s is None or not len(s):
             excluidas.append(fuera(t, "sin histórico"))
             continue
@@ -2186,6 +2214,37 @@ def api_cartera_rendimiento():
         return jsonify({"error": str(e)}), 502
 
 
+def _zona_para(ticker: str) -> dict:
+    """Zona de HOY de `ticker`, o el aviso de por qué su zona no existe.
+
+    Cotiza pero no tiene gráfico: es un hecho asentado del instrumento, no un
+    fallo pasajero, y decirlo con su nombre evita que alguien busque el error en
+    su cartera. Cuando `HISTORY_PROXY` apunta a un hermano comprobado a mano, la
+    zona SÍ existe —es el mismo instrumento en otra plaza, en la misma divisa—
+    y se devuelve BAJO el ticker real, porque la tarjeta nombra lo que se tiene,
+    no lo que se le prestó; con ese nombre se deja cacheada.
+
+    Un tropiezo pasajero de cualquiera de los dos se PROPAGA en vez de
+    devolverse como respuesta: no se cachea un fallo de red como un hecho del
+    instrumento.
+    """
+    for sym in (ticker, HISTORY_PROXY.get(ticker)):
+        if not sym:
+            return {"error": "sin histórico que puntuar"}
+        try:
+            zona = _zone_of(sym)
+        except NoHistory:
+            continue
+        # La cabecera busca la zona BAJO el ticker real: si el préstamo sólo
+        # quedase con la clave del hermano, esa tarjeta diría «todavía no lo
+        # sé» sobre una zona que esta misma pantalla enseña sin descargar nada.
+        # Las dos piezas leen la misma caché, con el nombre de lo que se tiene.
+        _cache_put(_zone_cache, ticker.upper().strip(), (time.time(), zona),
+                   cap=CACHE_MAX)
+        return zona
+    return {"error": "sin histórico que puntuar"}
+
+
 @app.route("/api/cartera/zonas")
 def api_cartera_zonas():
     """La zona del índice para cada posición ABIERTA de la cartera.
@@ -2221,12 +2280,7 @@ def api_cartera_zonas():
             pending.append(t)
             continue
         try:
-            out[t] = _zone_of(t)
-        except NoHistory:
-            # Cotiza pero no tiene gráfico: es un hecho asentado del instrumento,
-            # no un fallo pasajero, y decirlo con su nombre evita que alguien
-            # busque el error en su cartera.
-            out[t] = {"error": "sin histórico que puntuar"}
+            out[t] = _zona_para(t)
         except BadSymbol:
             out[t] = {"error": "símbolo no válido"}
         except Exception:
@@ -2625,11 +2679,14 @@ def _cartera_estado(benchmark: str = "SPY"):
     total = sum(x["market_value"] for x in valoradas) or 0.0
 
     # ¿De qué posiciones hay serie utilizable? Es el hecho que gobierna la
-    # entrada al gráfico, a la rentabilidad y a la correlación.
+    # entrada al gráfico, a la rentabilidad y a la correlación. Pasa por
+    # `_serie_de`: lo que la gráfica pinta con la serie de un hermano cuenta
+    # aquí también, o la cabecera anunciaría «sin histórico» sobre líneas que
+    # el gráfico dibuja perfectamente.
     con_hist = {}
     for x in abiertas:
         try:
-            serie = _close_series(x["ticker"])
+            serie = _serie_de(x["ticker"])[0]
             con_hist[x["ticker"]] = bool(serie is not None and len(serie))
         except Exception:
             con_hist[x["ticker"]] = False
@@ -3158,9 +3215,61 @@ def _proxy_series(original: str, proxy: str):
     if not p_orig or not p_prox:
         return None, "sin cotización para comparar"
     dev = abs(p_prox / p_orig - 1.0)
-    if dev > PROXY_MAX_DEV:
-        return None, f"desvío de precio {dev:.1%} (máx {PROXY_MAX_DEV:.0%})"
-    return s, dev
+    if dev <= PROXY_MAX_DEV:
+        return s, dev
+
+    # Los dos precios pueden ser del MISMO instrumento y no cuadrar: una plaza
+    # cierra con su cierre del día y la otra sigue imprimiendo operaciones, y en
+    # un apalancado 3x eso son varios puntos de desvío a deshora. En vez de una
+    # fotografía de dos instantes, la comparación se hace contra lo que el proxy
+    # ha NEGOCIADO de verdad — sus últimas sesiones y lo cotizado hoy — de modo
+    # que un precio atrasado del original sigue entrando mientras siga siendo del
+    # mismo orden. Lo que NO entra es otra clase de participación: si el GOLD.PA
+    # a mitad de precio metiera la pata, su precio no cae en esa ventana ni con
+    # suerte.
+    lo = hi = None
+    if len(s):
+        lo, hi = float(s.tail(PROXY_VENTANA).min()), float(s.tail(PROXY_VENTANA).max())
+    v_lo, v_hi = _ventana(proxy)                # hoy, si su ficha está traída
+    if v_lo and v_hi:
+        lo = v_lo if lo is None else min(lo, float(v_lo))
+        hi = v_hi if hi is None else max(hi, float(v_hi))
+    if lo is not None and lo * (1 - PROXY_MAX_DEV) <= p_orig <= hi * (1 + PROXY_MAX_DEV):
+        return s, dev
+
+    return None, f"desvío de precio {dev:.1%} (máx {PROXY_MAX_DEV:.0%})"
+
+
+def _serie_de(ticker: str):
+    """(serie, via, motivo): la serie del propio símbolo; si no la tiene, la de un
+    hermano comprobado a mano de `HISTORY_PROXY`.
+
+    Es el ÚNICO sitio por el que pasa la decisión de prestar una serie: la
+    cabecera, la correlación, las zonas y la reconstrucción pasan por aquí, y
+    así dos tarjetas de la misma pantalla no pueden contar dos cosas distintas
+    sobre el mismo ticker.
+
+    `_close_series` se queda PURA —nunca devuelve un prestado— porque el panel
+    DICE de quién es la serie que pinta (`via` en el resolvedor, `proxied` en la
+    gráfica): si el préstamo llegase sin nombre, quien mira no podría saber qué
+    instrumento está viendo.
+
+    Devuelve:
+      * `(serie, None, None)` con serie propia;
+      * `(None, None, None)` sin proxy configurado;
+      * `(None, via, motivo)` cuando el hermano no pasa las comprobaciones;
+      * `(serie_proxy, via, None)` cuando sí las pasa.
+    """
+    s = _close_series(ticker)
+    if s is not None and len(s):
+        return s, None, None
+    via = HISTORY_PROXY.get(ticker)
+    if not via:
+        return None, None, None
+    p, info = _proxy_series(ticker, via)
+    if p is None:
+        return None, via, info
+    return p, via, None
 
 
 def _ffill_on(series, idx):
@@ -3355,18 +3464,32 @@ def _reconstruct_portfolio(benchmark: str = "SPY"):
 
     # A listing with no history of its own may borrow a sibling's, if the
     # sibling still passes every agreement check. Live valuation is untouched:
-    # only the SHAPE OF THE PAST comes from the proxy.
+    # only THE SHAPE OF THE PAST comes from the proxy. `_serie_de` is the ONE
+    # place that decides this, so the chart, the coverage note and this
+    # reconstruction cannot end up disagreeing about whose series a holding is
+    # drawn with.
     proxied, refused = [], {}
     for t in all_tickers:
-        if (series.get(t) is not None and len(series[t])) or t not in HISTORY_PROXY:
+        if series.get(t) is not None and len(series[t]):
             continue
-        via = HISTORY_PROXY[t]
-        s, info = _proxy_series(t, via)
+        s, via, motivo = _serie_de(t)
+        if via is None:
+            continue                      # no own series, and no proxy either
         if s is None:
-            refused[t] = f"{via}: {info}"
-        else:
-            series[t] = s
-            proxied.append({"ticker": t, "via": via, "dev": round(float(info), 5)})
+            refused[t] = f"{via}: {motivo}"
+            continue
+        series[t] = s
+        # `_serie_de` has already passed every agreement check; the DEVIATION
+        # the chart discloses is read back from the same two warm caches rather
+        # than carried in the helper's return value, so one shape serves all of
+        # its callers. A refusal on this re-read means a cache expired in
+        # between, and the holding then reports as refused — never as a borrowed
+        # series with no number behind it.
+        dev = _proxy_series(t, via)[1]
+        if not isinstance(dev, (int, float)):
+            refused[t] = f"{via}: {dev}"
+            continue
+        proxied.append({"ticker": t, "via": via, "dev": round(float(dev), 5)})
 
     # Keep only what can be valued across the whole window, and drop the rest
     # from the cashflow too so the two lines stay comparable. "Valued" means a

@@ -398,6 +398,28 @@ def test_la_cobertura_de_zona_es_NONE_con_la_cache_fria(libro, monkeypatch):
     assert e["coverage"]["analisis"] == 100.0
 
 
+def test_la_cabecera_cuenta_como_analizable_lo_que_el_proxy_cubre(libro, monkeypatch):
+    """El aviso de «N posición(es) sin histórico utilizable» miraba la serie
+    PROPIA de cada ticker, y la gráfica ya pintaba estas líneas vía proxy. Dos
+    piezas de la misma pantalla contando cosas distintas: la cabecera decía que
+    el análisis cubría la mitad del patrimonio sobre una cartera que el gráfico
+    cubría entera."""
+    monkeypatch.setattr(D, "_close_series",
+                        lambda t: None if t == "IE00BZ3XGLD1.SG"
+                        else _serie("2024-01-01", [100] * 300))
+    monkeypatch.setattr(D, "_quote_meta", lambda t: (100.0, "EUR"))
+    monkeypatch.setattr(D, "_prefetch", lambda fn, ts: None)
+    _post(libro, ticker="IE00BZ3XGLD1.SG", side="buy", quantity=10, price=117.75,
+          date="2024-01-01")
+
+    e = D._cartera_estado()
+
+    # `has_history` no sale al JSON: alimenta la lista de avisos, y es ahí donde
+    # se veía la línea de oro como «sin histórico utilizable».
+    assert "sin_historico" not in [a["key"] for a in e["attention"]]
+    assert e["coverage"]["analisis"] == 100.0
+
+
 def test_el_capital_aportado_no_es_el_coste_de_lo_abierto(libro, monkeypatch):
     """`invested` es el coste de lo que sigue abierto: una posición cerrada con
     beneficio desaparece de ahí como si nunca se hubiera aportado. Lo aportado
@@ -640,6 +662,32 @@ def test_la_correlacion_contra_el_indice_va_posicion_a_posicion(libro, monkeypat
     # y el índice NO se cuela como una posición más de la matriz
     assert "__SPY" not in c["tickers"]
     assert len(c["tickers"]) == 2
+
+
+def test_la_correlacion_tambien_presta_la_serie_del_proxy(libro, monkeypatch):
+    """`_cartera_correlacion` leía la serie PROPIA y nada más. La línea de
+    Stuttgart salía en «excluded: sin histórico» mientras la gráfica de la misma
+    pantalla la dibujaba con la de Milán — y la correlación se publica sobre lo
+    que excluye sin decirlo."""
+    import numpy as np
+    idx = pd.bdate_range("2024-01-01", periods=300)
+    rng = np.random.default_rng(3)
+    mundo = pd.Series(100 * np.cumprod(1 + rng.normal(0, 0.01, 300)), index=idx)
+    milan = pd.Series(100 * np.cumprod(1 + rng.normal(0, 0.01, 300)), index=idx)
+    monkeypatch.setattr(
+        D, "_close_series",
+        lambda t: (None if t == "IE00BZ3XGLD1.SG" else
+                   milan if t == "OROX3.MI" else mundo))
+    monkeypatch.setattr(D, "_quote_meta", lambda t: (100.0, "EUR"))
+    monkeypatch.setattr(D, "_prefetch", lambda fn, ts: None)
+    _post(libro, ticker="AAA", side="buy", quantity=10, price=100, date="2024-01-01")
+    _post(libro, ticker="IE00BZ3XGLD1.SG", side="buy", quantity=5, price=117.75,
+          date="2024-01-01")
+
+    c = D._cartera_correlacion()
+
+    assert "IE00BZ3XGLD1.SG" in c["tickers"], "la matriz se lleva la serie del hermano"
+    assert "IE00BZ3XGLD1.SG" not in {x["ticker"] for x in c["excluded"]}
 
 
 # ── el rótulo: la matriz se lee por NOMBRE, no por el símbolo ─────────────
