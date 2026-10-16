@@ -1451,6 +1451,37 @@ HISTORY_PROXY = {
     "FR0013416716.SG": "GOLD.MI",   # Amundi Physical Gold ETC, Milan, EUR
     "IE00BZ3XGLD1.SG": "OROX3.MI",   # Gestora Delta Gold 3x Daily Leverage, Borsa Italiana, EUR
 }
+
+
+# Las referencias de instrumentos REALES no van en el código: el repositorio es
+# público y cada entrada de esta tabla nombra una posición de alguien. Viven en
+# `data/local_proxies.json` (ignorado por git; plantilla en `.example`) y se
+# suman aquí al arrancar. Un fichero roto no tumba el panel: se avisa por stderr
+# y se sigue con la tabla del código.
+LOCAL_PROXIES_PATH = os.environ.get("CARTERA_LOCAL_PROXIES") or os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "data", "local_proxies.json")
+
+
+def _apply_local_proxies(path: str = LOCAL_PROXIES_PATH) -> int:
+    """Añade a HISTORY_PROXY las entradas locales; devuelve cuántas."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        return 0
+    except (OSError, ValueError) as e:
+        print(f"local_proxies: no se pudo leer {path}: {e}", file=sys.stderr)
+        return 0
+    n = 0
+    for tk, via in ((data or {}).get("history_proxy") or {}).items():
+        if isinstance(tk, str) and isinstance(via, str) and tk and via:
+            HISTORY_PROXY[tk] = via
+            n += 1
+    return n
+
+
+_apply_local_proxies()
+
 PROXY_MAX_DEV = 0.02            # a sibling further than 2% away is not the same line
 PROXY_VENTANA = 10              # sesiones que componen la ventana de cotización
 

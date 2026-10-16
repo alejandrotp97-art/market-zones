@@ -1,0 +1,14 @@
+{
+  "_nota": "Copia este fichero a data/local_proxies.json (ignorado por git) y pon aquí las referencias de TUS posiciones. El repositorio es público: ninguna posición real va en el código.",
+  "history_proxy": {
+    "XX0000000001.SG": "HERMANO.MI"
+  },
+  "seed_proxies": {
+    "XX0000000001.SG": {
+      "asset_class": "commodity",
+      "proxy_isin": null,
+      "proxy_name": null,
+      "proxy_note": "materia prima: no tiene país de exposición"
+    }
+  }
+}
