@@ -92,6 +92,26 @@ def _parse_splits(events):
     return sorted(out, key=lambda s: s["date"])
 
 
+def _parse_dividends(events):
+    """Los repartos que Yahoo declara, como `[{"date", "amount"}]` y en orden.
+
+    `amount` es por acción y en la divisa de cotización, bruto.
+    """
+    ev = ((events or {}).get("dividends") or {})
+    out = []
+    for v in ev.values():
+        try:
+            amount = float(v["amount"])
+            ts = int(v.get("date") or 0)
+            if amount <= 0 or not ts:
+                continue
+            out.append({"date": dt.datetime.fromtimestamp(ts, dt.UTC)
+                        .date().isoformat(), "amount": amount})
+        except (KeyError, TypeError, ValueError):
+            continue
+    return sorted(out, key=lambda d: d["date"])
+
+
 def fetch_daily(symbol: str, years: int = 25, drop_forming: bool = True) -> pd.DataFrame:
     """Daily OHLCV for `symbol`, closed bars only.
 
@@ -114,7 +134,10 @@ def fetch_daily(symbol: str, years: int = 25, drop_forming: bool = True) -> pd.D
     # por splits con o sin este parámetro—, pero sin él no hay forma de saber
     # QUÉ splits la han ajustado, y una cartera cuya cantidad de títulos no se
     # actualizó tras uno queda mal valorada sin que nada chirríe.
-    url = f"{_BASE}{enc}?period1={p1}&period2={now}&interval=1d&events=split"
+    # Los dividendos viajan en la misma respuesta (`div|split`): la previsión de
+    # repartos no cuesta ni una petición más, y `quote.close` no cambia por
+    # pedirlos.
+    url = f"{_BASE}{enc}?period1={p1}&period2={now}&interval=1d&events=div%7Csplit"
     req = urllib.request.Request(url, headers=_UA)
     with urllib.request.urlopen(req, timeout=30) as r:
         res = json.load(r)["chart"]["result"][0]
@@ -137,6 +160,7 @@ def fetch_daily(symbol: str, years: int = 25, drop_forming: bool = True) -> pd.D
 
     out = df.reset_index(drop=True)
     out.attrs["splits"] = _parse_splits(res.get("events"))
+    out.attrs["dividends"] = _parse_dividends(res.get("events"))
     # `meta` rides along in THIS same response and used to be dropped on the
     # floor, so the dashboard fetched it again from the SAME endpoint: a 12s
     # timeout chained behind the 30s above, i.e. 42s worst case against a 25s

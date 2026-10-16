@@ -10,6 +10,7 @@ date never changes zone when you switch ranges.
 from __future__ import annotations
 
 import csv
+import datetime
 import gzip
 import html
 import io
@@ -31,6 +32,8 @@ import pandas as pd
 from flask import Flask, Response, jsonify, redirect, render_template, request, send_from_directory
 
 import geo
+from cartera.dividends import forecast as _div_forecast
+from cartera.dividends import monthly_received as _div_received
 from cartera.exposure import by_asset_class as _by_asset_class
 from cartera.exposure import by_economic_currency as _ccy_economic
 from cartera.exposure import by_quote_currency as _ccy_quote
@@ -3168,7 +3171,7 @@ def api_cartera_clear():
 # expirase el TTL. El panel decía «sin consultar» para instrumentos que sí podía
 # mirar, y un split podía pasar desapercibido: justo lo que la función existe
 # para impedir. Compartiendo entrada, no pueden desincronizarse.
-_series_cache: dict[str, tuple[float, object, list]] = {}
+_series_cache: dict[str, tuple[float, object, list, list]] = {}
 
 
 def _splits_of(ticker: str):
@@ -3184,6 +3187,14 @@ def _splits_of(ticker: str):
     return hit[2] if hit else None
 
 
+def _dividends_of(ticker: str):
+    """Repartos por acción que declara la fuente ([{date, amount}]), o None."""
+    t = ticker.upper().strip()
+    _close_series(t)                     # rellena la entrada, sin pedir de más
+    hit = _series_cache.get(t)
+    return hit[3] if hit and len(hit) > 3 else None
+
+
 def _close_series(ticker: str):
     """Daily close series (date-indexed), cached. None if the ticker is unavailable.
 
@@ -3195,12 +3206,13 @@ def _close_series(ticker: str):
     hit = _series_cache.get(t)
     if hit and time.time() - hit[0] < 600:
         return hit[1]
-    splits = []
+    splits, divs = [], []
     try:
         df = fetch_daily(t, years=25)
         # Los splits llegan en la MISMA respuesta, y se guardan con la serie:
         # este es el único sitio por el que pasa el frame entero.
         splits = df.attrs.get("splits") or []
+        divs = df.attrs.get("dividends") or []
         di = pd.DatetimeIndex(pd.to_datetime(df["date"]))
         if di.tz is not None:                    # Yahoo returns tz-aware -> make naive
             di = di.tz_localize(None)
@@ -3210,7 +3222,7 @@ def _close_series(ticker: str):
         s = None                                 # settled fact -> cache it
     except Exception:
         return None                              # transient -> retry next call
-    _cache_put(_series_cache, t, (time.time(), s, splits), cap=CACHE_MAX)
+    _cache_put(_series_cache, t, (time.time(), s, splits, divs), cap=CACHE_MAX)
     return s
 
 
@@ -3719,6 +3731,41 @@ def _cartera_mensual(benchmark: str = "SPY") -> dict:
 def api_cartera_mensual():
     try:
         return _json_response(_cartera_mensual(request.args.get("benchmark", "SPY")),
+                              max_age=0)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
+
+
+DIV_NOTE = ("Previsión: estimación que repite cada pago de los últimos 12 meses por "
+            "tus participaciones de hoy, al cambio de hoy, en bruto (antes de "
+            "retención). Cobrado: neto, al cambio de su día.")
+
+
+def _cartera_dividendos(benchmark: str = "SPY") -> dict:
+    """Cobrado por mes (de la reconstrucción) y previsión a 12 meses."""
+    r = _reconstruct_portfolio(benchmark)
+    nombres = _nombres_cartera()
+    received = [] if r["empty"] else _div_received(r["idx"], r["pos"], nombres)
+    hoy = datetime.date.today()
+    corte = (pd.Timestamp(hoy) - pd.DateOffset(months=11)).strftime("%Y-%m")
+    rec12 = sum(m["eur"] for m in received if m["month"] >= corte)
+    payload = _cartera_payload()
+    hold = {p["ticker"]: {"qty": p["qty"], "fx": p.get("fx"), "market_value": p.get("market_value"),
+                          "name": p.get("name") or nombres.get(p["ticker"], p["ticker"])}
+            for p in payload["positions"] if p["qty"] > 1e-9}
+    _prefetch(_close_series, list(hold))
+    events = {t: (_dividends_of(t) or []) for t in hold}
+    fc = _div_forecast(hold, events, hoy)
+    return {"received": received, "received_12m": round(rec12, 2), "forecast": fc,
+            "portfolio_eur": payload["summary"]["market_value"],
+            "base": BASE_CCY, "note": DIV_NOTE,
+            "excluded": [] if r["empty"] else r["excluded"]}
+
+
+@app.route("/api/cartera/dividendos")
+def api_cartera_dividendos():
+    try:
+        return _json_response(_cartera_dividendos(request.args.get("benchmark", "SPY")),
                               max_age=0)
     except Exception as e:
         return jsonify({"error": str(e)}), 502
