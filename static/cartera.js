@@ -211,7 +211,7 @@
     renderContrib(p);
     if (dataChanged) loadRebal();
     if (dataChanged) { loadZones(); loadPerfYCorr(); loadEstado(); loadAport();
-                       loadCcy(); loadClases(); }
+                       loadCcy(); loadClases(); loadPeriodos(); }
     else paintZones();
     if (reloadHistory) loadHistory();     // skipped on first load: already in flight
   }
@@ -981,6 +981,32 @@
       <p class="mut small">Los dos sumandos reconstruyen el resultado no realizado
         <b>al céntimo</b>: no es un reparto aproximado. El de la divisa es lo que ha
         puesto (o quitado) el tipo de cambio entre el día de tus compras y hoy.</p>`;
+  }
+
+  // ══ rentabilidad por periodo ══════════════════════════════════════════
+  // Una fila por posición abierta y una columna por tramo. Arriba el %, debajo
+  // los euros: el % compara posiciones de tamaños distintos, los euros dicen
+  // cuál movió de verdad la cartera.
+  const PERIODOS = { "1d": "1D", "1w": "1S", "1m": "1M", ytd: "YTD", "1y": "1A", all: "Todo" };
+  const celdaPeriodo = (v) => v == null ? `<td class="num">—</td>`
+    : `<td class="num"><span style="${pcol(v.abs)}">${pct(v.pct)}</span>`
+      + `<div class="mut small">${signed(v.abs, " €")}</div></td>`;
+
+  async function loadPeriodos() {
+    const leg = $("periodos-legend"), box = $("periodos");
+    let d = null;
+    try { d = await (await fetch("/api/cartera/periodos")).json(); } catch (e) { /* d sigue null */ }
+    if (!d || d.error) { leg.textContent = ""; box.innerHTML = `<div class="mut">No pude calcularla.</div>`; return; }
+    if (d.empty || !d.positions.length) {
+      leg.textContent = ""; box.innerHTML = `<div class="mut">Sin posiciones con histórico.</div>`; return;
+    }
+    leg.textContent = `a cierre del ${d.as_of}` + (d.excluded.length ? ` · fuera: ${d.excluded.join(", ")}` : "");
+    const ws = d.windows;
+    const head = `<tr><th>Activo</th>${ws.map((w) => `<th class="num">${PERIODOS[w] || w}</th>`).join("")}</tr>`;
+    const rows = d.positions.map((p) =>
+      `<tr><td title="${esc(p.ticker)}">${esc(p.name)}</td>${ws.map((w) => celdaPeriodo(p.values[w])).join("")}</tr>`).join("");
+    const total = `<tr class="total"><td><b>Cartera</b></td>${ws.map((w) => celdaPeriodo(d.total[w])).join("")}</tr>`;
+    box.innerHTML = `<table class="tbl"><thead>${head}</thead><tbody>${rows}${total}</tbody></table>`;
   }
 
   // ══ diversificación real ══════════════════════════════════════════════

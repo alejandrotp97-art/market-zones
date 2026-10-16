@@ -58,6 +58,8 @@ from cartera.parsing import num as _num
 from cartera.parsing import side_es as _side_es
 from cartera.parsing import sniff_sep as _sniff_sep
 from cartera.parsing import symbol_isin as _symbol_isin
+from cartera.periods import WINDOWS as _PERIOD_WINDOWS
+from cartera.periods import period_returns as _period_returns
 from cartera.plan import attention as _attention
 from cartera.plan import contribution_stats as _contrib_stats
 from cartera.plan import diary as _diary
@@ -3580,6 +3582,11 @@ def _reconstruct_portfolio(benchmark: str = "SPY"):
         poss = np.clip(idx.searchsorted(dts), 0, len(idx) - 1)
 
     port = np.zeros(len(idx))
+    # La misma cuenta, guardada también por posición: la rentabilidad por tramos
+    # de cada activo y el resumen del mes necesitan saber QUIÉN movió la suma.
+    # `port` sigue siendo la suma de estos valores, exactamente.
+    pos_t = {t: {"value": None, "flows": np.zeros(len(idx)), "divs": np.zeros(len(idx))}
+           for t in tickers}
     for t in tickers:
         # Every entry here has a series, a currency, an fx array and a matching
         # cashflow. No `continue` may drop a position at this point — that is
@@ -3591,7 +3598,9 @@ def _reconstruct_portfolio(benchmark: str = "SPY"):
             if m["ticker"] == t:
                 qc[poss[k]] += (m["quantity"] if m["side"] == "buy" else -m["quantity"])
         qty = np.cumsum(qc)
-        port += np.where(np.isfinite(price_eur), qty * price_eur, 0.0)
+        val = np.where(np.isfinite(price_eur), qty * price_eur, 0.0)
+        pos_t[t]["value"] = val
+        port += val
 
     bfx = fx_arr(bccy) if bccy else None
     bprice = _ffill_on(bench, idx)
@@ -3602,6 +3611,7 @@ def _reconstruct_portfolio(benchmark: str = "SPY"):
         rate = fx_arr(tccy[m["ticker"]])[poss[k]]          # EUR at the movement date
         cash = ((q * px + fee) if m["side"] == "buy" else -(q * px - fee)) * rate
         inv_c[poss[k]] += cash
+        pos_t[m["ticker"]]["flows"][poss[k]] += cash
         if bprice_eur is not None and np.isfinite(bprice_eur[poss[k]]) and bprice_eur[poss[k]] > 0:
             bsh_c[poss[k]] += cash / bprice_eur[poss[k]]
     invested = np.cumsum(inv_c)
@@ -3618,9 +3628,12 @@ def _reconstruct_portfolio(benchmark: str = "SPY"):
             continue
         pos = int(np.clip(idx.searchsorted(pd.to_datetime(m["date"])), 0, len(idx) - 1))
         rate = fx_arr(tccy[m["ticker"]])[pos]
-        div_c[pos] += (m["quantity"] * m["price"] - (m["fee"] or 0.0)) * rate
+        neto = (m["quantity"] * m["price"] - (m["fee"] or 0.0)) * rate
+        div_c[pos] += neto
+        pos_t[m["ticker"]]["divs"][pos] += neto
 
     return {"empty": False, "idx": idx, "port": port, "invested": invested,
+            "pos": pos_t,
             "grid_ticker": rejilla,
             "bench_val": bench_val, "bprice_eur": bprice_eur,
             "flows": inv_c, "divs": div_c,
@@ -3635,6 +3648,48 @@ def api_cartera_history():
         return _json_response(_cartera_history(
             bench, rango=request.args.get("range"),
             desde=request.args.get("from"), hasta=request.args.get("to")), max_age=0)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
+
+
+def _nombres_cartera() -> dict:
+    """ticker -> nombre guardado en el libro (el último no vacío)."""
+    with _cartera_conn() as c:
+        rows = c.execute("SELECT ticker, MAX(COALESCE(name,'')) FROM movements "
+                         "GROUP BY ticker").fetchall()
+    return {t: (n or t) for t, n in rows}
+
+
+def _cartera_periodos(benchmark: str = "SPY") -> dict:
+    """Rentabilidad de cada posición abierta en 1D / 1S / 1M / YTD / 1A / Todo.
+
+    Sale de la MISMA reconstrucción que la gráfica, posición a posición, así que
+    la suma de una columna en euros cuadra con lo que la gráfica movió en ese
+    tramo. Lo que la gráfica deja fuera (sin serie o sin cambio) también queda
+    fuera aquí, y se dice en `excluded`.
+    """
+    r = _reconstruct_portfolio(benchmark)
+    if r["empty"]:
+        return {"empty": True, "windows": list(_PERIOD_WINDOWS), "positions": [],
+                "total": {}, "as_of": None,
+                "excluded": r["payload"].get("excluded", [])}
+    res = _period_returns(r["idx"], r["pos"])
+    nombres = _nombres_cartera()
+    filas = [{"ticker": t, "name": nombres.get(t, t), "values": v}
+             for t, v in res["positions"].items()]
+    # Orden por lo que más pesa hoy: es el orden de la tabla de posiciones.
+    peso = {t: float(r["pos"][t]["value"][-1]) for t in res["positions"]}
+    filas.sort(key=lambda f: -peso[f["ticker"]])
+    return {"empty": False, "windows": res["windows"], "positions": filas,
+            "total": res["total"], "as_of": res["as_of"],
+            "excluded": r["excluded"]}
+
+
+@app.route("/api/cartera/periodos")
+def api_cartera_periodos():
+    try:
+        return _json_response(_cartera_periodos(request.args.get("benchmark", "SPY")),
+                              max_age=0)
     except Exception as e:
         return jsonify({"error": str(e)}), 502
 
