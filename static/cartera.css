@@ -531,3 +531,15 @@ table.fi-lots td,table.fi-lots th{padding:4px 8px;}
 .dlg-x{margin-left:auto;background:none;border:none;color:var(--muted);
   font-size:15px;line-height:1;padding:5px 9px;cursor:pointer;}
 .dlg-x:hover{color:var(--text);border-color:transparent;}
+
+/* ── sectores y X-ray ─────────────────────────────────────────────────────
+   Rejilla propia: estas filas llevan NOMBRES largos, y `.ccy-row` clava 42px
+   para un código de divisa. */
+.lt-list{display:grid;gap:3px;font-size:12px;}
+.lt-row{display:grid;grid-template-columns:9px minmax(0,1fr) auto auto;gap:8px;
+  align-items:center;font-variant-numeric:tabular-nums;}
+.lt-row i{width:9px;height:9px;border-radius:2px;}
+.lt-n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.lt-via{grid-column:2 / -1;font-size:11px;color:var(--muted);margin:-1px 0 3px;}
+.lt-h{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.04em;
+  color:var(--muted);margin:12px 0 4px;}

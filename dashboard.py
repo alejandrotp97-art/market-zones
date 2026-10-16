@@ -43,6 +43,8 @@ from cartera.fiscal import simulate_sale as _simulate_sale
 # movimiento no depende de que haya un navegador delante. Aquí dentro siguen
 # siendo detalles internos, así que se reexportan con el guion bajo con el que
 # los llama el resto de este fichero.
+from cartera.lookthrough import sector_exposure as _sector_exposure
+from cartera.lookthrough import xray as _xray
 from cartera.parsing import CARTERA_EXPORT_COLS, COLSYN
 from cartera.parsing import csv_num as _csv_num
 from cartera.parsing import csv_text as _csv_text
@@ -3772,6 +3774,32 @@ def api_cartera_geo():
         res["seeding"] = sorted(_seeding)
     return _json_response(res, max_age=0)
 
+
+def _abiertas_y_total():
+    payload = _cartera_payload()
+    return ([p for p in payload["positions"] if p["qty"] > 1e-9],
+            payload["summary"]["market_value"])
+
+
+@app.route("/api/cartera/sectores")
+def api_cartera_sectores():
+    """Reparto sectorial por transparencia, con la misma tabla que el mapa."""
+    open_pos, total = _abiertas_y_total()
+    res = _sector_exposure(open_pos, geo.load_table())
+    res["portfolio_eur"] = total
+    with _seed_lock:
+        res["seeding"] = sorted(_seeding)
+    return _json_response(res, max_age=0)
+
+
+@app.route("/api/cartera/xray")
+def api_cartera_xray():
+    """Las acciones de debajo de los fondos y dónde se repiten."""
+    open_pos, _total = _abiertas_y_total()
+    res = _xray(open_pos, geo.load_table())
+    with _seed_lock:
+        res["seeding"] = sorted(_seeding)
+    return _json_response(res, max_age=0)
 
 def _prewarm() -> None:
     """Warm both caches after startup so the first click is instant.

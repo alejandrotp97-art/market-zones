@@ -211,7 +211,7 @@
     renderContrib(p);
     if (dataChanged) loadRebal();
     if (dataChanged) { loadZones(); loadPerfYCorr(); loadEstado(); loadAport();
-                       loadCcy(); loadClases(); loadPeriodos(); }
+                       loadCcy(); loadClases(); loadPeriodos(); loadSectores(); loadXray(); }
     else paintZones();
     if (reloadHistory) loadHistory();     // skipped on first load: already in flight
   }
@@ -849,6 +849,73 @@
       <p class="mut small">Misma clasificación que usa el mapa de países. Dos
         taxonomías en la misma aplicación acaban discrepando, y entonces hay que
         decidir cuál vale cada vez que se mira.</p>`;
+  }
+
+  // ══ sectores ══════════════════════════════════════════════════════════
+  const SECT_COL = ["#4a90d9", "#3fae6b", "#b0873f", "#cf5b3a", "#8a63d2", "#2bb3a6",
+    "#d9a23f", "#d96aa0", "#6f8f3f", "#5b6fd9", "#9a6b4f", "#7c828e", "#3f8fb0", "#b04a4a"];
+  const fuera = (rows, total, txt) => rows.length ? `<p class="mut small">⚠ <b>${eur(total)}</b> ${txt}:
+    ${rows.map((o) => `${esc(o.name)} (${esc(o.why || eur(o.eur))})`).join(", ")}.</p>` : "";
+
+  async function loadSectores() {
+    const box = $("sect"), leg = $("sect-legend");
+    let d;
+    try { d = await (await fetch("/api/cartera/sectores")).json(); }
+    catch (e) { box.innerHTML = `<div class="mut">No pude calcularlo.</div>`; return; }
+    if (d.error) { box.innerHTML = `<div class="mut">${esc(d.error)}</div>`; return; }
+    const base = d.mapped_eur + d.other_eur;
+    leg.textContent = d.portfolio_eur ? `${Math.round(base / d.portfolio_eur * 100)}% de la cartera con sector` : "";
+    if (!d.sectors.length) {
+      box.innerHTML = `<div class="mut">Todavía no hay sectores para tus fondos.</div>`
+        + fuera(d.outside, d.outside_eur, "fuera del reparto");
+      return;
+    }
+    const col = (i) => SECT_COL[i % SECT_COL.length];
+    box.innerHTML = `
+      <div class="ccy-bar">${d.sectors.map((s, i) => `<span class="ccy-seg"
+        style="flex:${s.eur};background:${col(i)}" title="${esc(s.name)} ${s.pct.toFixed(1)}%"></span>`).join("")}</div>
+      <div class="lt-list">${d.sectors.map((s, i) => `<div class="lt-row"
+        title="${esc(s.contributors.map((c) => `${c.name}: ${money(c.eur)} €`).join("\n"))}">
+        <i style="background:${col(i)}"></i><span class="lt-n">${esc(s.name)}</span>
+        <b>${s.pct.toFixed(1)}%</b><span class="mut">${eur(s.eur, 0)}</span></div>`).join("")}</div>
+      ${d.other_eur ? `<p class="mut small"><b>${eur(d.other_eur)}</b> en «otros sectores» que la
+        ficha agrega sin nombrar. No se reparte.</p>` : ""}
+      ${fuera(d.outside, d.outside_eur, "sin sector")}
+      <p class="mut small">% sobre lo que tiene sector, como la ficha de cada fondo. Fuente: justETF.</p>`;
+  }
+
+  // ══ X-ray ═════════════════════════════════════════════════════════════
+  // Las acciones de debajo de los fondos, sumadas por ISIN. Sólo se ve el top
+  // 10 de cada fondo, así que los solapes son un mínimo, no la cifra exacta.
+  async function loadXray() {
+    const box = $("xray"), leg = $("xray-legend");
+    let d;
+    try { d = await (await fetch("/api/cartera/xray")).json(); }
+    catch (e) { box.innerHTML = `<div class="mut">No pude calcularlo.</div>`; return; }
+    if (d.error) { box.innerHTML = `<div class="mut">${esc(d.error)}</div>`; return; }
+    leg.textContent = d.portfolio_eur
+      ? `veo ${Math.round(d.seen_eur / d.portfolio_eur * 100)}% de la cartera` : "";
+    if (!d.holdings.length) {
+      box.innerHTML = `<div class="mut">Todavía no hay posiciones de fondos sembradas.</div>`;
+      return;
+    }
+    const via = (h) => h.via.map((v) => `${esc(v.name)} ${v.direct ? "(directa)" : v.pct + "%"}`).join(" · ");
+    const fila = (h) => `<div class="lt-row" title="${esc(h.isin)}">
+        <i style="background:${h.via.length > 1 ? NEG : "var(--panel2)"}"></i>
+        <span class="lt-n">${esc(h.name)}</span><b>${h.pct.toFixed(2)}%</b>
+        <span class="mut">${eur(h.eur, 0)}</span>
+        ${h.via.length > 1 ? `<span class="lt-via">${via(h)}</span>` : ""}</div>`;
+    const pares = d.pairs.map((p) => `<div class="lt-row"><i style="background:${NEG}"></i>
+        <span class="lt-n">${esc(p.a_name)} ↔ ${esc(p.b_name)}</span>
+        <b>≥ ${p.overlap_pct.toFixed(1)} pts</b><span class="mut">${p.common.length} en común</span>
+        <span class="lt-via">${p.common.map(esc).join(", ")}</span></div>`).join("");
+    box.innerHTML = `
+      <div class="lt-h">Mayores posiciones de verdad</div>
+      <div class="lt-list">${d.holdings.slice(0, 12).map(fila).join("")}</div>
+      ${d.pairs.length ? `<div class="lt-h">Fondos que se pisan</div><div class="lt-list">${pares}</div>` : ""}
+      ${d.without.length ? `<p class="mut small">Sin posiciones sembradas: ${d.without.map((w) => esc(w.name)).join(", ")}.</p>` : ""}
+      <p class="mut small">En rojo, lo que te llega por más de una vía. % sobre toda la cartera.
+        Sólo el top 10 de cada fondo (justETF): el solape real es igual o mayor.</p>`;
   }
 
   // ══ de qué divisas dependes ═══════════════════════════════════════════
