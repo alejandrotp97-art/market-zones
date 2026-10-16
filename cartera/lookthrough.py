@@ -31,6 +31,8 @@ SECTOR_ES = {
     "Telecommunication": "Telecomunicaciones",
     "Business Services": "Servicios empresariales",
     "Non-Corporate": "No corporativo", "Real Estate": "Inmobiliario",
+    "Sovereign": "Deuda soberana", "Government": "Deuda pública",
+    "Corporate": "Deuda corporativa",
 }
 
 

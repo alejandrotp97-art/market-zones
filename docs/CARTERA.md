@@ -134,6 +134,42 @@ la compra se puede comprobar sin tocar Yahoo.
 | GET | `/api/cartera/simular-venta` | «si vendo X»: FIFO exacto + impuesto estimado |
 | GET | `/api/cartera/divisa` | exposición por divisa, dos lecturas |
 | GET/POST | `/api/cartera/splits` | splits pendientes; aplicar o marcar resuelto |
+| GET | `/api/cartera/periodos` | ganancia y % de cada posición en 1D / 1S / 1M / YTD / 1A / Todo |
+| GET | `/api/cartera/mensual` | TWR de cada mes (años × meses) y el índice al lado; `?benchmark=` |
+| GET | `/api/cartera/resumen` | resumen de un mes o un año: `?periodo=AAAA-MM` o `AAAA` (400 si mal formado, 404 sin datos) |
+| GET | `/api/cartera/sectores` | reparto sectorial por transparencia (justETF) |
+| GET | `/api/cartera/xray` | top 10 de cada fondo sumado por ISIN, repeticiones y solape entre fondos |
+| GET | `/api/cartera/dividendos` | cobrado por mes y previsión a 12 meses (estimación bruta) |
+
+### Lecturas inspiradas en getquin (2026-10-16)
+
+Seis lecturas que ofrece getquin y faltaban aquí. Todas salen de piezas que ya
+existían, para que ninguna pueda contar otra versión de los mismos números:
+
+* **Rentabilidad por periodo** (`cartera/periods.py`). La reconstrucción diaria
+  guarda ahora valor, flujos y dividendos **por posición** (su suma es la línea
+  de la cartera). Ganancia de un tramo = valor final − valor inicial − flujos del
+  tramo + dividendos; el % es sobre el capital expuesto (valor al abrir + lo
+  comprado dentro). Es rendimiento simple, no TWR: por eso el YTD de esta tabla
+  y el «Año» del mapa de calor pueden no coincidir. Los fondos no cotizados
+  publican su valor liquidativo con un día de retraso y su 1D sale a cero hasta
+  que llega.
+* **Mes a mes** (`returns.monthly_twr`). Encadena por mes natural los mismos
+  factores diarios del TWR; el total de cada año coincide con su `by_year`. El
+  índice va por su precio en euros, sin flujos.
+* **Resumen del periodo**. TWR del mes o el año, índice, mejor y peor posición
+  (las vendidas dentro del periodo también cuentan), dividendos y aportación neta.
+* **Sectores y X-ray** (`cartera/lookthrough.py`). El sembrador lee de la misma
+  ficha de justETF los sectores (ampliados con su «Show more», seguido una vez)
+  y el top 10 de posiciones con ISIN, y los guarda junto a los países. Un fondo
+  sembrado antes de este cambio sale «sin sectores todavía» hasta la siguiente
+  siembra. El X-ray sólo ve el top 10 de cada fondo, así que el solape entre
+  fondos es una **cota inferior**; la tarjeta dice qué parte de la cartera ve.
+* **Dividendos** (`cartera/dividends.py`). Lo cobrado sale de la reconstrucción
+  (neto, al cambio de su día). La previsión repite cada pago de los últimos 12
+  meses naturales por las participaciones y el cambio de hoy; no extrapola
+  crecimiento ni adivina retenciones. Los repartos llegan en la misma petición
+  del histórico de Yahoo (`events=div|split`).
 
 Todo lo que muta pasa por un guard CSRF **global** (`before_request`), no por un
 decorador por ruta: una ruta nueva nace protegida. Lo mismo el guard de

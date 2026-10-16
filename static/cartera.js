@@ -1074,7 +1074,9 @@
     const rows = d.positions.map((p) =>
       `<tr><td title="${esc(p.ticker)}">${esc(p.name)}</td>${ws.map((w) => celdaPeriodo(p.values[w])).join("")}</tr>`).join("");
     const total = `<tr class="total"><td><b>Cartera</b></td>${ws.map((w) => celdaPeriodo(d.total[w])).join("")}</tr>`;
-    box.innerHTML = `<table class="tbl"><thead>${head}</thead><tbody>${rows}${total}</tbody></table>`;
+    box.innerHTML = `<table class="tbl"><thead>${head}</thead><tbody>${rows}${total}</tbody></table>
+      <p class="mut small">Los fondos no cotizados publican su valor liquidativo con un día de retraso:
+        su 1D sale a cero hasta que llega.</p>`;
   }
 
   // ══ diversificación real ══════════════════════════════════════════════
@@ -1277,7 +1279,10 @@
     const a = Math.min(1, Math.abs(x) / 0.08) * 0.55;
     return `background:${x >= 0 ? `rgba(63,174,107,${a.toFixed(2)})` : `rgba(207,91,58,${a.toFixed(2)})`}`;
   };
-  const hmTxt = (x) => x == null ? "" : (x >= 0 ? "+" : "") + (x * 100).toFixed(1);
+  // Un −0,04 % redondeado a una cifra decimal saldría «-0.0»: el signo de algo
+  // que no se ve. Por debajo de la resolución, cero sin signo.
+  const hmTxt = (x) => x == null ? "" : Math.abs(x) < 0.0005 ? "0.0"
+    : (x >= 0 ? "+" : "") + (x * 100).toFixed(1);
 
   async function loadMensual() {
     const leg = $("mensual-legend"), box = $("mensual");
