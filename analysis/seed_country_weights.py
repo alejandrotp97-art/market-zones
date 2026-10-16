@@ -91,6 +91,35 @@ PROXIES = {
         "proxy_note": "el bitcoin no tiene país de exposición"},
 }
 
+# Las referencias de instrumentos REALES viven fuera del repositorio público, en
+# `data/local_proxies.json` (ignorado por git), bajo `seed_proxies`, con la
+# misma forma que las entradas de arriba. El panel lee el mismo fichero.
+LOCAL_PROXIES = os.path.join(ROOT, "data", "local_proxies.json")
+
+
+def apply_local_proxies(path: str = LOCAL_PROXIES) -> int:
+    """Añade a PROXIES las entradas locales; devuelve cuántas."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        return 0
+    except (OSError, ValueError) as e:
+        print(f"local_proxies: no se pudo leer {path}: {e}", file=sys.stderr)
+        return 0
+    n = 0
+    for tk, spec in ((data or {}).get("seed_proxies") or {}).items():
+        if isinstance(spec, dict) and spec.get("asset_class") and "proxy_isin" in spec:
+            PROXIES[tk] = {"asset_class": spec["asset_class"],
+                           "proxy_isin": spec["proxy_isin"],
+                           "proxy_name": spec.get("proxy_name"),
+                           "proxy_note": spec.get("proxy_note")}
+            n += 1
+    return n
+
+
+apply_local_proxies()
+
 # Asset class for auto-discovered tickers. justETF does not label this in a form
 # worth parsing, and guessing "equity" for a bond ETF would silently mix
 # sovereign debt into the equity view — the exact confusion the filter exists to
