@@ -133,3 +133,8 @@ def test_rutas_ignoran_lo_ya_vendido(cli, monkeypatch):
         "positions": [vendida], "summary": {"market_value": 0.0}, "movements": []})
     assert cli.get("/api/cartera/sectores").get_json()["outside"] == []
     assert cli.get("/api/cartera/xray").get_json()["holdings"] == []
+
+
+def test_los_sectores_de_renta_fija_tambien_se_traducen():
+    assert L.sector_name("Sovereign") == "Deuda soberana"
+    assert L.sector_name("Algo nuevo") == "Algo nuevo"

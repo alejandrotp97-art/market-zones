@@ -107,3 +107,8 @@ def test_resumen_fuera_del_historico_es_404(con_historia):
 
 def test_resumen_sin_movimientos(libro):
     assert libro.get("/api/cartera/resumen").get_json()["empty"] is True
+
+
+def test_sin_ventas_lo_retirado_es_cero_sin_signo(con_historia):
+    raw = con_historia.get("/api/cartera/resumen?periodo=2024-02&benchmark=IDX").get_data(as_text=True)
+    assert '"withdrawn":0.0' in raw.replace(" ", "")

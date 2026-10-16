@@ -3835,7 +3835,7 @@ def _cartera_resumen(periodo: str | None, benchmark: str = "SPY"):
                                    key=lambda x: -x["eur"]),
             "net_contributions": round(float(fl.sum()), 2),
             "contributed": round(float(fl[fl > 0].sum()), 2),
-            "withdrawn": round(float(-fl[fl < 0].sum()), 2),
+            "withdrawn": round(float(-fl[fl < 0].sum()), 2) + 0.0,     # sin «-0»
             "value_end": round(float(r["port"][i1]), 2),
             "available": disponibles, "excluded": r["excluded"]}, 200
 
