@@ -19,6 +19,7 @@ Este módulo no sabe de red, de divisas ni de Flask.
 """
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 WINDOWS = ("1d", "1w", "1m", "ytd", "1y", "all")
@@ -46,15 +47,34 @@ def _start_index(idx: pd.DatetimeIndex, window: str) -> int | None:
     return i0 if i0 >= 0 else None
 
 
-def _one(pos: dict, i0: int | None) -> tuple[float, float]:
-    """(ganancia, capital expuesto) de una posición desde i0 hasta el final."""
+def _one(pos: dict, i0: int | None, i1: int | None = None) -> tuple[float, float]:
+    """(ganancia, capital expuesto) de una posición en (i0, i1]; i1 None = el final."""
     value, flows, divs = pos["value"], pos["flows"], pos["divs"]
+    hi = len(value) - 1 if i1 is None else i1
     lo = 0 if i0 is None else i0 + 1
     v0 = 0.0 if i0 is None else float(value[i0])
-    fl = flows[lo:]
-    gain = float(value[-1]) - v0 - float(fl.sum()) + float(divs[lo:].sum())
+    fl = flows[lo:hi + 1]
+    gain = float(value[hi]) - v0 - float(fl.sum()) + float(divs[lo:hi + 1].sum())
     exposed = v0 + float(fl[fl > 0].sum())
     return gain, exposed
+
+
+def range_returns(pos: dict, i0: int | None, i1: int) -> dict:
+    """{ticker: {abs, pct}} de cada posición que hizo ALGO en (i0, i1].
+
+    A diferencia de `period_returns`, aquí sí entra lo vendido dentro del rango:
+    en el resumen de un mes, una posición cerrada a mitad de mes también ganó o
+    perdió ese mes. Lo que no tuvo ni valor ni movimiento, fuera.
+    """
+    lo = 0 if i0 is None else i0
+    out = {}
+    for t, p in pos.items():
+        active = (np.abs(p["value"][lo:i1 + 1]).sum() > 1e-9
+                  or np.abs(p["flows"][lo:i1 + 1]).sum() > 1e-9
+                  or np.abs(p["divs"][lo:i1 + 1]).sum() > 1e-9)
+        if active:
+            out[t] = _cell(*_one(p, i0, i1))
+    return out
 
 
 def _cell(gain: float, exposed: float) -> dict:
@@ -88,5 +108,5 @@ def period_returns(idx, pos: dict, windows=WINDOWS) -> dict:
             "as_of": idx[-1].date().isoformat() if len(idx) else None}
 
 
-__all__ = ["WINDOWS", "period_returns"]
+__all__ = ["WINDOWS", "period_returns", "range_returns"]
 
