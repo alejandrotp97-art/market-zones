@@ -165,3 +165,16 @@ def test_la_reconstruccion_sigue_sumando_lo_mismo(libro, monkeypatch):
     suma = sum(p["value"] for p in r["pos"].values())
     assert np.allclose(suma, r["port"])
     assert float(r["port"][-1]) == pytest.approx(300.0)
+
+
+def test_el_total_incluye_lo_vendido_dentro_del_tramo():
+    """La fila «Cartera» tiene que sumar lo que hizo TODA la cartera en el
+    tramo: una posición vendida a mitad de semana ganó o perdió esa semana."""
+    idx = _idx("2024-03-04", 5)
+    r = periods.period_returns(idx, {
+        "A": _pos([1000, 1000, 1000, 1000, 1100], [1000, 0, 0, 0, 0]),
+        "V": _pos([500, 500, 600, 0, 0], [500, 0, 0, -600, 0])})
+    assert "V" not in r["positions"]
+    assert r["total"]["1d"]["abs"] == pytest.approx(100.0)
+    assert r["total"]["all"]["abs"] == pytest.approx(100.0 + 100.0)
+    assert r["closed"] == ["V"]

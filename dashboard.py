@@ -3688,7 +3688,7 @@ def _cartera_periodos(benchmark: str = "SPY") -> dict:
     r = _reconstruct_portfolio(benchmark)
     if r["empty"]:
         return {"empty": True, "windows": list(_PERIOD_WINDOWS), "positions": [],
-                "total": {}, "as_of": None,
+                "total": {}, "as_of": None, "closed": [],
                 "excluded": r["payload"].get("excluded", [])}
     res = _period_returns(r["idx"], r["pos"])
     nombres = _nombres_cartera()
@@ -3699,6 +3699,7 @@ def _cartera_periodos(benchmark: str = "SPY") -> dict:
     filas.sort(key=lambda f: -peso[f["ticker"]])
     return {"empty": False, "windows": res["windows"], "positions": filas,
             "total": res["total"], "as_of": res["as_of"],
+            "closed": [nombres.get(t, t) for t in res["closed"]],
             "excluded": r["excluded"]}
 
 
@@ -3754,8 +3755,11 @@ def _cartera_dividendos(benchmark: str = "SPY") -> dict:
                           "name": p.get("name") or nombres.get(p["ticker"], p["ticker"])}
             for p in payload["positions"] if p["qty"] > 1e-9}
     _prefetch(_close_series, list(hold))
-    events = {t: (_dividends_of(t) or []) for t in hold}
-    fc = _div_forecast(hold, events, hoy)
+    # `None` es «la fuente no contestó»; `[]`, «no paga». Lo primero se nombra
+    # en `unknown`: pintarlo como una previsión de cero sería inventar un dato.
+    crudo = {t: _dividends_of(t) for t in hold}
+    fc = _div_forecast(hold, {t: (e or []) for t, e in crudo.items()}, hoy)
+    fc["unknown"] = sorted(t for t, e in crudo.items() if e is None)
     return {"received": received, "received_12m": round(rec12, 2), "forecast": fc,
             "portfolio_eur": payload["summary"]["market_value"],
             "base": BASE_CCY, "note": DIV_NOTE,

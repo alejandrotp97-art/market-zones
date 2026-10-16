@@ -88,23 +88,31 @@ def period_returns(idx, pos: dict, windows=WINDOWS) -> dict:
     `pos[ticker]` = {value, flows, divs}: arrays en euros alineados a `idx`.
     `flows` es la caja que entra en la posición (compra +, venta −); `divs`, los
     dividendos netos cobrados ese día. Las posiciones que ya no valen nada al
-    final del histórico —vendidas— no salen: no tienen tramo que enseñar.
+    final del histórico —vendidas— no tienen fila propia, pero SÍ suman al
+    total de cada tramo en que se movieron; `closed` las nombra.
     """
     idx = pd.DatetimeIndex(idx)
     starts = {w: _start_index(idx, w) for w in windows}
-    out, tot = {}, {w: [0.0, 0.0] for w in windows}
+    out, tot, closed = {}, {w: [0.0, 0.0] for w in windows}, []
     for t, p in pos.items():
-        if not len(p["value"]) or float(p["value"][-1]) <= 1e-9:
+        if not len(p["value"]):
             continue
+        is_open = float(p["value"][-1]) > 1e-9
         row = {}
         for w in windows:
             g, e = _one(p, starts[w])
             row[w] = _cell(g, e)
+            # El total es lo que hizo TODA la cartera en el tramo: una posición
+            # vendida dentro de él también ganó o perdió, aunque ya no tenga
+            # fila propia.
             tot[w][0] += g
             tot[w][1] += e
-        out[t] = row
+        if is_open:
+            out[t] = row
+        elif any(abs(row[w]["abs"]) > 1e-9 for w in windows):
+            closed.append(t)
     return {"windows": list(windows), "positions": out,
-            "total": {w: _cell(*tot[w]) for w in windows},
+            "total": {w: _cell(*tot[w]) for w in windows}, "closed": sorted(closed),
             "as_of": idx[-1].date().isoformat() if len(idx) else None}
 
 
