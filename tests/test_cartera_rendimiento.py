@@ -398,6 +398,28 @@ def test_la_cobertura_de_zona_es_NONE_con_la_cache_fria(libro, monkeypatch):
     assert e["coverage"]["analisis"] == 100.0
 
 
+def test_la_cabecera_cuenta_como_analizable_lo_que_el_proxy_cubre(libro, monkeypatch):
+    """El aviso de «N posición(es) sin histórico utilizable» miraba la serie
+    PROPIA de cada ticker, y la gráfica ya pintaba estas líneas vía proxy. Dos
+    piezas de la misma pantalla contando cosas distintas: la cabecera decía que
+    el análisis cubría la mitad del patrimonio sobre una cartera que el gráfico
+    cubría entera."""
+    monkeypatch.setattr(D, "_close_series",
+                        lambda t: None if t == "IE00BZ3XGLD1.SG"
+                        else _serie("2024-01-01", [100] * 300))
+    monkeypatch.setattr(D, "_quote_meta", lambda t: (100.0, "EUR"))
+    monkeypatch.setattr(D, "_prefetch", lambda fn, ts: None)
+    _post(libro, ticker="IE00BZ3XGLD1.SG", side="buy", quantity=10, price=117.75,
+          date="2024-01-01")
+
+    e = D._cartera_estado()
+
+    # `has_history` no sale al JSON: alimenta la lista de avisos, y es ahí donde
+    # se veía la línea de oro como «sin histórico utilizable».
+    assert "sin_historico" not in [a["key"] for a in e["attention"]]
+    assert e["coverage"]["analisis"] == 100.0
+
+
 def test_el_capital_aportado_no_es_el_coste_de_lo_abierto(libro, monkeypatch):
     """`invested` es el coste de lo que sigue abierto: una posición cerrada con
     beneficio desaparece de ahí como si nunca se hubiera aportado. Lo aportado
@@ -642,6 +664,112 @@ def test_la_correlacion_contra_el_indice_va_posicion_a_posicion(libro, monkeypat
     assert len(c["tickers"]) == 2
 
 
+def test_la_correlacion_tambien_presta_la_serie_del_proxy(libro, monkeypatch):
+    """`_cartera_correlacion` leía la serie PROPIA y nada más. La línea de
+    Stuttgart salía en «excluded: sin histórico» mientras la gráfica de la misma
+    pantalla la dibujaba con la de Milán — y la correlación se publica sobre lo
+    que excluye sin decirlo."""
+    import numpy as np
+    idx = pd.bdate_range("2024-01-01", periods=300)
+    rng = np.random.default_rng(3)
+    mundo = pd.Series(100 * np.cumprod(1 + rng.normal(0, 0.01, 300)), index=idx)
+    milan = pd.Series(100 * np.cumprod(1 + rng.normal(0, 0.01, 300)), index=idx)
+    monkeypatch.setattr(
+        D, "_close_series",
+        lambda t: (None if t == "IE00BZ3XGLD1.SG" else
+                   milan if t == "OROX3.MI" else mundo))
+    monkeypatch.setattr(D, "_quote_meta", lambda t: (100.0, "EUR"))
+    monkeypatch.setattr(D, "_prefetch", lambda fn, ts: None)
+    _post(libro, ticker="AAA", side="buy", quantity=10, price=100, date="2024-01-01")
+    _post(libro, ticker="IE00BZ3XGLD1.SG", side="buy", quantity=5, price=117.75,
+          date="2024-01-01")
+
+    c = D._cartera_correlacion()
+
+    assert "IE00BZ3XGLD1.SG" in c["tickers"], "la matriz se lleva la serie del hermano"
+    assert "IE00BZ3XGLD1.SG" not in {x["ticker"] for x in c["excluded"]}
+
+
+# ── el rótulo: la matriz se lee por NOMBRE, no por el símbolo ─────────────
+# Un fondo cotiza aquí como `0P0001CLDK.F`. Eso no identifica nada a simple
+# vista, y el panel lo recortaba a seis caracteres para la cabecera: dos
+# posiciones distintas salían las dos como `0P0001`. Para poder rotular con el
+# nombre, la carga útil tiene que traerlo —y traerlo CUADRADO con los símbolos.
+def _tres_posiciones(libro, monkeypatch, muda="MUDA"):
+    """Tres posiciones abiertas de las que UNA no tiene histórico.
+
+    La muda es la más grande a propósito. Las posiciones salen ordenadas por
+    valor de mercado, así que encabeza la lista de la cartera y NO la de la
+    matriz: cualquier lista de nombres construida sobre la cartera en vez de
+    sobre las columnas sale corrida justo aquí.
+    """
+    import numpy as np
+    idx = pd.bdate_range("2024-01-01", periods=300)
+
+    def serie(semilla):
+        r = np.random.default_rng(semilla)
+        return pd.Series(100 * np.cumprod(1 + r.normal(0, 0.01, 300)), index=idx)
+
+    mundo, bonos = serie(1), serie(2)
+    monkeypatch.setattr(D, "_close_series",
+                        lambda t: None if t == muda else (mundo if t == "AAA" else bonos))
+    monkeypatch.setattr(D, "_quote_meta", lambda t: (100.0, "EUR"))
+    monkeypatch.setattr(D, "_prefetch", lambda fn, ts: None)
+    _post(libro, ticker=muda, name="Fondo Recién Comprado", side="buy",
+          quantity=100, price=100)
+    # Los NOMBRES van en orden alfabético INVERSO al de los símbolos y al del
+    # valor de mercado (AAA vale el doble que BBB y se llama «Vanguard»). Si los
+    # tres órdenes coincidieran, una lista de nombres ORDENADA pasaría el test
+    # sin estar casada con nada — que es exactamente el fallo a cazar.
+    _post(libro, ticker="AAA", name="Vanguard Global Stock Index", side="buy",
+          quantity=10, price=100)
+    _post(libro, ticker="BBB", name="Amundi Index Euro Corporate", side="buy",
+          quantity=5, price=100)
+
+
+def test_el_nombre_de_cada_fila_va_pegado_a_su_simbolo(libro, monkeypatch):
+    """Los nombres viajan en una lista PARALELA a los símbolos, y la tarjeta
+    rotula fila a fila por posición. Si las dos listas se ordenan distinto, cada
+    fila queda etiquetada con el nombre de otra y nada en la pantalla lo delata:
+    una matriz mal rotulada no se ve rota, se ve tranquila y dice mentiras."""
+    _tres_posiciones(libro, monkeypatch)
+
+    c = D._cartera_correlacion()
+
+    assert len(c["names"]) == len(c["tickers"])
+    assert dict(zip(c["tickers"], c["names"], strict=True)) == {
+        "AAA": "Vanguard Global Stock Index",
+        "BBB": "Amundi Index Euro Corporate",
+    }
+
+
+def test_lo_que_queda_fuera_de_la_matriz_tambien_dice_su_nombre(libro, monkeypatch):
+    """La nota de «fuera de la matriz» es la ÚNICA mención de esas posiciones en
+    toda la tarjeta: no tienen fila, no tienen columna y no aparecen en el
+    ranking contra el índice. Publicarla con el símbolo pelado obliga a bajar a
+    la tabla de posiciones para averiguar de cuál se está hablando, que es
+    exactamente el trabajo que la tarjeta debería ahorrar."""
+    _tres_posiciones(libro, monkeypatch)
+
+    c = D._cartera_correlacion()
+
+    fuera = {x["ticker"]: x for x in c["excluded"]}
+    assert fuera["MUDA"]["name"] == "Fondo Recién Comprado"
+    assert fuera["MUDA"]["why"] == "sin histórico"
+
+
+def test_sin_nombre_apuntado_el_rotulo_cae_en_el_simbolo(libro, monkeypatch):
+    """Un movimiento se puede dar de alta sin nombre. Entonces el símbolo es lo
+    único que hay, y vale: lo que no puede pasar es que la fila salga en blanco
+    o con un `null` escrito."""
+    _tres_posiciones(libro, monkeypatch)
+    _post(libro, ticker="CCC", side="buy", quantity=1, price=100)
+
+    c = D._cartera_correlacion()
+
+    assert dict(zip(c["tickers"], c["names"], strict=True))["CCC"] == "CCC"
+
+
 def test_serie_y_splits_no_pueden_desincronizarse(libro, monkeypatch):
     """BUG REAL. Vivían en dos cachés paralelas, y `_close_series` sólo guardaba
     los splits cuando FALLABA la suya. En cuanto la de splits se desalojaba
@@ -671,3 +799,39 @@ def test_serie_y_splits_no_pueden_desincronizarse(libro, monkeypatch):
     # segunda llamada: la entrada sigue completa y NO se vuelve a pedir nada
     assert D._splits_of("AAA") == [{"date": "2024-06-10", "ratio": 10.0}]
     assert len(llamadas) == 1
+
+
+# ── la copia previa de un split vive JUNTO a su base ──────────────────────
+def test_el_directorio_de_copias_sigue_a_la_base(tmp_path, monkeypatch):
+    """`CARTERA_DB` es la única frontera entre instancias: si apunta a otro libro,
+    su copia no puede caer en la carpeta de copias de ESTA cartera."""
+    monkeypatch.delenv("CARTERA_BACKUP_DIR", raising=False)
+    monkeypatch.setattr(D, "CARTERA_DB", str(tmp_path / "otra" / "libro.db"))
+    assert D._backup_dir() == str(tmp_path / "otra" / "backups")
+
+
+def test_por_defecto_el_directorio_de_copias_es_el_de_siempre(tmp_path, monkeypatch):
+    import backup_cartera as bk
+    monkeypatch.delenv("CARTERA_BACKUP_DIR", raising=False)
+    monkeypatch.setattr(D, "CARTERA_DB",
+                        os.path.join(os.path.dirname(os.path.abspath(D.__file__)),
+                                     "cartera.db"))
+    assert D._backup_dir() == bk.DEFAULT_DIR
+
+
+def test_la_copia_de_un_split_cae_junto_a_su_base(libro, tmp_path, monkeypatch):
+    """El fallo real: aplicar un split desde una base temporal rotó fuera las
+    14 copias diarias de la cartera viva y las sustituyó por copias de un libro
+    de un test. La rotación es irreversible, así que el destino tiene que ser
+    imposible de apuntar al sitio equivocado."""
+    monkeypatch.setattr(D, "_splits_of", lambda t: [{"date": "2024-06-10", "ratio": 10.0}])
+    _post(libro, ticker="AAA", side="buy", quantity=10, price=400, date="2023-05-01")
+
+    r = libro.post("/api/cartera/splits",
+                   json={"ticker": "AAA", "date": "2024-06-10", "action": "apply"},
+                   headers={D.CSRF_HEADER: "1"})
+
+    assert r.status_code == 200, r.get_data(as_text=True)
+    destino = tmp_path / "backups"
+    assert destino.is_dir() and any(destino.iterdir()), \
+        "la copia no acabó junto a la base de la que sale"

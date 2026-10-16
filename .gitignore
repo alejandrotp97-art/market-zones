@@ -16,6 +16,8 @@ backups/
 # claves, así que también es información de cartera. Se publica la plantilla
 # vacía (.example) y cada instalación construye la suya al añadir posiciones.
 data/country_weights.json
+# Las referencias de las posiciones reales (proxies de histórico y de siembra).
+data/local_proxies.json
 
 # El estado del avisador de zonas: un símbolo por posición abierta, con la zona
 # en la que estaba. Es la lista de lo que tienes, y por eso está aquí. Se coló

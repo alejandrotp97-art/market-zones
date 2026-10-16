@@ -48,7 +48,6 @@
   // propia caía al gris genérico, indistinguible de "tipo desconocido".
   const KINDCOL = { ETF: "#4a90d9", ETC: "#b0873f", Fondo: "#8a63d2", "Acción": "#3fae6b", "Índice": "#d99a2b", Cripto: "#e0952b", Divisa: "#7c828e", Futuro: "#7c828e" };
   const kbadge = (k) => k ? `<span class="kbadge" style="background:${KINDCOL[k] || "#7c828e"}">${esc(k)}</span>` : "";
-  const SIDE_ES = { buy: "Compra", sell: "Venta", div: "Dividendo" };
 
   // Celda "Activo", compartida por posiciones y movimientos: el NOMBRE arriba
   // en negrita con su etiqueta, el ISIN/ticker debajo. Sin nombre, el ticker
@@ -113,10 +112,36 @@
     // The history endpoint does not depend on the positions payload, so both
     // round trips run at once instead of one after the other.
     const hist = loadHistory();
-    try { render(await (await fetch("/api/cartera")).json(), false); }
+    let p = null;
+    try { p = await (await fetch("/api/cartera")).json(); }
     catch (e) { status("Error al cargar"); return; }
+    render(p, false);
+    abrirEdicionPedida(p);
     await hist;
     status("");
+  }
+
+  // El ✎ del libro está en /cartera/movimientos y trae el id hasta aquí por la
+  // URL: corregir reutiliza el formulario de alta, y el formulario de alta no se
+  // ha movido de esta página.
+  function abrirEdicionPedida(p) {
+    const id = new URLSearchParams(location.search).get("editar");
+    if (!id) return;
+    // La barra de direcciones se limpia nada más leerla. Si no, recargar —o
+    // guardar el enlace— reabriría una corrección que ya se hizo.
+    history.replaceState(null, "", location.pathname);
+    const m = (p.movements || []).find((x) => String(x.id) === String(id));
+    // Pudo borrarse entre pulsar el ✎ y llegar aquí. Callarse dejaría el
+    // formulario en blanco sin decir por qué no pasó nada.
+    if (!m) { alert("Ese movimiento ya no existe: alguien lo borró mientras tanto."); return; }
+    startEdit(m);
+    // El formulario ya está arriba del todo, pero el salto se queda: quien llega
+    // con el ✎ puede caer con la página a media altura (volver atrás restaura el
+    // scroll), y entonces la corrección se abriría fuera de la pantalla.
+    $("add-card").scrollIntoView({
+      behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+      block: "center",
+    });
   }
 
   // `dataChanged` es falso cuando solo repintamos lo mismo con otro aspecto (el
@@ -128,7 +153,10 @@
     // aquí: un evento en vez de una llamada directa, para que ninguna de las dos
     // piezas necesite existir para que la otra funcione.
     document.dispatchEvent(new CustomEvent(dataChanged ? "cartera:changed" : "cartera:display"));
-    $("n-mov").textContent = s.n_movements ?? 0;
+    // El mismo número en los dos sitios: la cabecera y la puerta al registro.
+    const nmov = s.n_movements ?? 0;
+    $("n-mov").textContent = nmov;
+    $("n-mov2").textContent = nmov;
     $("s-inv").textContent = eur(s.invested);
     $("s-unreal").innerHTML = signed(s.unreal, " €");
     $("s-unrealpct").textContent = s.unreal_pct != null ? (s.unreal_pct >= 0 ? "+" : "") + s.unreal_pct + "%" : "";
@@ -173,20 +201,6 @@
         <td class="num">${r.income ? signed(r.income, " €") : "—"}</td>
         <td class="num">${signed(REALMODE === "fifo" ? r.realized_fifo : r.realized, " €")}</td></tr>`;
     }).join("") || `<tr><td colspan="12" class="mut" style="padding:16px">Sin posiciones todavía. Añade un movimiento o importa un archivo.</td></tr>`;
-    // movimientos
-    $("mov-body").innerHTML = (p.movements || []).map((m) => `
-      <tr class="${EDITING == m.id ? "editing" : ""}">
-        <td>${m.date ? esc(m.date) : "—"}</td><td>${assetCell(m.ticker, m.name, m.kind)}</td>
-        <td><span class="side ${esc(m.side)}">${esc(SIDE_ES[m.side] || "Compra")}</span></td>
-        <td class="num">${qty(m.quantity)}</td><td class="num">${money(m.price, 4)}</td>
-        <td class="num">${money(m.fee)}</td><td class="note">${esc(m.note || "")}</td>
-        <td class="num"><button class="edit" data-id="${esc(m.id)}" title="corregir">✎</button></td>
-        <td class="num"><button class="del" data-id="${esc(m.id)}" title="eliminar">✕</button></td>
-      </tr>`).join("") || `<tr><td colspan="9" class="mut" style="padding:16px">Aún no hay movimientos.</td></tr>`;
-    $("mov-body").querySelectorAll(".del").forEach((b) =>
-      b.addEventListener("click", () => del(b.dataset.id)));
-    $("mov-body").querySelectorAll(".edit").forEach((b) =>
-      b.addEventListener("click", () => startEdit((p.movements || []).find((m) => String(m.id) === b.dataset.id))));
     if (p.import) importMsg(p.import);
     // Las zonas van por su cuenta y DESPUÉS: son la parte lenta, y la tabla no
     // tiene por qué esperarlas para enseñar el dinero. Sólo se vuelven a pedir
@@ -196,8 +210,9 @@
     renderFx(p);
     renderContrib(p);
     if (dataChanged) loadRebal();
-    if (dataChanged) { loadZones(); loadPerf(); loadCorr(); loadEstado(); loadAport();
-                       loadCcy(); loadClases(); loadDiario(); }
+    if (dataChanged) { loadZones(); loadPerfYCorr(); loadEstado(); loadAport();
+                       loadCcy(); loadClases(); loadPeriodos(); loadSectores(); loadXray();
+                       loadDividendos(); }
     else paintZones();
     if (reloadHistory) loadHistory();     // skipped on first load: already in flight
   }
@@ -237,11 +252,16 @@
   // buscar a cinco sitios, y NO repite ninguna cifra del desglose de abajo:
   // dos números iguales en la misma pantalla obligan a comprobar si dicen lo
   // mismo, que es justo el trabajo que este bloque existe para ahorrar.
+  // Cada carga recuerda con qué índice salió y no pinta si al volver ya hay
+  // otro elegido. Medido: retrasando la respuesta de URTH, el campo decía ACWI
+  // y esta tarjeta se quedaba comparando contra URTH, sin avisar de nada.
   async function loadEstado() {
     const leg = $("estado-legend"), box = $("estado");
-    let d;
-    try { d = await (await fetch("/api/cartera/estado")).json(); }
-    catch (e) { leg.textContent = ""; box.innerHTML = `<div class="mut">No pude calcularlo.</div>`; return; }
+    const b = benchVal();
+    let d = null;
+    try { d = await (await fetch(`/api/cartera/estado?benchmark=${encodeURIComponent(b)}`)).json(); } catch (e) { /* d sigue null */ }
+    if (b !== benchVal()) return;
+    if (!d) { leg.textContent = ""; box.innerHTML = `<div class="mut">No pude calcularlo.</div>`; return; }
     if (d.error) { leg.textContent = ""; box.innerHTML = `<div class="mut">${esc(d.error)}</div>`; return; }
     if (!d.n_positions) {
       leg.textContent = "";
@@ -251,7 +271,8 @@
     ESTADO = d;
     const cob = d.coverage || {};
     leg.innerHTML = `${d.n_positions} posiciones · análisis sobre el <b>${
-      cob.analisis == null ? "—" : cob.analisis + "%"}</b> del patrimonio`;
+      cob.analisis == null ? "—" : cob.analisis + "%"}</b> del patrimonio`
+      + ` · ${sesiones(d)}`;
 
     const dd = d.drawdown || {};
     const tile = (lbl, val, sub, color) => `<div class="et">
@@ -438,6 +459,17 @@
     });
   }
 
+  // De quién son las sesiones sobre las que está medido TODO lo de la tarjeta,
+  // no sólo la comparación: cambiar de índice cambia la rejilla diaria y con
+  // ella las cifras propias (medido: con BTC-USD, que cotiza fines de semana,
+  // «He ganado» pasa de +44,67% a +43,46%). `sessions_ticker` llega a `null`
+  // cuando el índice pedido no se pudo descargar y la rejilla salió de las
+  // propias posiciones: ahí nombrar el índice le atribuiría unas sesiones que
+  // nunca aportó.
+  const sesiones = (d) => d.sessions_ticker
+    ? `sesiones de <b>${esc(d.sessions_ticker)}</b>`
+    : "sesiones de tus posiciones";
+
   // ══ rentabilidad ══════════════════════════════════════════════════════
   // Un «+89%» sobre una cartera con aportaciones repartidas no se puede
   // comparar con nada. Aquí van las dos cifras que sí, y la diferencia entre
@@ -449,10 +481,11 @@
 
   async function loadPerf() {
     const leg = $("perf-legend"), box = $("perf");
-    let d;
-    const bench = ($("bench").value || "SPY").trim().toUpperCase();
-    try { d = await (await fetch(`/api/cartera/rendimiento?benchmark=${encodeURIComponent(bench)}&${rangoQS()}`)).json(); }
-    catch (e) { leg.textContent = ""; box.innerHTML = `<div class="mut">No pude calcularla.</div>`; return; }
+    let d = null;
+    const bench = benchVal();
+    try { d = await (await fetch(`/api/cartera/rendimiento?benchmark=${encodeURIComponent(bench)}&${rangoQS()}`)).json(); } catch (e) { /* d sigue null */ }
+    if (bench !== benchVal()) return false;
+    if (!d) { leg.textContent = ""; box.innerHTML = `<div class="mut">No pude calcularla.</div>`; return; }
     if (d.error || d.empty || !d.twr || d.twr.total == null) {
       leg.textContent = "";
       box.innerHTML = `<div class="mut">Aún no hay historia suficiente para medir una rentabilidad.</div>`;
@@ -460,7 +493,7 @@
     }
     PERF = d;
     const t = d.twr, anual = d.annualizable;
-    leg.innerHTML = `${t.days} días · ${t.periods} sesiones`
+    leg.innerHTML = `${t.days} días · ${t.periods} ${sesiones(d)}`
       + (t.skipped ? ` · <b class="warn-txt">${t.skipped} excluidas</b>` : "");
 
     // La diferencia TWR-TIR ES el efecto del propio calendario de aportaciones.
@@ -797,7 +830,8 @@
       box.innerHTML = `<div class="mut">Todavía no hay clasificación para tus posiciones.</div>`;
       return;
     }
-    const COL = { equity: "#3fae6b", bond: "#4a90d9", commodity: "#b0873f", cash: "#7c828e" };
+    const COL = { equity: "#3fae6b", bond: "#4a90d9", commodity: "#b0873f",
+                  cash: "#7c828e", crypto: "#8a63d2" };
     leg.textContent = d.unclassified_pct ? `${d.unclassified_pct}% sin clasificar` : "";
     box.innerHTML = `
       <div class="ccy-bar">${d.rows.map((r) => `<span class="ccy-seg"
@@ -818,29 +852,71 @@
         decidir cuál vale cada vez que se mira.</p>`;
   }
 
-  // ══ diario ════════════════════════════════════════════════════════════
-  const DIARIO_ICO = { mov: "•", high: "▲", dd: "▼", rec: "↩" };
-  async function loadDiario() {
-    const box = $("diario");
+  // ══ sectores ══════════════════════════════════════════════════════════
+  const SECT_COL = ["#4a90d9", "#3fae6b", "#b0873f", "#cf5b3a", "#8a63d2", "#2bb3a6",
+    "#d9a23f", "#d96aa0", "#6f8f3f", "#5b6fd9", "#9a6b4f", "#7c828e", "#3f8fb0", "#b04a4a"];
+  const fuera = (rows, total, txt) => rows.length ? `<p class="mut small">⚠ <b>${eur(total)}</b> ${txt}:
+    ${rows.map((o) => `${esc(o.name)} (${esc(o.why || eur(o.eur))})`).join(", ")}.</p>` : "";
+
+  async function loadSectores() {
+    const box = $("sect"), leg = $("sect-legend");
     let d;
-    try { d = await (await fetch("/api/cartera/diario")).json(); }
-    catch (e) { box.innerHTML = `<div class="mut">No pude construirlo.</div>`; return; }
-    const ev = (d.events || []);
-    if (!ev.length) {
-      box.innerHTML = `<div class="mut">Todavía no hay nada que contar. Aparecerán
-        aquí tus movimientos y los hitos de la cartera: máximos nuevos, la peor
-        caída y su recuperación.</div>`;
+    try { d = await (await fetch("/api/cartera/sectores")).json(); }
+    catch (e) { box.innerHTML = `<div class="mut">No pude calcularlo.</div>`; return; }
+    if (d.error) { box.innerHTML = `<div class="mut">${esc(d.error)}</div>`; return; }
+    const base = d.mapped_eur + d.other_eur;
+    leg.textContent = d.portfolio_eur ? `${Math.round(base / d.portfolio_eur * 100)}% de la cartera con sector` : "";
+    if (!d.sectors.length) {
+      box.innerHTML = `<div class="mut">Todavía no hay sectores para tus fondos.</div>`
+        + fuera(d.outside, d.outside_eur, "fuera del reparto");
       return;
     }
-    box.innerHTML = `<div class="diario">${ev.map((e) => `
-      <div class="dia-fila ${esc(e.kind)}">
-        <span class="dia-f">${esc(e.date)}</span>
-        <span class="dia-i">${DIARIO_ICO[e.kind] || "•"}</span>
-        <span class="dia-t">${esc(e.title)}</span>
-        <span class="dia-d mut">${esc(e.detail || "")}</span>
-      </div>`).join("")}</div>
-      <p class="mut small">Sólo hechos tuyos y de tu serie de rendimiento. Ni
-        noticias ni pronósticos: un diario que interpreta deja de ser un diario.</p>`;
+    const col = (i) => SECT_COL[i % SECT_COL.length];
+    box.innerHTML = `
+      <div class="ccy-bar">${d.sectors.map((s, i) => `<span class="ccy-seg"
+        style="flex:${s.eur};background:${col(i)}" title="${esc(s.name)} ${s.pct.toFixed(1)}%"></span>`).join("")}</div>
+      <div class="lt-list">${d.sectors.map((s, i) => `<div class="lt-row"
+        title="${esc(s.contributors.map((c) => `${c.name}: ${money(c.eur)} €`).join("\n"))}">
+        <i style="background:${col(i)}"></i><span class="lt-n">${esc(s.name)}</span>
+        <b>${s.pct.toFixed(1)}%</b><span class="mut">${eur(s.eur, 0)}</span></div>`).join("")}</div>
+      ${d.other_eur ? `<p class="mut small"><b>${eur(d.other_eur)}</b> en «otros sectores» que la
+        ficha agrega sin nombrar. No se reparte.</p>` : ""}
+      ${fuera(d.outside, d.outside_eur, "sin sector")}
+      <p class="mut small">% sobre lo que tiene sector, como la ficha de cada fondo. Fuente: justETF.</p>`;
+  }
+
+  // ══ X-ray ═════════════════════════════════════════════════════════════
+  // Las acciones de debajo de los fondos, sumadas por ISIN. Sólo se ve el top
+  // 10 de cada fondo, así que los solapes son un mínimo, no la cifra exacta.
+  async function loadXray() {
+    const box = $("xray"), leg = $("xray-legend");
+    let d;
+    try { d = await (await fetch("/api/cartera/xray")).json(); }
+    catch (e) { box.innerHTML = `<div class="mut">No pude calcularlo.</div>`; return; }
+    if (d.error) { box.innerHTML = `<div class="mut">${esc(d.error)}</div>`; return; }
+    leg.textContent = d.portfolio_eur
+      ? `veo ${Math.round(d.seen_eur / d.portfolio_eur * 100)}% de la cartera` : "";
+    if (!d.holdings.length) {
+      box.innerHTML = `<div class="mut">Todavía no hay posiciones de fondos sembradas.</div>`;
+      return;
+    }
+    const via = (h) => h.via.map((v) => `${esc(v.name)} ${v.direct ? "(directa)" : v.pct + "%"}`).join(" · ");
+    const fila = (h) => `<div class="lt-row" title="${esc(h.isin)}">
+        <i style="background:${h.via.length > 1 ? NEG : "var(--panel2)"}"></i>
+        <span class="lt-n">${esc(h.name)}</span><b>${h.pct.toFixed(2)}%</b>
+        <span class="mut">${eur(h.eur, 0)}</span>
+        ${h.via.length > 1 ? `<span class="lt-via">${via(h)}</span>` : ""}</div>`;
+    const pares = d.pairs.map((p) => `<div class="lt-row"><i style="background:${NEG}"></i>
+        <span class="lt-n">${esc(p.a_name)} ↔ ${esc(p.b_name)}</span>
+        <b>≥ ${p.overlap_pct.toFixed(1)} pts</b><span class="mut">${p.common.length} en común</span>
+        <span class="lt-via">${p.common.map(esc).join(", ")}</span></div>`).join("");
+    box.innerHTML = `
+      <div class="lt-h">Mayores posiciones de verdad</div>
+      <div class="lt-list">${d.holdings.slice(0, 12).map(fila).join("")}</div>
+      ${d.pairs.length ? `<div class="lt-h">Fondos que se pisan</div><div class="lt-list">${pares}</div>` : ""}
+      ${d.without.length ? `<p class="mut small">Sin posiciones sembradas: ${d.without.map((w) => esc(w.name)).join(", ")}.</p>` : ""}
+      <p class="mut small">En rojo, lo que te llega por más de una vía. % sobre toda la cartera.
+        Sólo el top 10 de cada fondo (justETF): el solape real es igual o mayor.</p>`;
   }
 
   // ══ de qué divisas dependes ═══════════════════════════════════════════
@@ -975,12 +1051,43 @@
         puesto (o quitado) el tipo de cambio entre el día de tus compras y hoy.</p>`;
   }
 
+  // ══ rentabilidad por periodo ══════════════════════════════════════════
+  // Una fila por posición abierta y una columna por tramo. Arriba el %, debajo
+  // los euros: el % compara posiciones de tamaños distintos, los euros dicen
+  // cuál movió de verdad la cartera.
+  const PERIODOS = { "1d": "1D", "1w": "1S", "1m": "1M", ytd: "YTD", "1y": "1A", all: "Todo" };
+  const celdaPeriodo = (v) => v == null ? `<td class="num">—</td>`
+    : `<td class="num"><span style="${pcol(v.abs)}">${pct(v.pct)}</span>`
+      + `<div class="mut small">${signed(v.abs, " €")}</div></td>`;
+
+  async function loadPeriodos() {
+    const leg = $("periodos-legend"), box = $("periodos");
+    let d = null;
+    try { d = await (await fetch("/api/cartera/periodos")).json(); } catch (e) { /* d sigue null */ }
+    if (!d || d.error) { leg.textContent = ""; box.innerHTML = `<div class="mut">No pude calcularla.</div>`; return; }
+    if (d.empty || !d.positions.length) {
+      leg.textContent = ""; box.innerHTML = `<div class="mut">Sin posiciones con histórico.</div>`; return;
+    }
+    leg.textContent = `a cierre del ${d.as_of}` + (d.excluded.length ? ` · fuera: ${d.excluded.join(", ")}` : "");
+    const ws = d.windows;
+    const head = `<tr><th>Activo</th>${ws.map((w) => `<th class="num">${PERIODOS[w] || w}</th>`).join("")}</tr>`;
+    const rows = d.positions.map((p) =>
+      `<tr><td title="${esc(p.ticker)}">${esc(p.name)}</td>${ws.map((w) => celdaPeriodo(p.values[w])).join("")}</tr>`).join("");
+    const total = `<tr class="total"><td><b>Cartera</b></td>${ws.map((w) => celdaPeriodo(d.total[w])).join("")}</tr>`;
+    box.innerHTML = `<table class="tbl"><thead>${head}</thead><tbody>${rows}${total}</tbody></table>
+      <p class="mut small">${d.closed && d.closed.length ? `La fila «Cartera» incluye lo vendido en cada periodo
+        (${d.closed.map(esc).join(", ")}). ` : ""}Los fondos no cotizados publican su valor liquidativo con un día de retraso:
+        su 1D sale a cero hasta que llega.</p>`;
+  }
+
   // ══ diversificación real ══════════════════════════════════════════════
   async function loadCorr() {
     const leg = $("corr-legend"), box = $("corr");
-    let d;
-    try { d = await (await fetch("/api/cartera/correlacion")).json(); }
-    catch (e) { leg.textContent = ""; box.innerHTML = `<div class="mut">No pude medirla.</div>`; return; }
+    const b = benchVal();
+    let d = null;
+    try { d = await (await fetch(`/api/cartera/correlacion?benchmark=${encodeURIComponent(b)}`)).json(); } catch (e) { /* d sigue null */ }
+    if (b !== benchVal()) return;
+    if (!d) { leg.textContent = ""; box.innerHTML = `<div class="mut">No pude medirla.</div>`; return; }
     if (d.error || d.eff_n_corr == null) {
       leg.textContent = "";
       box.innerHTML = `<div class="mut">${esc(d.why || "Hacen falta al menos dos posiciones con histórico en común.")}</div>`;
@@ -988,6 +1095,27 @@
     }
     leg.textContent = `${d.obs} sesiones · último año`;
     const n = d.tickers.length;
+    // Un fondo cotiza aquí como `0P0001CLDK.F`, y la cabecera de la matriz lo
+    // recortaba a seis caracteres: dos posiciones distintas salían las dos como
+    // `0P0001`. Recortar un identificador opaco no lo hace legible, lo hace
+    // AMBIGUO. Manda el nombre, que es como se llama al activo en todas partes
+    // menos aquí; el símbolo se queda en el `title` para casarlo con el bróker.
+    //
+    // El nombre se casa con su símbolo recorriendo los SÍMBOLOS: las dos listas
+    // vienen paralelas, y una fila rotulada con el nombre de otra no se ve
+    // rota — se ve tranquila y miente.
+    //
+    // Las columnas de la matriz van NUMERADAS como las filas. Un nombre entero
+    // en cada cabecera multiplica el ancho de la tabla por el número de
+    // posiciones, y recortarlo es volver al problema de partida: el número no
+    // se recorta y no se repite.
+    //
+    // Las dos tablas se crean SIN prototipo: con `{}`, un activo que se llamara
+    // `toString` o `constructor` resolvería contra `Object.prototype` y la fila
+    // saldría rotulada con el código de una función.
+    const rotulos = Object.create(null), orden = Object.create(null);
+    d.tickers.forEach((t, i) => { rotulos[t] = (d.names || [])[i] || t; orden[t] = i + 1; });
+    const nombre = (t) => rotulos[t] || t;
     // Verde = se mueven al revés (diversifica). Rojo = son la misma apuesta.
     // La DIAGONAL va en gris: un activo correlaciona 1,00 consigo mismo por
     // definición, y pintarla del rojo más intenso de la tabla dirige la vista
@@ -1010,29 +1138,36 @@
         cinco fondos del mismo índice son una sola apuesta repartida en cinco filas.</p>
       ${betaBloque()}
       ${d.vs_benchmark ? `<div class="ex-h" style="margin-top:14px">Cada posición contra ${esc(d.benchmark_ticker)}</div>
-        <div class="ccy-list">${Object.entries(d.vs_benchmark)
+        <div class="ccy-list corr-vs">${Object.entries(d.vs_benchmark)
           .sort((a, b) => b[1] - a[1]).map(([t, v]) => `<div class="ccy-row">
             <i style="background:${v >= 0.7 ? "#cf5b3a" : v >= 0.4 ? "#d99a2b" : "#3fae6b"}"></i>
-            <span class="ccy-n">${esc(t.slice(0, 12))}</span><b>${v}</b>
+            <span class="ccy-n" title="${esc(t)}">${esc(nombre(t))}</span><b>${v}</b>
             <span class="mut">${v >= 0.7 ? "va con el mercado" : v >= 0.4 ? "a medias" : "va por su cuenta"}</span>
           </div>`).join("")}</div>
         <p class="mut small">La beta describe el conjunto y no señala a ninguna.
           Esto dice <b>cuál</b> de tus posiciones te ata al mercado.</p>` : ""}
-      ${mc ? `<p class="perf-note">Lo que más se parece: <b>${esc(mc.a)}</b> y <b>${esc(mc.b)}</b>,
+      ${mc ? `<p class="perf-note">Lo que más se parece: <b>${esc(nombre(mc.a))}</b> y <b>${esc(nombre(mc.b))}</b>,
         correlación <b>${mc.rho}</b>.${mc.rho > 0.8 ? " A ese nivel, son prácticamente el mismo activo." : ""}</p>` : ""}
       <div class="scroll"><table class="tbl corr-tbl">
-        <thead><tr><th></th>${d.tickers.map((t) => `<th class="num">${esc(t.slice(0, 6))}</th>`).join("")}</tr></thead>
-        <tbody>${d.tickers.map((t, i) => `<tr><td class="sym">${esc(t.slice(0, 12))}</td>${
+        <thead><tr><th></th>${d.tickers.map((t) => `<th class="num" title="${esc(orden[t] + ". " + nombre(t))}">${orden[t]}</th>`).join("")}</tr></thead>
+        <tbody>${d.tickers.map((t, i) => `<tr><td class="sym" title="${esc(nombre(t) + " · " + t)}"><span class="ix">${orden[t]}</span><span class="corr-nm">${esc(nombre(t))}</span></td>${
           d.matrix[i].map((v, j) => cell(v, i === j)).join("")}</tr>`).join("")}</tbody></table></div>
       ${(d.excluded || []).length ? `<p class="mut small">⚠ Fuera de la matriz:
-        ${d.excluded.map((x) => esc(x.ticker) + " (" + esc(x.why) + ")").join(", ")}.</p>` : ""}`;
+        ${d.excluded.map((x) => esc(x.name || x.ticker) + " (" + esc(x.why) + ")").join(", ")}.</p>` : ""}`;
   }
 
   // ── evolución de la cartera + benchmark ──────────────────────────────
+  // El activo con el que se compara lo leen CUATRO peticiones. Una sola función
+  // para todas: si cada una lo leyera a su manera, bastaría un `.toUpperCase()`
+  // de más en una para que dos tarjetas comparasen contra índices distintos.
+  const benchVal = () => ($("bench").value || "SPY").trim().toUpperCase();
+
   async function loadHistory() {
-    const b = ($("bench").value || "SPY").trim();
-    try { CH = await (await fetch(`/api/cartera/history?benchmark=${encodeURIComponent(b)}&${rangoQS()}`)).json(); }
-    catch (e) { CH = null; }
+    const b = benchVal();
+    let h = null;
+    try { h = await (await fetch(`/api/cartera/history?benchmark=${encodeURIComponent(b)}&${rangoQS()}`)).json(); } catch (e) { /* h sigue null */ }
+    if (b !== benchVal()) return;
+    CH = h;
     drawChart();
     const nota = $("rebase-note");
     if (CH && CH.rebased) {
@@ -1045,6 +1180,130 @@
         + `«Invertido» es el capital que ya tenías más lo aportado dentro.`;
       nota.hidden = false;
     } else nota.hidden = true;
+  }
+
+  // Cambiar el índice no es cambiar una línea del gráfico: es cambiar la
+  // referencia de «Frente a X» (dos veces), de la beta y de la correlación de
+  // cada posición. Recargar sólo el gráfico dejaba tres tarjetas comparando
+  // contra el índice anterior sin nada en pantalla que lo dijera.
+  async function applyBench() {
+    loadHistory(); loadEstado();
+    await loadPerfYCorr();
+  }
+
+  // `betaBloque()` lee PERF, así que la correlación se pinta DESPUÉS de que
+  // llegue el rendimiento; al revés sale sin beta hasta el siguiente repintado.
+  // Y si el rendimiento se descartó por obsoleto, la correlación NO se pinta:
+  // dejaría «Beta contra X» con el PERF viejo al lado de «Cada posición contra
+  // Y» recién traído, dos índices distintos dentro de la misma tarjeta.
+  async function loadPerfYCorr() {
+    if (await loadPerf() !== false) { loadCorr(); loadMensual(); loadResumen($("resumen-sel").value || null); }
+  }
+
+  // ══ resumen del periodo ═══════════════════════════════════════════════
+  // Un mes o un año en seis cifras: lo que rentó contra el índice, lo que
+  // ganó en euros, la mejor y la peor posición, lo cobrado y lo aportado.
+  const MES_LARGO = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
+    "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+  const nombrePeriodo = (p) => p.length === 4 ? `Año ${p}` : `${MES_LARGO[+p.slice(5) - 1]} ${p.slice(0, 4)}`;
+  const rwBox = (k, v, sub) => `<div class="rw"><div class="rw-k">${k}</div><div class="rw-v">${v}</div>
+    ${sub ? `<div class="rw-s">${sub}</div>` : ""}</div>`;
+
+  async function loadResumen(periodo) {
+    const box = $("resumen"), sel = $("resumen-sel");
+    const b = benchVal();
+    const q = new URLSearchParams({ benchmark: b });
+    if (periodo) q.set("periodo", periodo);
+    let d = null;
+    try { d = await (await fetch(`/api/cartera/resumen?${q}`)).json(); } catch (e) { /* d sigue null */ }
+    if (b !== benchVal()) return;
+    if (!d || d.error) { box.innerHTML = `<div class="mut">${esc((d && d.error) || "No pude calcularlo.")}</div>`; return; }
+    if (d.empty) { sel.hidden = true; box.innerHTML = `<div class="mut">Sin histórico todavía.</div>`; return; }
+    sel.hidden = false;
+    const ops = [...d.available.months].reverse().map((m) => [m, nombrePeriodo(m)])
+      .concat([...d.available.years].reverse().map((y) => [String(y), nombrePeriodo(String(y))]));
+    sel.innerHTML = ops.map(([v, t]) => `<option value="${v}"${v === d.periodo ? " selected" : ""}>${esc(t)}</option>`).join("");
+    const vs = d.twr != null && d.benchmark != null ? d.twr - d.benchmark : null;
+    const pos = (f) => f ? `<span style="${pcol(f.abs)}">${esc(f.name)}</span>` : "—";
+    box.innerHTML = `<div class="rw-grid">
+      ${rwBox("Rentabilidad", `<span style="${pcol(d.twr)}">${pct(d.twr)}</span>`,
+        d.benchmark != null ? `${esc(d.benchmark_ticker)} ${pct(d.benchmark)} · ${vs >= 0 ? "le ganas" : "te gana"} por ${pct(Math.abs(vs)).replace("+", "")}` : "sin índice")}
+      ${rwBox("Ganancia", signed(d.gain, " €"), `valor al cierre ${eur(d.value_end, 0)}`)}
+      ${rwBox("Lo mejor", pos(d.best), d.best ? `${signed(d.best.abs, " €")} · ${pct(d.best.pct)}` : "")}
+      ${rwBox("Lo peor", pos(d.worst), d.worst ? `${signed(d.worst.abs, " €")} · ${pct(d.worst.pct)}` : "")}
+      ${rwBox("Dividendos", eur(d.dividends), d.dividends_by.slice(0, 2).map((x) => esc(x.name)).join(", ") || "ninguno")}
+      ${rwBox("Aportado neto", signed(d.net_contributions, " €"), `entró ${eur(d.contributed, 0)} · salió ${eur(d.withdrawn, 0)}`)}
+    </div>
+    <p class="mut small">Del ${d.from} al ${d.to}${d.partial ? " (periodo incompleto)" : ""}. Rentabilidad ponderada por tiempo; la ganancia de cada posición descuenta sus compras y ventas.</p>`;
+  }
+  $("resumen-sel").addEventListener("change", (e) => loadResumen(e.target.value));
+
+  // ══ calendario de dividendos ══════════════════════════════════════════
+  // Barras llenas: lo cobrado (neto). Barras discontinuas: lo previsto, que es
+  // una estimación y se dibuja como tal.
+  async function loadDividendos() {
+    const leg = $("divs-legend"), box = $("divs");
+    let d = null;
+    try { d = await (await fetch("/api/cartera/dividendos")).json(); } catch (e) { /* d sigue null */ }
+    if (!d || d.error) { leg.textContent = ""; box.innerHTML = `<div class="mut">No pude calcularlo.</div>`; return; }
+    const past = d.received.slice(-12), fut = d.forecast.months;
+    if (!past.length && !d.forecast.total && !(d.forecast.unknown || []).length) {
+      leg.textContent = ""; box.innerHTML = `<div class="mut">Ni cobros registrados ni repartos previstos para lo que tienes.</div>`; return;
+    }
+    leg.textContent = "cobrado · previsto (estimación)";
+    const all = past.map((m) => ({ ...m, fc: false })).concat(fut.map((m) => ({ ...m, fc: true })));
+    const max = Math.max(1, ...all.map((m) => m.eur));
+    const tip = (m) => `${m.month}: ${money(m.eur)} €` + (m.by.length ? "\n" + m.by.map((b) => `${b.name}: ${money(b.eur)} €`).join("\n") : "");
+    const yld = d.portfolio_eur ? d.forecast.total / d.portfolio_eur : null;
+    box.innerHTML = `
+      <div class="dv-bars">${all.map((m) => `<div class="dv-col" title="${esc(tip(m))}">
+        <div class="dv-bar${m.fc ? " fc" : ""}" style="height:${(m.eur / max * 100).toFixed(1)}%"></div></div>`).join("")}</div>
+      <div class="dv-lbl">${all.map((m) => `<span>${MESES[+m.month.slice(5) - 1].slice(0, 1)}</span>`).join("")}</div>
+      <div class="dv-kpis">
+        ${rwBox("Cobrado 12 meses", eur(d.received_12m), "neto de retención")}
+        ${rwBox("Previsto 12 meses", eur(d.forecast.total), "bruto, estimación")}
+        ${rwBox("Rentabilidad prevista", yld != null ? pct(yld).replace("+", "") : "—", "sobre el valor de hoy")}
+      </div>
+      ${d.forecast.by_ticker.length ? `<div class="lt-h">Quién lo paga</div><div class="lt-list">${d.forecast.by_ticker.map((t) => `
+        <div class="lt-row"><i style="background:var(--accent,#4a90d9)"></i><span class="lt-n">${esc(t.name)}</span>
+        <b>${eur(t.eur, 0)}</b><span class="mut">${t.yield != null ? pct(t.yield).replace("+", "") : ""}</span></div>`).join("")}</div>` : ""}
+      ${d.forecast.no_fx.length ? `<p class="mut small">Sin tipo de cambio, no se prevé: ${d.forecast.no_fx.map(esc).join(", ")}.</p>` : ""}
+      ${(d.forecast.unknown || []).length ? `<p class="mut small">⚠ Sin datos de reparto ahora mismo (la fuente no contestó), no se prevé: ${d.forecast.unknown.map(esc).join(", ")}.</p>` : ""}
+      <p class="mut small">${esc(d.note)}</p>`;
+  }
+
+  // ══ mes a mes ═════════════════════════════════════════════════════════
+  // Cada casilla, el TWR del mes con un fondo que se intensifica hasta ±8 %.
+  // Debajo, en gris, el índice: el mes se lee contra lo que hizo el mercado.
+  const MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+  const hmBg = (x) => {
+    if (x == null) return "";
+    const a = Math.min(1, Math.abs(x) / 0.08) * 0.55;
+    return `background:${x >= 0 ? `rgba(63,174,107,${a.toFixed(2)})` : `rgba(207,91,58,${a.toFixed(2)})`}`;
+  };
+  // Un −0,04 % redondeado a una cifra decimal saldría «-0.0»: el signo de algo
+  // que no se ve. Por debajo de la resolución, cero sin signo.
+  const hmTxt = (x) => x == null ? "" : Math.abs(x) < 0.0005 ? "0.0"
+    : (x >= 0 ? "+" : "") + (x * 100).toFixed(1);
+
+  async function loadMensual() {
+    const leg = $("mensual-legend"), box = $("mensual");
+    const b = benchVal();
+    let d = null;
+    try { d = await (await fetch(`/api/cartera/mensual?benchmark=${encodeURIComponent(b)}`)).json(); } catch (e) { /* d sigue null */ }
+    if (b !== benchVal()) return;
+    if (!d || d.error) { leg.textContent = ""; box.innerHTML = `<div class="mut">No pude calcularlo.</div>`; return; }
+    if (d.empty || !d.years.length) { leg.textContent = ""; box.innerHTML = `<div class="mut">Sin histórico todavía.</div>`; return; }
+    leg.textContent = `% del mes · debajo, ${d.benchmark_ticker} en euros`;
+    const head = `<tr><th></th>${MESES.map((m) => `<th>${m}</th>`).join("")}<th>Año</th></tr>`;
+    const rows = d.years.slice().reverse().map((y) => `
+      <tr><td class="y">${y.year}</td>${y.months.map((x) => `<td style="${hmBg(x)}">${hmTxt(x)}</td>`).join("")}
+        <td class="tot" style="${hmBg(y.total)}">${hmTxt(y.total)}</td></tr>
+      <tr class="hm-ix"><td></td>${y.bench.map((x) => `<td>${hmTxt(x)}</td>`).join("")}
+        <td class="tot">${hmTxt(y.bench_total)}</td></tr>`).join("");
+    box.innerHTML = `<table class="hm"><thead>${head}</thead><tbody>${rows}</tbody></table>
+      <p class="mut small">Rentabilidad ponderada por tiempo: aportar o vender no mueve la casilla.
+        El primer y el último año suelen ser parciales.</p>`;
   }
 
   $("hrange").addEventListener("click", (e) => {
@@ -1220,7 +1479,7 @@
   function benchPick(x) {
     if (!x) return;
     bTk.value = x.symbol; bRes.hidden = true; bOn = -1;
-    loadHistory();
+    applyBench();
   }
 
   function benchMove(d) {
@@ -1264,7 +1523,7 @@
     // Con una opción marcada manda el desplegable; sin marcar, el texto tal cual
     // sigue valiendo. Quien ya se sabe el ticker no tiene por qué mirar la lista.
     if (!bRes.hidden && bOn >= 0) benchPick(bItems[bOn]);
-    else { bRes.hidden = true; loadHistory(); }
+    else { bRes.hidden = true; applyBench(); }
   });
   // Salir del campo también aplica lo escrito, pero solo si de verdad cambió:
   // tras un Enter o una selección el gráfico ya es ese, y el blur posterior
@@ -1272,7 +1531,7 @@
   bTk.addEventListener("change", () => {
     bRes.hidden = true;
     const want = (bTk.value.trim() || "SPY").toUpperCase();
-    if (!CH || String(CH.benchmark_ticker || "").toUpperCase() !== want) loadHistory();
+    if (!CH || String(CH.benchmark_ticker || "").toUpperCase() !== want) applyBench();
   });
   window.addEventListener("resize", drawChart);
 
@@ -1292,9 +1551,42 @@
     setTimeout(() => { el.innerHTML = ""; }, 20000);
   }
 
-  // ── buscador de instrumentos (ETF / fondo / acción europeos) ──
+  // ── buscador de instrumentos ──────────────────────────────────────────
+  // Dos fuentes con dos oficios distintos, y cada resultado dice de cuál viene.
+  //
+  //   · El CATÁLOGO europeo (registro de ESMA, local) contesta «qué hay»: sabe
+  //     de 18.000 fondos, con domicilio y política de reparto, y responde en
+  //     milisegundos porque no sale a la red.
+  //   · YAHOO contesta «cómo se llama esto que ya sé»: acciones, cripto y todo
+  //     lo que no sea un fondo europeo. Tiene un tope DURO de siete resultados
+  //     —comprobado pidiendo diez, veinticinco y cincuenta—, así que no puede
+  //     ser la fuente principal, pero es la única que cubre el resto del mundo.
+  //
+  // Nunca se mezclan sin etiquetar. Saber si un dato viene del registro oficial
+  // o de un buscador comercial cambia cuánto te puedes fiar de él.
   const fTk = $("f-ticker"), fRes = $("f-results"), fPick = $("f-picked");
-  let searchT = null;
+  let searchT = null, FILT = { kind: "", dist: "" }, LAST_Q = "";
+  const PAIS = { IE: "Irlanda", LU: "Luxemburgo", FR: "Francia", DE: "Alemania",
+                 ES: "España", NL: "Países Bajos", AT: "Austria", IT: "Italia",
+                 BE: "Bélgica", PT: "Portugal", SE: "Suecia", FI: "Finlandia",
+                 DK: "Dinamarca", CH: "Suiza", GB: "Reino Unido", US: "EE. UU.",
+                 JE: "Jersey", GG: "Guernsey", KY: "Islas Caimán", NO: "Noruega",
+                 PL: "Polonia", CZ: "Chequia", GR: "Grecia", IL: "Israel",
+                 CA: "Canadá", AU: "Australia", HK: "Hong Kong", SG: "Singapur",
+                 // `XS` NO es un país: es el prefijo de las emisiones
+                 // internacionales que se liquidan en Euroclear/Clearstream. Muchos
+                 // ETC lo llevan. Enseñarlo como si fuera un domicilio insinuaría
+                 // una fiscalidad y una retención en origen que ese código no dice.
+                 XS: "emisión internacional" };
+  const pais = (c) => PAIS[c] || c || "";
+  // Los plurales van a mano: «Fondos» y «ETFs» se leen mejor como cabecera que
+  // el valor crudo del catálogo, que está en singular porque etiqueta una fila.
+  const TIPO_PL = { ETF: "ETFs", Fondo: "Fondos", ETC: "ETC · materias primas",
+                    REIT: "REITs", "Fondo de fondos": "Fondos de fondos",
+                    "Otros fondos": "Otros", "Hedge fund": "Hedge funds",
+                    "Capital riesgo": "Capital riesgo",
+                    "Fondo de pensiones": "Fondos de pensiones" };
+
   fTk.addEventListener("input", () => {
     if (sel && fTk.value.trim() !== sel.symbol) { sel = null; fPick.hidden = true; }
     clearTimeout(searchT);
@@ -1302,35 +1594,216 @@
     if (q.length < 2) { fRes.hidden = true; return; }
     searchT = setTimeout(() => doSearch(q), 260);
   });
-  async function doSearch(q) {
-    let r;
-    try { r = await (await fetch("/api/search?q=" + encodeURIComponent(q))).json(); } catch (e) { return; }
-    if (fTk.value.trim() !== q) return;                 // stale response
-    const res = r.results || [];
-    if (!res.length) {
-      fRes.innerHTML = `<div class="r-empty">Sin resultados. Puedes escribir el símbolo o ISIN directamente.</div>`;
-      fRes.hidden = false; return;
-    }
-    fRes.innerHTML = res.map((x, i) => `<div class="r-item" data-i="${i}">
-      ${kbadge(x.kind) || "<span></span>"}<span class="r-name">${esc(x.name)}</span>
-      <span class="r-sym">${esc(x.symbol)}${x.exchange ? " · " + esc(x.exchange) : ""}</span></div>`).join("");
-    fRes.hidden = false;
-    fRes.querySelectorAll(".r-item").forEach((el) => el.addEventListener("click", () => pick(res[+el.dataset.i])));
-  }
-  // Escribir el símbolo a mano es tan legítimo como elegirlo de la lista, y era
-  // justo el camino por el que nadie llegaba a ver la divisa. Al salir del
-  // campo, no en cada tecla: el buscador ya se encarga de lo que se teclea.
-  fTk.addEventListener("blur", () => {
-    const v = fTk.value.trim();
-    if (v && (!sel || sel.symbol !== v)) showCcy(v);
-    else if (!v) $("f-ccy").hidden = true;
-  });
 
-  function pick(x) {
-    sel = { symbol: x.symbol, name: x.name, kind: x.kind };
-    fTk.value = x.symbol; fRes.hidden = true;
-    fPick.innerHTML = `${kbadge(x.kind)} <b>${esc(x.name)}</b>`; fPick.hidden = false;
-    showCcy(x.symbol);
+  function filtQS() {
+    return (FILT.kind ? `&kind=${encodeURIComponent(FILT.kind)}` : "")
+         + (FILT.dist ? `&dist=${encodeURIComponent(FILT.dist)}` : "");
+  }
+
+  async function doSearch(q) {
+    LAST_Q = q;
+    // Las dos peticiones salen a la vez: el catálogo es local y vuelve enseguida,
+    // y esperar a Yahoo para pintarlo sería regalarle su latencia a la parte
+    // rápida. La guardia de obsolescencia va DESPUÉS de las dos.
+    const [cat, yh] = await Promise.all([
+      // Doce, no veinte: el cupo por tipo sale de este número, y con veinte
+      // salían seis ETF antes del primer fondo — es decir, los fondos por debajo
+      // del pliegue, que para el caso es no estar.
+      fetch(`/api/instruments/search?q=${encodeURIComponent(q)}&limit=12${filtQS()}`)
+        .then((r) => r.json()).catch(() => null),
+      fetch("/api/search?q=" + encodeURIComponent(q)).then((r) => r.json()).catch(() => null),
+    ]);
+    if (fTk.value.trim() !== q) return;                 // llegó tarde: ya no vale
+    pintaResultados(cat, yh);
+
+    // Tercera fuente, y sólo si hace falta. El registro de la UE no recoge los
+    // fondos que se contratan directamente con la gestora —Vanguard, Bestinver,
+    // Cobas, los de un roboadvisor— porque no cotizan en ningún mercado. Si la
+    // búsqueda no ha devuelto NI UN fondo, se pregunta a Morningstar en vivo.
+    //
+    // Va después de pintar y no en paralelo a propósito: lo local ya está en
+    // pantalla, y esta petición sólo añade. Y va condicionada porque se consulta
+    // una base ajena: pedirle algo que ya tenemos sería gratis para nosotros y
+    // no para ellos.
+    // Con un filtro puesto en ETF o ETC, el servidor ya excluyó los fondos, así
+    // que «no hay fondos» es SIEMPRE cierto y se preguntaba a Morningstar en
+    // cada búsqueda —medido: una llamada por tecleo— para luego pintar fondos
+    // dentro de una lista que acababas de restringir a otra cosa. Dos faltas en
+    // una: gastar peticiones ajenas que nadie pidió, y un filtro que miente.
+    if (FILT.kind && FILT.kind !== "Fondo") return;
+    const hayFondos = ((cat && cat.results) || []).some((x) => x.kind === "Fondo");
+    if (hayFondos || q.length < 3) return;
+    let ext = null;
+    try { ext = await (await fetch("/api/instruments/externo?q=" + encodeURIComponent(q))).json(); }
+    catch (e) { return; }                             // fuente de apoyo: si falla, calla
+    if (fTk.value.trim() !== q) return;
+    pintaResultados(cat, yh, ext);
+  }
+
+  function pintaResultados(cat, yh, ext) {
+    const fondos = (cat && cat.results) || [], otros = (yh && yh.results) || [];
+    const gestora = (ext && ext.results) || [];
+    const fecha = cat && cat.source && cat.source.published;
+    const hayCat = !!(cat && cat.source && cat.source.funds);
+    let h = "";
+
+    // Los filtros sólo se enseñan si hay catálogo detrás. Unos filtros que no
+    // filtran nada porque la fuente no está construida son peor que ninguno.
+    if (hayCat) {
+      const chip = (g, v, lab) => `<button type="button" class="r-chip${FILT[g] === v ? " on" : ""}"
+        data-g="${g}" data-v="${esc(v)}">${lab}</button>`;
+      h += `<div class="r-filt">
+        ${chip("kind", "", "Todo")}${chip("kind", "ETF", "ETF")}${chip("kind", "Fondo", "Fondo")}${chip("kind", "ETC", "ETC")}
+        <span class="r-sep"></span>
+        ${chip("dist", "", "Cualquiera")}${chip("dist", "acumulación", "Acumula")}${chip("dist", "distribución", "Reparte")}
+      </div>`;
+    }
+
+    if (fondos.length) {
+      h += `<div class="r-head">Registro europeo${fecha && fecha !== "?" ? ` · datos del ${esc(fecha)}` : ""}</div>`;
+      // El aviso de apalancamiento va pegado al NOMBRE y no al final del renglón
+      // de datos: son dos tercios de los ETC del registro, se llaman casi igual
+      // que el producto físico —«Gold 3x Daily Short» junto a «Physical Gold»— y
+      // no se parecen en nada más. No se esconden, porque quien tenga uno tiene
+      // que poder apuntarlo. Se dicen.
+      // Un subtítulo cada vez que cambia el tipo. El servidor le da cupo a cada
+      // uno —si no, cinco ETF tapaban a los fondos que encajaban mejor— y esto
+      // enseña dónde acaba cada bloque, que es la mitad de para qué sirve.
+      let tipoAnterior = null;
+      h += fondos.map((x, i) => {
+        const sep = x.kind !== tipoAnterior
+          ? `<div class="r-sub-head">${esc(TIPO_PL[x.kind] || x.kind || "otros")}</div>` : "";
+        tipoAnterior = x.kind;
+        return sep + `<div class="r-item r-fund" data-cat="${i}">
+        ${kbadge(x.kind) || "<span></span>"}
+        <span class="r-name">${esc(x.name)}${x.leveraged
+          ? ` <span class="lev" title="Producto apalancado o inverso: multiplica el movimiento diario del subyacente, o va al revés. Mantenido varios días NO replica el rendimiento del activo — el efecto del interés compuesto sobre el rendimiento diario los separa.">apalancado</span>`
+          : ""}</span>
+        <span class="r-sub">${esc(x.isin)}${x.dist_policy ? " · " + esc(x.dist_policy) : ""}
+          ${x.domicile ? " · " + esc(pais(x.domicile)) : ""}
+          ${x.n_listings ? " · " + x.n_listings + " plaza" + (x.n_listings === 1 ? "" : "s") : ""}
+          ${x.ccy ? " · en " + esc(x.ccy) : ""}</span></div>`;
+      }).join("");
+    } else if (hayCat && LAST_Q.length >= 2) {
+      // El registro sólo recoge lo admitido a negociación en algún mercado de la
+      // UE. Los fondos que se contratan DIRECTAMENTE con la gestora —los de
+      // Vanguard, Bestinver, Cobas, los de un roboadvisor— no están y no van a
+      // estar. Se pueden apuntar igual pegando su identificador, y decirlo aquí
+      // es la diferencia entre «no existe» y «no está en esta lista».
+      h += `<div class="r-head">Registro europeo</div>
+        <div class="r-empty">Nada con ese nombre${FILT.kind || FILT.dist ? " y esos filtros" : ""}.
+          El registro sólo recoge lo que cotiza en algún mercado de la UE: los fondos
+          que se contratan directamente con la gestora no salen aquí.
+          <b>Pega su ISIN o su identificador de Morningstar</b> (<code>0P…</code>) y se apunta igual.</div>`;
+    }
+
+    if (gestora.length && (!FILT.kind || FILT.kind === "Fondo")) {
+      // La procedencia se dice SIEMPRE y aquí más: esto no es el registro
+      // oficial de la UE, es una base comercial preguntada en el momento, y de
+      // quién viene un dato cambia cuánto te puedes fiar de él.
+      h += `<div class="r-head">Fondos de gestora · Morningstar, consultado ahora</div>`;
+      h += gestora.map((x, i) => `<div class="r-item r-fund" data-ms="${i}">
+        <span class="kbadge" style="background:#8a63d2">Fondo</span>
+        <span class="r-name">${esc(x.name)}</span>
+        <span class="r-sub">${esc(x.isin)}
+          ${x.ter != null ? ` · gastos ${fmt(x.ter, 2)}%` : " · gastos no publicados"}
+          ${x.category ? " · " + esc(x.category) : ""}</span></div>`).join("");
+      h += `<div class="r-nota">No cotizan en ningún mercado, así que no están en el
+        registro europeo. Se contratan con la gestora o con tu bróker.</div>`;
+    }
+
+    if (otros.length) {
+      h += `<div class="r-head">Yahoo Finance · acciones y todo lo demás</div>`;
+      h += otros.map((x, i) => `<div class="r-item" data-yh="${i}">
+        ${kbadge(x.kind) || "<span></span>"}<span class="r-name">${esc(x.name)}</span>
+        <span class="r-sym">${esc(x.symbol)}${x.exchange ? " · " + esc(x.exchange) : ""}</span></div>`).join("");
+    }
+    if (!h || (!fondos.length && !otros.length && !hayCat)) {
+      h = `<div class="r-empty">Sin resultados. Puedes escribir el símbolo o el ISIN directamente.</div>`;
+    }
+    fRes.innerHTML = h;
+    fRes.hidden = false;
+    fRes.querySelectorAll(".r-chip").forEach((b) => b.addEventListener("click", (e) => {
+      e.preventDefault(); e.stopPropagation();
+      FILT[b.dataset.g] = b.dataset.v;
+      doSearch(LAST_Q);
+    }));
+    fRes.querySelectorAll("[data-yh]").forEach((el) =>
+      el.addEventListener("click", () => pick(otros[+el.dataset.yh])));
+    fRes.querySelectorAll("[data-cat]").forEach((el) =>
+      el.addEventListener("click", () => pickFondo(fondos[+el.dataset.cat])));
+    // El de gestora se elige igual, pero llevando su identificador de Morningstar:
+    // es lo ÚNICO con lo que Yahoo lo encuentra. Por nombre no da ninguno —cero
+    // de dieciocho probados— aunque sepa ponerle precio.
+    fRes.querySelectorAll("[data-ms]").forEach((el) =>
+      el.addEventListener("click", () => {
+        const x = gestora[+el.dataset.ms];
+        pickFondo({ isin: x.isin, name: x.name, kind: "Fondo",
+                    perf_id: x.perf_id, ter: x.ter });
+      }));
+  }
+
+  // Elegir un fondo del catálogo son DOS preguntas, y cada una la contesta quien
+  // la sabe: el registro dice qué fondo es, y Yahoo con qué símbolo lo conoce y
+  // en qué divisa lo cruza en cada plaza. Eso sale a la red, así que se paga al
+  // ELEGIR y no en cada tecla.
+  //
+  // Y la tercera pregunta —cuál de esas líneas es la TUYA— no la sabe ninguno de
+  // los dos. Se ofrecen todas y eliges. Adivinar la divisa es lo que partió una
+  // posición en dos: el mismo oro son 158,12 EUR en Stuttgart y 184,45 USD en
+  // Ámsterdam, y las dos cifras son correctas.
+  async function pickFondo(f) {
+    if (!f) return;
+    fRes.hidden = true;
+    fTk.value = f.isin;
+    fPick.innerHTML = `${kbadge(f.kind)} <b>${esc(f.name)}</b> <span class="mut">buscando cotización…</span>`;
+    fPick.hidden = false;
+    let d = null;
+    const extra = (f.perf_id ? "&perf_id=" + encodeURIComponent(f.perf_id) : "")
+                + (f.name ? "&nombre=" + encodeURIComponent(f.name) : "");
+    try { d = await (await fetch("/api/instruments/resolver?isin=" + encodeURIComponent(f.isin) + extra)).json(); }
+    catch (e) { /* d sigue null */ }
+    if (fTk.value.trim() !== f.isin) return;            // eligió otra cosa entretanto
+    if (!d || d.error || !(d.options || []).length) {
+      // Sin cotización NO se acepta el fondo: dejar el ISIN puesto como si nada
+      // apuntaría un movimiento que la cartera no sabría valorar nunca.
+      sel = null;
+      fPick.innerHTML = `${kbadge(f.kind)} <b>${esc(f.name)}</b>
+        <span class="warn">— ${esc((d && d.error) || "no pude comprobar la cotización")}.
+        Este fondo existe en el registro, pero la cartera no sabría ponerle precio.</span>`;
+      return;
+    }
+    pintaLineas(f, d, d.best);
+  }
+
+  function pintaLineas(f, d, elegido) {
+    const o = d.options.find((x) => x.symbol === elegido) || d.options[0];
+    sel = { symbol: o.symbol, name: f.name, kind: f.kind };
+    fTk.value = o.symbol;
+
+    // Las alternativas sólo se enseñan si de verdad hay entre qué elegir. Una
+    // sola línea con un desplegable al lado es una decisión que no existe.
+    const otras = d.options.length > 1 ? `<div class="lineas">
+      ${d.options.map((x) => `<button type="button" class="linea${x.symbol === o.symbol ? " on" : ""}"
+        data-s="${esc(x.symbol)}"
+        title="${esc(x.symbol)} · ${money(x.price, 4)} ${esc(x.ccy)}${x.history ? "" : " · esta línea no tiene serie: no saldrá en la gráfica"}">
+        ${esc(x.ccy)}<span class="mut"> ${esc(x.symbol)}</span>${x.history ? "" : " ⚠"}</button>`).join("")}
+      </div>` : "";
+
+    fPick.innerHTML = `${kbadge(f.kind)} <b>${esc(f.name)}</b>
+      <span class="mut">${esc(o.symbol)} · ${money(o.price, 4)} ${esc(o.ccy)}</span>`
+      // El aviso va AQUÍ y no en la gráfica: cuando se ve la gráfica vacía el
+      // movimiento ya está apuntado.
+      + (o.history ? "" : ` <span class="warn" title="Yahoo da el precio de hoy de esta línea pero no publica su serie. La cartera la valorará bien; no saldrá en la gráfica de evolución.">⚠ sin histórico</span>`)
+      + (o.via ? ` <span class="mut" title="Esta línea no publica serie, pero el panel la dibuja con la de ${esc(o.via)} — mismo ISIN y misma divisa, comprobado a mano.">(gráfica vía ${esc(o.via)})</span>` : "")
+      // Los gastos corrientes NO se guardan solos: se enseñan para que puedas
+      // apuntarlos tú en la ficha del instrumento. La cifra es de Morningstar,
+      // no del registro oficial, y quien la declara en su cartera eres tú.
+      + (f.ter != null ? ` <span class="ter-hint" title="Gastos corrientes según Morningstar. Apúntalos en la ficha del instrumento para que entren en la tarjeta de costes: el panel no los da por buenos por su cuenta.">gastos ${fmt(f.ter, 2)}%</span>` : "")
+      + otras;
+    fPick.querySelectorAll(".linea").forEach((b) =>
+      b.addEventListener("click", () => pintaLineas(f, d, b.dataset.s)));
+    showCcy(o.symbol);
   }
 
   // ── en qué moneda se teclea el precio ─────────────────────────────────
@@ -1395,11 +1868,10 @@
     $("f-submit").textContent = "Guardar cambios";
     $("f-cancel").hidden = false;
     document.getElementById("add-form").classList.add("editing");
-    $("f-price").focus();
-    if (P) render(P, false, false);
+    $("f-price").focus({ preventScroll: true });
   }
 
-  function cancelEdit(repaint = true) {
+  function cancelEdit() {
     EDITING = null;
     ["f-ticker", "f-qty", "f-price", "f-fee", "f-note"].forEach((i) => ($(i).value = ""));
     sel = null; fPick.hidden = true; fRes.hidden = true; $("f-ccy").hidden = true;
@@ -1407,7 +1879,6 @@
     $("f-cancel").hidden = true;
     document.getElementById("add-form").classList.remove("editing");
     sideMode();
-    if (repaint && P) render(P, false, false);
   }
   $("f-cancel").addEventListener("click", () => cancelEdit());
   // Un clic fuera cierra cada lista por su cuenta: son dos buscadores distintos
@@ -1435,7 +1906,7 @@
         headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const d = await r.json();
     if (d.error) { status(""); alert(d.error); return; }
-    cancelEdit(false);
+    cancelEdit();
     render(d); status("");
   });
 
@@ -1457,20 +1928,6 @@
     render(d);
   }
 
-  async function del(id) {
-    status("Eliminando…");
-    // Si se borra justo el que estaba abierto en el formulario, la edición se
-    // queda apuntando a un `id` que ya no existe y el siguiente "Guardar" da un
-    // 404 sin que se vea por qué.
-    if (EDITING != null && String(EDITING) === String(id)) cancelEdit(false);
-    render(await (await send("/api/cartera/" + id, { method: "DELETE" })).json());
-    status("");
-  }
-  $("clear").addEventListener("click", async () => {
-    if (!confirm("¿Borrar TODOS los movimientos? Esto no se puede deshacer.")) return;
-    render(await (await send("/api/cartera/clear", { method: "POST" })).json());
-  });
-
   // plantilla CSV
   $("tpl").addEventListener("click", (e) => {
     e.preventDefault();
@@ -1485,6 +1942,19 @@
     const b = new Blob([csv], { type: "text/csv" }); const u = URL.createObjectURL(b);
     const a = document.createElement("a"); a.href = u; a.download = "plantilla_cartera.csv"; a.click();
     setTimeout(() => URL.revokeObjectURL(u), 1000);
+  });
+
+  // ══ pestañas del raíl ═════════════════════════════════════════════════
+  // Países, tipo de activo y divisas son tres cortes de la misma pregunta, y
+  // nunca se comparan entre sí: se turnan en el mismo hueco. Sólo se oculta el
+  // panel, no se descarga: las tres se piden igual al cargar la página, así que
+  // cambiar de pestaña no espera a ninguna red.
+  $("comp-tabs").addEventListener("click", (ev) => {
+    const b = ev.target.closest("button[data-pane]");
+    if (!b) return;
+    for (const x of $("comp-tabs").children) x.classList.toggle("on", x === b);
+    for (const p of document.querySelectorAll("#comp-card .pane"))
+      p.hidden = p.id !== "pane-" + b.dataset.pane;
   });
 
   // fecha por defecto = hoy

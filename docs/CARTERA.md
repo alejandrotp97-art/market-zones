@@ -134,6 +134,42 @@ la compra se puede comprobar sin tocar Yahoo.
 | GET | `/api/cartera/simular-venta` | «si vendo X»: FIFO exacto + impuesto estimado |
 | GET | `/api/cartera/divisa` | exposición por divisa, dos lecturas |
 | GET/POST | `/api/cartera/splits` | splits pendientes; aplicar o marcar resuelto |
+| GET | `/api/cartera/periodos` | ganancia y % de cada posición en 1D / 1S / 1M / YTD / 1A / Todo |
+| GET | `/api/cartera/mensual` | TWR de cada mes (años × meses) y el índice al lado; `?benchmark=` |
+| GET | `/api/cartera/resumen` | resumen de un mes o un año: `?periodo=AAAA-MM` o `AAAA` (400 si mal formado, 404 sin datos) |
+| GET | `/api/cartera/sectores` | reparto sectorial por transparencia (justETF) |
+| GET | `/api/cartera/xray` | top 10 de cada fondo sumado por ISIN, repeticiones y solape entre fondos |
+| GET | `/api/cartera/dividendos` | cobrado por mes y previsión a 12 meses (estimación bruta) |
+
+### Lecturas inspiradas en getquin (2026-10-16)
+
+Seis lecturas que ofrece getquin y faltaban aquí. Todas salen de piezas que ya
+existían, para que ninguna pueda contar otra versión de los mismos números:
+
+* **Rentabilidad por periodo** (`cartera/periods.py`). La reconstrucción diaria
+  guarda ahora valor, flujos y dividendos **por posición** (su suma es la línea
+  de la cartera). Ganancia de un tramo = valor final − valor inicial − flujos del
+  tramo + dividendos; el % es sobre el capital expuesto (valor al abrir + lo
+  comprado dentro). Es rendimiento simple, no TWR: por eso el YTD de esta tabla
+  y el «Año» del mapa de calor pueden no coincidir. Los fondos no cotizados
+  publican su valor liquidativo con un día de retraso y su 1D sale a cero hasta
+  que llega.
+* **Mes a mes** (`returns.monthly_twr`). Encadena por mes natural los mismos
+  factores diarios del TWR; el total de cada año coincide con su `by_year`. El
+  índice va por su precio en euros, sin flujos.
+* **Resumen del periodo**. TWR del mes o el año, índice, mejor y peor posición
+  (las vendidas dentro del periodo también cuentan), dividendos y aportación neta.
+* **Sectores y X-ray** (`cartera/lookthrough.py`). El sembrador lee de la misma
+  ficha de justETF los sectores (ampliados con su «Show more», seguido una vez)
+  y el top 10 de posiciones con ISIN, y los guarda junto a los países. Un fondo
+  sembrado antes de este cambio sale «sin sectores todavía» hasta la siguiente
+  siembra. El X-ray sólo ve el top 10 de cada fondo, así que el solape entre
+  fondos es una **cota inferior**; la tarjeta dice qué parte de la cartera ve.
+* **Dividendos** (`cartera/dividends.py`). Lo cobrado sale de la reconstrucción
+  (neto, al cambio de su día). La previsión repite cada pago de los últimos 12
+  meses naturales por las participaciones y el cambio de hoy; no extrapola
+  crecimiento ni adivina retenciones. Los repartos llegan en la misma petición
+  del histórico de Yahoo (`events=div|split`).
 
 Todo lo que muta pasa por un guard CSRF **global** (`before_request`), no por un
 decorador por ruta: una ruta nueva nace protegida. Lo mismo el guard de
@@ -143,25 +179,79 @@ publicación: cubre `/cartera` y `/api/cartera*` por prefijo.
 
 ## 5. La pantalla, en orden
 
+Dos columnas. A la izquierda lo que necesita **ancho de verdad** —el gráfico,
+la tabla de doce columnas, la matriz de correlación—; a la derecha lo que se
+pinta con barras, tres cifras o una tabla estrecha. Por debajo de 1200px el
+raíl se apila debajo del relato.
+
+**Una sola rejilla interior.** Todas las tarjetas de la columna principal parten
+su interior igual: **cuatro columnas, hueco de 14px, medido sobre el interior de
+la tarjeta**. Lo que no viene de cuatro en cuatro ocupa dos columnas
+(`.perf-grid>*:last-child`) en vez de estrenar un ancho propio. Los cuatro
+números del resumen viven fuera de una tarjeta, así que llevan `padding:0 15px`
+—borde más relleno— para caer sobre esas mismas líneas. Tres columnas iguales
+cortarían en el 33% y el 66%, que no son líneas de esta página.
+
+### Columna principal
+
 1. **Resumen** — invertido, valor de mercado, P&L no realizado, P&L realizado
    (con interruptor Medio/FIFO), dividendos cobrados, rentabilidad total.
-2. **Evolución** — cartera vs capital aportado vs un índice a elegir, con
+2. **Alta manual** — el formulario de añadir movimiento. Va aquí, y no al final,
+   porque es lo único de esta pantalla que se USA: el resto se lee. Corregir un
+   movimiento (`?editar=`) reutiliza este mismo formulario.
+3. **Evolución** — cartera vs capital aportado vs un índice a elegir, con
    **selector de temporalidad** (1M · 3M · 6M · YTD · 1A · 5A · Todo · fechas).
-3. **Rentabilidad** — TWR, TIR, acumulado; la frase que sale de restarlos;
+4. **Rentabilidad** — TWR, TIR, acumulado; la frase que sale de restarlos;
    caída máxima, caída actual, volatilidad y Sharpe; desglose por año; y la
    comparación con el índice.
-4. **Posiciones** — 12 columnas: activo, **zona**, **peso**, cantidad, coste
+5. **Posiciones** — 12 columnas: activo, **zona**, **peso**, cantidad, coste
    medio, invertido, último, valor, P&L no realizado, %, **dividendos**, P&L
    realizado.
-5. **Quién ha puesto el dinero** — contribución al resultado en euros, ordenada.
-6. **Rebalanceo** — desvío vs objetivo y reparto de una aportación.
-7. **Qué te cuesta** — comisiones pagadas, retenciones, gastos corrientes y su
-   arrastre a 10 y 20 años.
-8. **El activo y la divisa** — reparto exacto (se oculta si todo está en euros).
-9. **Diversificación real** — «contando líneas» → «apuestas reales», matriz.
-10. **Exposición geográfica** — mapa por transparencia: abre cada fondo y mira
-    qué país hay dentro, no dónde está domiciliado.
-11. **Alta manual · Importar/exportar · Movimientos**.
+6. **Si vendo… · Qué te cuesta** — simulación de venta; comisiones pagadas,
+   retenciones, gastos corrientes y su arrastre a 10 y 20 años.
+7. **El activo y la divisa** — reparto exacto (se oculta si todo está en euros).
+8. **Diversificación real** — «contando líneas» → «apuestas reales», matriz.
+9. **Importar/exportar · Qué merece tu atención · Movimientos**.
+
+Las dos tarjetas de análisis que quedan aquí son TABLAS —cuatro columnas la del
+cambio, una matriz que crece con cada posición la de correlación—, y por eso no
+bajan al raíl.
+
+### Raíl derecho
+
+**De qué está hecha** — una sola tarjeta con tres pestañas, porque son tres
+cortes de la misma pregunta y nunca se comparan entre sí:
+
+- **Países** — el mapa por transparencia: abre cada fondo y mira qué país hay
+  dentro, no dónde está domiciliado. En el raíl es una MINIATURA con el top-5 y
+  el ratón apagado sobre los países: a 360px de ancho un país europeo mide dos
+  píxeles, y ofrecer un hover que no se puede acertar es prometer lo que la
+  miniatura no cumple. **Al ampliar** (`⤢`, o pulsando el mapa) el bloque entero
+  se muda a un diálogo a pantalla casi completa y recupera el hover con país,
+  peso, valor y quién lo aporta, el ranking completo, la leyenda y las fuentes.
+  El selector Todo / Renta variable / Renta fija vive **en el diálogo**; arriba
+  sólo se dice qué filtro está puesto.
+- **Tipo** — en qué clase de activo estás.
+- **Divisas** — de qué divisas dependes, en las dos lecturas.
+
+**El mapa es UNO.** Al ampliar se muda y al cerrar vuelve a su hueco: dos mapas
+serían dos geometrías, dos descargas y dos estados que se separan en cuanto se
+toca el filtro — y el día que se separan, ninguno de los dos dice la verdad.
+
+Debajo del mapa, y en este orden:
+
+- **Quién ha puesto el dinero** — contribución al resultado en euros, ordenada.
+- **Rebalanceo** — desvío vs objetivo y reparto de una aportación.
+- **Tus aportaciones** — total, media al mes, última, y el histograma mensual.
+- **Tu objetivo** — progreso contra el capital declarado. No proyecta fechas.
+
+Ninguno necesitaba la columna ancha: son barras, tres cifras, dos tablas de
+tres y cinco columnas cortas, y un formulario de cuatro campos. Ocupaban dos
+bandas enteras del relato para eso. Sus rejillas internas de dos y tres
+columnas se apilan a una sola dentro del raíl (`.rail .ap-kpis`,
+`.rail .plan-form`, `.rail .ccy-list`), y las tablas pierden ahí el
+`min-width:640px` y el `nowrap`: en 400px lo único que hacían era empujar la
+tabla fuera de su tarjeta.
 
 ---
 
@@ -263,6 +353,29 @@ distintas como para cinco fondos del mismo índice.
 - **Con menos de 60 sesiones en común no se publica correlación**: es ruido con
   dos decimales.
 - **Los pesos se renormalizan** sobre lo que entra en la matriz.
+- **La tarjeta se rotula por NOMBRE, no por el símbolo.** Un fondo cotiza aquí
+  como `0P0001CLDK.F`; la cabecera lo recortaba a seis caracteres y dos
+  posiciones distintas salían las dos como `0P0001`. Recortar un identificador
+  opaco no lo hace legible, lo hace ambiguo.
+- **Las columnas van numeradas como las filas.** Un nombre entero por cabecera
+  multiplica el ancho de la tabla por el número de posiciones, y recortarlo es
+  volver al problema de partida.
+- **Cada `title` lleva lo que su rótulo NO enseña.** La cabecera enseña el
+  número y su `title` da el nombre; la fila enseña el nombre —que puede venir
+  cortado— y su `title` da el nombre entero y el símbolo; el ranking contra el
+  índice enseña el nombre y su `title` da el símbolo, que es con lo que se casa
+  el extracto del bróker.
+- **Los nombres viajan en una lista PARALELA a los símbolos** (`names` /
+  `tickers`) y se casan por posición. Construirla sobre las posiciones abiertas
+  en vez de sobre las columnas la deja corrida en cuanto una posición se
+  excluye — y una matriz mal rotulada no se ve rota: se ve tranquila y miente.
+- **La clase del rótulo es PROPIA, no reutilizada.** Se llamó `nm` y `.nm` ya
+  existía suelta en la hoja con `white-space:normal`: acotarla a `.corr-tbl`
+  gana en especificidad sólo en lo que declara, así que el `text-overflow` no
+  se pintaba nunca y el rótulo heredaba color y tamaño de otra cosa. El estilo
+  efectivo es la CASCADA de todas las reglas que casan, no la regla propia.
+- **Lo excluido también dice su nombre**: esa nota es su única mención en toda
+  la tarjeta, porque no tiene ni fila ni columna ni puesto en el ranking.
 
 ### 6.6 Importación / exportación
 
@@ -357,23 +470,26 @@ Ordenados por lo que aportarían a quien tiene dinero dentro.
 
 ## 9. Cómo se comprueba
 
-471 tests herméticos: toda llamada saliente está simulada. El CI corre en
+599 tests herméticos: toda llamada saliente está simulada. El CI corre en
 3.11 / 3.12 / 3.14 y repite la suite con un **guardia de red** activo
 (`MZ_NO_NETWORK=1`, en `conftest.py`) que intercepta `connect`, `connect_ex`,
 `create_connection` y `getaddrinfo`.
 
 | Fichero | Tests | Cubre |
 |---|---:|---|
-| `tests/test_returns.py` | 42 | TWR, TIR, caída, volatilidad, Sharpe, N efectivo, rebalanceo |
-| `tests/test_cartera_rendimiento.py` | 28 | ventanas, resembrado, costes, correlación, contribución |
+| `tests/test_cartera_rendimiento.py` | 52 | ventanas, resembrado, costes, correlación, contribución |
+| `tests/test_returns.py` | 48 | TWR, TIR, caída, volatilidad, Sharpe, N efectivo, rebalanceo |
+| `tests/test_cartera_guard.py` | 32 | el libro no se sirve sin declarar login |
+| `tests/test_positions_domain.py` | 27 | la aritmética del dinero, sin Flask ni red |
 | `tests/test_cartera.py` | 26 | contabilidad y vocabulario |
-| `tests/test_positions_domain.py` | 25 | la aritmética del dinero, sin Flask ni red |
 | `tests/test_cartera_dividendos_edicion.py` | 22 | dividendos, corrección, zonas, divisa |
+| `tests/test_cartera_backup.py` | 18 | copia, verificación, rotación |
 | `tests/test_geo.py` | 18 | transparencia por país |
-| `tests/test_cartera_backup.py` | 16 | copia, verificación, rotación |
+| `tests/test_instrument_name.py` | 16 | identidad del instrumento |
+| `tests/test_cartera_layout.py` | 16 | el armazón de dos columnas y el mapa que se muda |
 | `tests/test_alertas_cartera.py` | 13 | cuándo avisa y, sobre todo, cuándo calla |
-| `tests/test_instrument_name.py` | 9 | identidad del instrumento |
-| `tests/test_cartera_guard.py` | 7 | el libro no se sirve sin declarar login |
+| `tests/test_cartera_movimientos_page.py` | 9 | el alta va arriba, no al final |
+| `tests/test_cartera_correlacion_nombres.py` | 9 | la matriz se rotula por nombre, no por símbolo |
 | `tests/test_history_proxy.py` | 7 | histórico prestado |
 
 **Verificaciones externas, que valen más que un test propio:**

@@ -10,12 +10,14 @@ date never changes zone when you switch ranges.
 from __future__ import annotations
 
 import csv
+import datetime
 import gzip
 import html
 import io
 import json
 import math
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -30,6 +32,8 @@ import pandas as pd
 from flask import Flask, Response, jsonify, redirect, render_template, request, send_from_directory
 
 import geo
+from cartera.dividends import forecast as _div_forecast
+from cartera.dividends import monthly_received as _div_received
 from cartera.exposure import by_asset_class as _by_asset_class
 from cartera.exposure import by_economic_currency as _ccy_economic
 from cartera.exposure import by_quote_currency as _ccy_quote
@@ -42,6 +46,8 @@ from cartera.fiscal import simulate_sale as _simulate_sale
 # movimiento no depende de que haya un navegador delante. Aquí dentro siguen
 # siendo detalles internos, así que se reexportan con el guion bajo con el que
 # los llama el resto de este fichero.
+from cartera.lookthrough import sector_exposure as _sector_exposure
+from cartera.lookthrough import xray as _xray
 from cartera.parsing import CARTERA_EXPORT_COLS, COLSYN
 from cartera.parsing import csv_num as _csv_num
 from cartera.parsing import csv_text as _csv_text
@@ -57,6 +63,9 @@ from cartera.parsing import num as _num
 from cartera.parsing import side_es as _side_es
 from cartera.parsing import sniff_sep as _sniff_sep
 from cartera.parsing import symbol_isin as _symbol_isin
+from cartera.periods import WINDOWS as _PERIOD_WINDOWS
+from cartera.periods import period_returns as _period_returns
+from cartera.periods import range_returns as _range_returns
 from cartera.plan import attention as _attention
 from cartera.plan import contribution_stats as _contrib_stats
 from cartera.plan import diary as _diary
@@ -67,6 +76,8 @@ from cartera.positions import compute as _compute_positions
 from cartera.returns import beta as _beta
 from cartera.returns import drawdown as _drawdown
 from cartera.returns import effective_n as _effective_n
+from cartera.returns import monthly_grid as _monthly_grid
+from cartera.returns import monthly_twr as _monthly_twr
 from cartera.returns import nav_series as _nav_series
 from cartera.returns import rebalance_with_cash as _rebalance
 from cartera.returns import sharpe as _sharpe
@@ -837,6 +848,19 @@ CARTERA_DB = os.environ.get("CARTERA_DB") or os.path.join(
 _price_cache: dict[str, tuple[float, float | None]] = {}
 
 
+def _backup_dir() -> str:
+    """Dónde cae una copia de ESTA cartera: junto a la base, no al proyecto.
+
+    `CARTERA_DB` es la única frontera entre instancias. Si apunta a otro libro —otra
+    instancia, el temporal de una suite— su copia no puede ir a la carpeta de
+    copias de éste: allí se mezclarían dos libros y la rotación (`keep=14`,
+    diaria) empujaría fuera las copias buenas por las de un tercero. La
+    rotación no se puede deshacer, así que el destino se deriva, no se elige.
+    """
+    import backup_cartera as _bk  # una sola definición de la regla
+    return _bk._dir_for(CARTERA_DB)
+
+
 def _cartera_conn():
     c = sqlite3.connect(CARTERA_DB)
     # SQLite creates the file with 0644 minus umask, so on a shared host every
@@ -896,6 +920,39 @@ def _cartera_conn():
     # teclearlas cada vez garantiza que un día se teclee otra cifra distinta.
     if "pending_losses" not in goal_cols:
         c.execute("ALTER TABLE portfolio_goal ADD COLUMN pending_losses REAL")
+    # El libro guarda lo que teclea la persona, y «BITCOIN EUR» se apuntó como
+    # ticker porque no había nada que lo tradujese: no es un símbolo de Yahoo,
+    # no tiene divisa y la posición se caía de todos los totales. Ahora esa
+    # traducción ocurre EN LA ENTRADA (`SYMBOL_ALIASES`), pero las filas viejas
+    # siguen en el fichero —y una copia de seguridad restaurada las trae igual,
+    # por eso vive aquí, con las demás migraciones, y no en un script suelto que
+    # habría que acordarse de correr.
+    #
+    # Se comprueba ANTES de tocar nada, para que el camino común —una cartera
+    # sin texto viejo— siga siendo una consulta que no encuentra nada. Y es
+    # idempotente: se ejecuta en CADA conexión.
+    for viejo, (nuevo, nombre, kind) in SYMBOL_ALIASES.items():
+        if not c.execute("SELECT 1 FROM movements WHERE ticker=? LIMIT 1",
+                         (viejo,)).fetchone():
+            continue
+        c.execute("UPDATE movements SET ticker=? WHERE ticker=?", (nuevo, viejo))
+        # Sólo las filas sin nombre se completan con el del alias: la que ya
+        # tenía uno es la que la persona escribió, y reemplazarla por un nombre
+        # de catálogo la cambiaría a sus ojos.
+        c.execute("UPDATE movements SET name=?, kind=? WHERE ticker=? "
+                  "AND (name IS NULL OR name='')", (nombre, kind, nuevo))
+        if c.execute("SELECT 1 FROM instrument_meta WHERE ticker=? LIMIT 1",
+                     (viejo,)).fetchone():
+            # `instrument_meta` lleva el ticker como clave primaria: renombrar
+            # sobre una fila que ya existe en el destino reventaría con una
+            # violación de clave. Gana lo que ya estaba en el símbolo bueno.
+            if c.execute("SELECT 1 FROM instrument_meta WHERE ticker=? LIMIT 1",
+                         (nuevo,)).fetchone():
+                c.execute("DELETE FROM instrument_meta WHERE ticker=?", (viejo,))
+            else:
+                c.execute("UPDATE instrument_meta SET ticker=? WHERE ticker=?",
+                          (nuevo, viejo))
+    c.commit()
     return c
 
 
@@ -917,6 +974,15 @@ def _portfolio_goal():
 _search_cache: dict[str, tuple[float, list]] = {}
 _KIND_ES = {"EQUITY": "Acción", "ETF": "ETF", "MUTUALFUND": "Fondo", "INDEX": "Índice",
             "CRYPTOCURRENCY": "Cripto", "CURRENCY": "Divisa", "FUTURE": "Futuro"}
+
+# Traducción de un ticker escrito a MANO a un símbolo de Yahoo. Clave en
+# mayúsculas, valor (símbolo, nombre, tipo). Se consulta ANTES de cualquier
+# llamada a la red, y tiene que ser así: «BITCOIN EUR» es literalmente el
+# rótulo que Yahoo pone a `BTC-EUR`, pero buscarlo devuelve PRIMERO un contrato
+# de futuros de microbitcoin —que es lo que más se mueve— y sin este puente la
+# posición no tiene divisa, así que se cae de todos los totales del panel, de la
+# historia, de la correlación y del mapa.
+SYMBOL_ALIASES = {"BITCOIN EUR": ("BTC-EUR", "Bitcoin EUR", "Cripto")}
 
 
 def _yahoo_search(q: str, limit: int = 12) -> list:
@@ -954,6 +1020,11 @@ def _resolve_symbol(query: str):
     q = str(query or "").strip()
     if not q:
         return "", "", ""
+    # El atajo local, antes que la red: es un hecho conocido, no una búsqueda, y
+    # una cartera con bitcoin no puede depender de que Yahoo conteste.
+    alias = SYMBOL_ALIASES.get(q.upper())
+    if alias:
+        return alias
     if _looks_like_isin(q) or " " in q:
         res = _yahoo_search(q)
         # An ISIN names ONE instrument, so the listing whose symbol is built from
@@ -966,6 +1037,14 @@ def _resolve_symbol(query: str):
             for r in res:
                 if _symbol_isin(r["symbol"]) == want:
                     return r["symbol"], r["name"], r["kind"]
+        # The query may BE the instrument's own name: Yahoo labels BTC-EUR
+        # shortname "Bitcoin EUR", and the first hit for "BITCOIN EUR" is a micro
+        # futures contract nobody asked for — `res[0]` there would book a
+        # derivative where the user keeps their savings. An exact name match is
+        # as close to naming ONE instrument as free text gets.
+        for r in res:
+            if str(r["name"] or "").strip().casefold() == q.casefold():
+                return r["symbol"], r["name"], r["kind"]
         # prefer ETF/fund/equity over indices; keep first otherwise
         for pref in ("ETF", "Fondo", "Acción"):
             for r in res:
@@ -976,11 +1055,385 @@ def _resolve_symbol(query: str):
     return q.upper(), "", ""
 
 
-_meta_cache: dict[str, tuple[float, tuple]] = {}
+# ── Catálogo europeo de fondos y ETFs (ESMA FIRDS) ────────────────────────
+# El buscador de Yahoo de arriba resuelve un ticker que ya sabes; no sirve para
+# mirar qué hay. Tiene un tope DURO de siete resultados —comprobado pidiendo 10,
+# 25 y 50—, no entiende lenguaje natural y no publica ni domicilio ni política de
+# reparto. Sobre siete resultados no se construye un explorador.
+#
+# El catálogo lo llena `ingest_firds.py` desde el registro oficial de la UE, una
+# vez por semana. Aquí sólo se LEE, y en solo-lectura de verdad: una consulta del
+# navegador no puede escribir en él ni por accidente.
+#
+# Si el catálogo no existe todavía, todo esto devuelve vacío y la pantalla cae al
+# buscador de Yahoo. Un catálogo sin construir no puede romper el alta manual.
+#
+# Vive FUERA del directorio del proyecto, y no por orden: el proceso de ingesta
+# necesita escribir donde esté, y si eso fuera el directorio del proyecto, el
+# sandbox de su unidad tendría que abrir en escritura la carpeta donde está
+# cartera.db. Comprobado que `ReadOnlyPaths` anidado dentro de un
+# `ReadWritePaths` NO recorta el permiso: la única separación que se sostiene es
+# que no compartan carpeta.
+CATALOGO_DB = os.environ.get("MZ_CATALOGO_DB") or os.path.join(
+    os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state"),
+    "market-zones", "instruments.db")
+
+
+def _catalogo_conn():
+    """Conexión de sólo lectura, o None si aún no hay catálogo."""
+    if not os.path.exists(CATALOGO_DB):
+        return None
+    try:
+        c = sqlite3.connect(f"file:{urllib.parse.quote(CATALOGO_DB)}?mode=ro",
+                            uri=True, timeout=2)
+        c.row_factory = sqlite3.Row
+        return c
+    except sqlite3.Error:
+        return None
+
+
+def _catalogo_meta() -> dict:
+    """De qué fichero y de qué fecha salen estos datos.
+
+    Va en cada respuesta a propósito. Un catálogo que no dice cuándo se llenó es
+    un catálogo en el que hay que confiar a ciegas, y este se queda parado si el
+    temporizador semanal falla.
+    """
+    c = _catalogo_conn()
+    if c is None:
+        return {}
+    try:
+        return {r["key"]: r["value"] for r in c.execute("SELECT key,value FROM meta")}
+    except sqlite3.Error:
+        return {}
+    finally:
+        c.close()
+
+
+def _entero(v, por_defecto: int, minimo: int, maximo: int) -> int:
+    """Un entero acotado a partir de lo que venga en la URL, sin reventar.
+
+    `int()` a pelo sobre `?limit=abc` levanta un `ValueError` que nadie recoge y
+    la ruta contesta un 500. Un parámetro mal escrito no es un fallo del
+    servidor: es un parámetro mal escrito, y se trata como si no viniera.
+    """
+    try:
+        n = int(v)
+    except (TypeError, ValueError):
+        n = por_defecto
+    return max(minimo, min(n, maximo))
+
+
+# FTS5 tiene su propio lenguaje de consulta: comillas, `AND`, `NOT`, `*`, `^`.
+# El texto del usuario NO se le pasa tal cual —una comilla suelta es un error de
+# sintaxis y `NOT` escrito sin querer cambiaría el sentido de la búsqueda—: se
+# parte en palabras y cada una se cita. Lo que se pierde es poder escribir
+# operadores; lo que se gana es que nada de lo que se teclee sea un operador.
+_FTS_TOKEN = re.compile(r"[0-9A-Za-zÁÉÍÓÚÜÑáéíóúüñ&+]+")
+
+
+def _fts_query(q: str) -> str | None:
+    """Texto libre -> consulta FTS5, con la última palabra como prefijo."""
+    toks = _FTS_TOKEN.findall(q or "")
+    if not toks:
+        return None
+    toks = toks[:8]                        # ocho palabras ya no acotan más
+    # La última va con `*` porque se busca MIENTRAS se escribe: sin eso, «mundi»
+    # no encontraría Amundi hasta terminar de teclear la palabra.
+    return " AND ".join([*(f'"{t}"' for t in toks[:-1]), f'"{toks[-1]}"*'])
+
+
+# Los tres tipos que alguien construye una cartera con ellos. El resto —REIT,
+# hedge funds, capital riesgo— existen en el catálogo y se encuentran, pero no
+# compiten por sitio en la lista corta.
+_TIPOS_PRINCIPALES = ("ETF", "Fondo", "ETC")
+
+
+# Doce y no veinte: el cupo por tipo sale de este número, y con veinte salían
+# seis ETF antes del primer fondo, o sea los fondos por debajo del pliegue del
+# desplegable. Es el DEFECTO del servidor, no sólo el que manda la pantalla:
+# cualquier otro consumidor de la API merece el mismo reparto.
+_LIMITE_POR_DEFECTO = 12
+
+
+def _catalogo_buscar(q: str, kind: str = "", dist: str = "", domicile: str = "",
+                     limit: int = _LIMITE_POR_DEFECTO, _sin_cupo: bool = False) -> list:
+    """Busca un FONDO, no una línea de cotización.
+
+    El mismo ETF se negocia en muchas plazas —mediana 7, máximo 48 medidos sobre
+    el fichero—, y devolverlas por separado sería repetir la misma respuesta
+    cuarenta veces. Las plazas van dentro del resultado.
+
+    **Sin filtro de tipo se busca POR TIPO y se juntan los resultados**, en vez de
+    coger los mejores del montón. Y no es un capricho: buscando «msci world
+    index» sin esto salían cinco ETF y ni un fondo, aunque hubiera fondos que
+    encajaban mejor. Sencillamente hay muchos más ETF, y cualquier orden global
+    los deja fuera de la pantalla.
+
+    Se probaron tres fórmulas de orden antes de rendirse a esto —lineal por
+    plazas, logarítmica, y sólo-en-cotizados— y las tres daban ETF/ETF/ETF/ETF/ETF.
+    El problema no era el peso: era que un fondo NUNCA gana un cupo global.
+
+    Dentro de cada tipo, el orden mezcla lo que encaja (`bm25`) con en cuántos
+    mercados cotiza. `bm25` a secas premia al documento más corto —aquí, el fondo
+    con menos nombres alternativos—, justo al revés de lo que interesa.
+    """
+    m = _fts_query(q)
+    if m is None:
+        return []
+    # El cupo va ANTES de abrir la conexión porque no la usa: reparte trabajo
+    # entre llamadas recursivas y cada una abre y cierra la suya. Abrirla aquí
+    # dejaba un descriptor colgando en cada búsqueda sin filtro —medido: 40
+    # búsquedas, 40 descriptores— porque esta rama sale por `return` y nunca
+    # llegaba al `finally` que cierra, que vive en la consulta de abajo.
+    if not kind and not _sin_cupo:
+        # Un cupo por tipo. Se pide de más y se recorta al final, para que un
+        # tipo sin resultados le ceda su sitio a los demás en vez de perderlo.
+        cupo = max(3, _entero(limit, _LIMITE_POR_DEFECTO, 1, 50) // 3)
+        out = []
+        for t in _TIPOS_PRINCIPALES:
+            out += _catalogo_buscar(q, kind=t, dist=dist, domicile=domicile, limit=cupo)
+        # La cola es SÓLO para los tipos que no tienen cupo —REIT, hedge funds,
+        # capital riesgo—. Dejarla traer más ETF le devolvía el problema: al
+        # agrupar, esos ETF de más se ponían delante y empujaban a los fondos
+        # fuera del corte. El cupo no sirve de nada si luego se rellena con lo
+        # mismo que el cupo estaba limitando.
+        vistos = {r["isin"] for r in out}
+        for r in _catalogo_buscar(q, kind="", dist=dist, domicile=domicile,
+                                  limit=limit, _sin_cupo=True):
+            if r["isin"] not in vistos and r["kind"] not in _TIPOS_PRINCIPALES:
+                out.append(r)
+        # Cada tipo, UNA vez. La cola global vuelve a traer ETF, y sin esto la
+        # pantalla pintaba dos veces la cabecera «ETFs» con una de «Fondos» en
+        # medio: parece un fallo aunque el orden sea correcto. Ordenación
+        # ESTABLE, así que dentro de cada tipo manda el orden que ya traían.
+        orden = {t: i for i, t in enumerate(_TIPOS_PRINCIPALES)}
+        out.sort(key=lambda r: orden.get(r["kind"], len(orden)))
+        return out[:_entero(limit, _LIMITE_POR_DEFECTO, 1, 50)]
+    c = _catalogo_conn()
+    if c is None:
+        return []
+    where, args = ["funds_fts MATCH ?"], [m]
+    if kind:
+        where.append("f.kind = ?"); args.append(kind)
+    if dist:
+        where.append("f.dist_policy = ?"); args.append(dist)
+    if domicile:
+        where.append("f.domicile = ?"); args.append(domicile.upper())
+    args.append(_entero(limit, _LIMITE_POR_DEFECTO, 1, 50))
+    try:
+        rows = c.execute(
+            "SELECT f.isin,f.name,f.kind,f.dist_policy,f.domicile,f.ccy,"
+            "f.n_listings,f.leveraged"
+            " FROM funds_fts JOIN funds f ON f.isin = funds_fts.isin"
+            f" WHERE {' AND '.join(where)}"
+            " ORDER BY bm25(funds_fts) * (1 + f.n_listings/40.0) LIMIT ?",
+            args).fetchall()
+    except sqlite3.Error:
+        return []                          # catálogo a medio construir o corrupto
+    finally:
+        c.close()
+    return [dict(r) for r in rows]
+
+
+def _catalogo_plazas(isin: str) -> list:
+    c = _catalogo_conn()
+    if c is None:
+        return []
+    try:
+        return [dict(r) for r in c.execute(
+            "SELECT mic, first_trade FROM listings WHERE isin=? ORDER BY mic",
+            (isin.upper(),))]
+    except sqlite3.Error:
+        return []
+    finally:
+        c.close()
+
+
+# ── Fondos de gestora directa: consulta EN VIVO, sin copia ────────────────
+# El registro de ESMA sólo recoge lo admitido a negociación en algún mercado de
+# la UE. Los fondos que se contratan directamente con la gestora —Vanguard,
+# Bestinver, Cobas, los de un roboadvisor— no están ahí y no van a estar.
+#
+# El buscador de Morningstar sí los tiene, y da justo las tres cosas que hacen
+# falta: el ISIN, el `PerformanceId` —que es el `0P…` con el que esta aplicación
+# ya sabe pedir precios— y los gastos corrientes, que el registro de la UE no
+# publica. El universo `FOESP$$ALL` son los fondos registrados para su venta en
+# España: 49.679 medidos el 2026-08-24.
+#
+# **Se consulta, no se copia.** Una petición cuando el catálogo local no
+# encuentra ningún fondo, y nada se guarda: la clave con la que responde es la
+# que Morningstar incrusta en sus buscadores públicos, y bajarse su base entera
+# sería otro uso distinto del que está expuesto. Decisión del dueño del panel,
+# tomada a propósito.
+MS_URL = "https://lt.morningstar.com/api/rest.svc/klr5zyak8x/security/screener"
+MS_UNIVERSO = "FOESP$$ALL"          # registrados para su venta en España
+MS_CAMPOS = "SecId|Name|isin|PerformanceId|OngoingCharge|categoryName"
+_ms_cache: dict[str, tuple[float, list]] = {}
+
+
+def _morningstar_buscar(q: str, limit: int = 8) -> list:
+    """Fondos de gestora directa, preguntados en el momento.
+
+    Falla en silencio a propósito: es una fuente de APOYO. Si no contesta, la
+    pantalla se queda con el registro de la UE, que es la fuente principal y la
+    única oficial. Un buscador que se rompe porque un tercero está caído es peor
+    que uno que encuentra menos.
+    """
+    q = (q or "").strip()
+    if len(q) < 3:
+        return []
+    key = f"{q.lower()}|{limit}"
+    hit = _ms_cache.get(key)
+    if hit and time.time() - hit[0] < 300:
+        return hit[1]
+    params = {"page": 1, "pageSize": int(limit), "outputType": "json", "version": 1,
+              "languageId": "es-ES", "currencyId": "EUR", "universeIds": MS_UNIVERSO,
+              "securityDataPoints": MS_CAMPOS, "term": q}
+    try:
+        url = MS_URL + "?" + urllib.parse.urlencode(params, safe="|$")
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0",
+                                                   "Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=8) as r:
+            filas = json.load(r).get("rows", [])
+    except Exception:
+        return []                             # caída pasajera -> NO se cachea
+    out = []
+    for x in filas:
+        pid = (x.get("PerformanceId") or "").strip()
+        isin = (x.get("isin") or "").strip().upper()
+        if not pid or not isin:
+            continue                          # sin identificador no se puede valorar
+        ogc = x.get("OngoingCharge")
+        out.append({"isin": isin, "perf_id": pid,
+                    "name": (x.get("Name") or "").strip(),
+                    "category": (x.get("categoryName") or "").strip(),
+                    # `0` en gastos corrientes es «no lo publican», no «es gratis»:
+                    # sale en fondos que sí cobran. Se trata como ausente.
+                    "ter": ogc if isinstance(ogc, (int, float)) and ogc > 0 else None})
+    _cache_put(_ms_cache, key, (time.time(), out), cap=128)
+    return out
+
+
+@app.route("/api/instruments/externo")
+def api_instruments_externo():
+    """Sólo la llama la pantalla cuando el registro de la UE no da ningún fondo."""
+    return _json_response({"results": _morningstar_buscar(request.args.get("q", "")),
+                           "source": "Morningstar"}, max_age=0)
+
+
+def _catalogo_ficha(isin: str) -> dict | None:
+    c = _catalogo_conn()
+    if c is None:
+        return None
+    try:
+        r = c.execute("SELECT isin,name,kind,ccy FROM funds WHERE isin=?",
+                      (isin.upper(),)).fetchone()
+        return dict(r) if r else None
+    except sqlite3.Error:
+        return None
+    finally:
+        c.close()
+
+
+# Cuántas cotizaciones se llegan a comprobar. Cada una es una petición a Yahoo, y
+# esto se paga UNA vez —al elegir un fondo— pero se paga.
+_RESOLVER_MAX = 8
+
+# Cuántas resoluciones pueden estar en vuelo a la vez.
+#
+# El limitador de arriba mide el RITMO, no cuántos hilos hay ocupados: son dos
+# cosas distintas y aquí hacen falta las dos. Una resolución encadena hasta
+# `1 + 2 * _RESOLVER_MAX` peticiones a Yahoo, en serie y dentro del hilo que
+# atiende, y el servidor sirve con un pool FIJO (`threads=8`). Sin este tope,
+# ocho peticiones simultáneas dejan el panel entero —zonas, régimen, cartera—
+# sin un solo hilo libre durante minutos. Con él, la ruta más cara del servicio
+# nunca puede quedarse con más de un cuarto del pool.
+_RESOLVER_A_LA_VEZ = 2
+_resolver_slots = threading.Semaphore(_RESOLVER_A_LA_VEZ)
+
+
+def _catalogo_resolver(isin: str, perf_id: str = "", nombre: str = "") -> dict:
+    """ISIN del catálogo -> las cotizaciones con las que se puede valorar.
+
+    **Devuelve las que sirven, no una sola.** Se comprueban hasta `_RESOLVER_MAX`
+    candidatos: cada uno es una petición de red y esto se paga al elegir. El
+    mismo fondo se cruza en varias
+    plazas y en varias divisas, y cuál es la tuya no lo sabe ni el registro ni
+    Yahoo: lo sabes tú, que eres quien la compró.
+
+    Lo medido con el oro de Amundi (`FR0013416716`): Yahoo devuelve `GOLD.AS` a
+    184,72 **USD** y `FR0013416716.SG` a 158,12 **EUR**. Quedarse con la primera
+    que conteste apunta el precio en la divisa equivocada y parte la posición en
+    dos. Ya pasó una vez, y por eso aquí no se elige a ciegas.
+
+    La sugerencia por defecto es la de la divisa de la CARTERA, no la de
+    denominación del fondo. No es lo mismo y confundirlas engaña: el VanEck de
+    uranio está denominado en USD y en Stuttgart se compra en euros. Quien mira
+    esta pantalla compra en euros.
+
+    Empate deshecho por si tiene serie: hay líneas —las de Stuttgart, casi
+    siempre— que cotizan y no se pueden dibujar.
+    """
+    isin = (isin or "").strip().upper()
+    if not _looks_like_isin(isin):
+        return {"error": "eso no es un ISIN"}
+    ficha = _catalogo_ficha(isin) or {}
+    if not ficha and nombre:
+        ficha = {"name": nombre}              # viene de Morningstar, no del registro
+
+    # Por ISIN sale la línea exacta; por NOMBRE salen las hermanas de otras
+    # plazas. Hacen falta las dos: por el ISIN del oro salen dos líneas, y la que
+    # encabeza es la de la divisa que no era.
+    #
+    # Y el `0P…` va PRIMERO cuando lo hay: es la única forma de encontrar un
+    # fondo de gestora directa, porque Yahoo no los indexa por nombre —medido:
+    # cero de dieciocho— aunque sepa ponerles precio por ese identificador.
+    cand, vistos = [], set()
+    for q in ((perf_id or ""), isin, ficha.get("name") or ""):
+        if not q:
+            continue
+        for r in _yahoo_search(q):
+            if r["symbol"] not in vistos:
+                vistos.add(r["symbol"])
+                cand.append(r)
+
+    opciones = []
+    for r in cand[:_RESOLVER_MAX]:
+        sym = r["symbol"]
+        try:
+            price, ccy = _quote_meta(sym)
+        except Exception:
+            continue
+        if price is None:
+            continue                       # no cotiza: no es una opción
+        try:
+            serie = _close_series(sym)
+        except Exception:
+            serie = None
+        # Sin serie propia la línea aún puede dibujarse si tiene un proxy
+        # comprobado a mano en `HISTORY_PROXY`. Avisar de «sin histórico» sobre
+        # una que el panel pinta perfectamente sería asustar sin motivo — y son
+        # justo las tres líneas de Stuttgart que ya están en esa tabla.
+        hay = bool(serie is not None and len(serie) > 5)
+        opciones.append({"symbol": sym, "name": r.get("name") or "",
+                         "kind": r.get("kind") or "", "price": price, "ccy": ccy,
+                         "history": hay or sym in HISTORY_PROXY,
+                         "via": None if hay else HISTORY_PROXY.get(sym)})
+    if not opciones:
+        return {"error": "Yahoo no conoce ninguna cotización de este ISIN"}
+
+    opciones.sort(key=lambda o: (o["ccy"] != BASE_CCY, not o["history"]))
+    return {"options": opciones, "best": opciones[0]["symbol"],
+            "base_ccy": BASE_CCY, "denom_ccy": ficha.get("ccy")}
+
+
+META_TTL = 120                         # seconds a chart-meta entry stays fresh
+_meta_cache: dict[str, tuple[float, dict]] = {}
 
 # ── History proxies ───────────────────────────────────────────────────────
 # Some listings are priceable but not chartable: Yahoo answers with `meta` (so
-# a live quote exists) and no `timestamp` array at all. Both of these are the
+# a live quote exists) and no `timestamp` array at all. All of these are the
 # Stuttgart line of an instrument that also trades elsewhere, and the sibling
 # listing DOES carry history — same ISIN, same currency, arbitraged against
 # each other, so it is the same asset read through another window rather than
@@ -996,8 +1449,41 @@ _meta_cache: dict[str, tuple[float, tuple]] = {}
 HISTORY_PROXY = {
     "IE000M7V94E1.SG": "NUKL.DE",   # VanEck Uranium & Nuclear UCITS, Xetra, EUR
     "FR0013416716.SG": "GOLD.MI",   # Amundi Physical Gold ETC, Milan, EUR
+    "IE00BZ3XGLD1.SG": "OROX3.MI",   # Gestora Delta Gold 3x Daily Leverage, Borsa Italiana, EUR
 }
+
+
+# Las referencias de instrumentos REALES no van en el código: el repositorio es
+# público y cada entrada de esta tabla nombra una posición de alguien. Viven en
+# `data/local_proxies.json` (ignorado por git; plantilla en `.example`) y se
+# suman aquí al arrancar. Un fichero roto no tumba el panel: se avisa por stderr
+# y se sigue con la tabla del código.
+LOCAL_PROXIES_PATH = os.environ.get("CARTERA_LOCAL_PROXIES") or os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "data", "local_proxies.json")
+
+
+def _apply_local_proxies(path: str = LOCAL_PROXIES_PATH) -> int:
+    """Añade a HISTORY_PROXY las entradas locales; devuelve cuántas."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        return 0
+    except (OSError, ValueError) as e:
+        print(f"local_proxies: no se pudo leer {path}: {e}", file=sys.stderr)
+        return 0
+    n = 0
+    for tk, via in ((data or {}).get("history_proxy") or {}).items():
+        if isinstance(tk, str) and isinstance(via, str) and tk and via:
+            HISTORY_PROXY[tk] = via
+            n += 1
+    return n
+
+
+_apply_local_proxies()
+
 PROXY_MAX_DEV = 0.02            # a sibling further than 2% away is not the same line
+PROXY_VENTANA = 10              # sesiones que componen la ventana de cotización
 
 
 # Full instrument name for the header. Yahoo answers "Tesla, Inc." / "Amazon.com,
@@ -1008,9 +1494,9 @@ PROXY_MAX_DEV = 0.02            # a sibling further than 2% away is not the same
 def _quote_meta(symbol: str):
     """(live price, currency) from Yahoo chart meta. Cached ~120s (near real-time)."""
     t = symbol.upper().strip()
-    hit = _meta_cache.get(t)
-    if hit and time.time() - hit[0] < 120:
-        return hit[1]
+    m = _meta_bruto(t)
+    if m is not None:
+        return (m.get("regularMarketPrice"), m.get("currency"))
     try:
         # Same validation as fetch_daily: encoding alone would stop the URL
         # being steered, but rejecting a bad shape avoids the pointless
@@ -1020,11 +1506,33 @@ def _quote_meta(symbol: str):
         m = json.load(urllib.request.urlopen(
             urllib.request.Request(u, headers={"User-Agent": "Mozilla/5.0"}), timeout=12)
         )["chart"]["result"][0]["meta"]
-        res = (m.get("regularMarketPrice"), m.get("currency"))
     except Exception:
         return (None, None)                       # transient -> do not cache
-    _cache_put(_meta_cache, t, (time.time(), res), cap=256)
-    return res
+    _cache_put(_meta_cache, t, (time.time(), m), cap=256)
+    return (m.get("regularMarketPrice"), m.get("currency"))
+
+
+def _meta_bruto(symbol: str):
+    """La ficha de cotización YA TRAÍDA, o `None` si no está (o caducó).
+
+    No sale a la red por su cuenta: pedir un detalle más no puede convertir una
+    lectura en dos peticiones, y que en los tests `_quote_meta` esté
+    reemplazado hace que «nobody la trajo» se interprete como «no lo sé», con
+    lo que manda la comprobación estricta en lugar de una ventana inventada.
+    """
+    t = symbol.upper().strip()
+    hit = _meta_cache.get(t)
+    if not hit or time.time() - hit[0] >= META_TTL:
+        return None
+    return hit[1]
+
+
+def _ventana(symbol: str):
+    """(mín, máx) que el símbolo ha cotizado HOY, si su ficha está traída."""
+    m = _meta_bruto(symbol)
+    if not m:
+        return (None, None)
+    return (m.get("regularMarketDayLow"), m.get("regularMarketDayHigh"))
 
 
 def _last_price(ticker: str):
@@ -1139,9 +1647,10 @@ def _parse_upload(filename: str, data: bytes):
     # al revés, una nota que sea sólo un tabulador vuelve como apóstrofo.
     _des = _csv_text_read if list(df.columns) == CARTERA_EXPORT_COLS else str
     rows, errors = [], []
-    # Each distinct ISIN costs one outbound Yahoo search, so a crafted file is
-    # a request amplifier pointed at a third party. Resolutions are memoised
-    # per file and capped; past the cap the raw ISIN is kept as the ticker.
+    # Each distinct LOOKUP —an ISIN or a free-text name with a space— costs one
+    # outbound Yahoo search, so a crafted file is a request amplifier pointed at
+    # a third party. Resolutions are memoised per file and capped; past the cap
+    # the raw ticker is kept as it came.
     resolved: dict[str, tuple] = {}
     for i, row in df.iterrows():
         try:
@@ -1150,7 +1659,9 @@ def _parse_upload(filename: str, data: bytes):
                 continue
             nm = (_des(str(row[cols["name"]])).strip() if "name" in cols and pd.notna(row[cols["name"]]) else "")
             tk, kind = raw.upper(), ""
-            if _looks_like_isin(raw):                 # ISIN column -> resolve to a Yahoo symbol
+            # Un ISIN o un nombre con espacios: los dos son texto que hay que
+            # traducir a un símbolo; un código de una sola palabra ya lo es.
+            if _looks_like_isin(raw) or " " in raw:
                 if raw in resolved:
                     sym, rn, kd = resolved[raw]
                 elif len(resolved) < MAX_ISIN_LOOKUPS:
@@ -1317,6 +1828,21 @@ def cartera_page():
     return render_template("cartera.html")
 
 
+@app.route("/cartera/movimientos")
+def cartera_movimientos_page():
+    """El registro, en su propia pantalla.
+
+    El diario y el libro crecen con cada operación y no se leen para decidir
+    nada: se consultan. Al final de /cartera obligaban a recorrer el registro
+    entero para llegar al pie de la página de análisis.
+
+    Lo que NO se ha movido es el alta ni la importación: corregir un movimiento
+    reutiliza el mismo formulario que darlo de alta, así que el ✎ de esta página
+    lleva a /cartera con el movimiento ya cargado en él.
+    """
+    return render_template("cartera_movimientos.html")
+
+
 @app.route("/api/cartera", methods=["GET"])
 def api_cartera_get():
     # Portfolio data changes only when the user edits it, so it is gzipped but
@@ -1343,7 +1869,7 @@ def api_cartera_add():
     name = str(d.get("name", "")).strip()
     kind = str(d.get("kind", "")).strip()
     tk = raw.upper()
-    if _looks_like_isin(raw) and not d.get("symbol"):    # entered an ISIN -> resolve
+    if not d.get("symbol"):                   # ISIN o texto libre -> símbolo
         sym, rn, kd = _resolve_symbol(raw)
         if sym:
             tk, kind, name = sym, (kind or kd), (name or rn)
@@ -1542,6 +2068,9 @@ def _cartera_returns(benchmark: str = "SPY", rango=None, desde=None, hasta=None)
         # las dos cifras, para que no puedan discrepar.
         "annualizable": dias >= 365,
         "benchmark_ticker": benchmark, "benchmark_twr": bench,
+        # El nombre que se puede enseñar: `None` cuando las sesiones NO salieron
+        # del índice pedido. La pantalla no debe inventarse la procedencia.
+        "sessions_ticker": r.get("grid_ticker"),
         # Beta y correlación SIEMPRE juntas: una beta de 1,2 con correlación 0,3
         # no dice «se mueve un 20% más», dice que el índice explica muy poco de
         # lo que hace esta cartera y que ese 1,2 es casi ruido.
@@ -1594,16 +2123,28 @@ def _cartera_correlacion(days: int = CORR_DAYS, benchmark: str = "SPY", payload=
                 "eff_n_corr": (1.0 if abiertas else 0.0),
                 "excluded": [], "obs": 0, "days": days}
 
+    # El nombre se resuelve ANTES del bucle porque lo necesitan los dos lados:
+    # las filas de la matriz y la nota de lo que se queda fuera. Un símbolo como
+    # `0P0001CLDK.F` no identifica nada a simple vista, y para una posición
+    # excluida esa nota es su ÚNICA mención en toda la tarjeta.
+    nombre = {p["ticker"]: (p.get("name") or p["ticker"]) for p in abiertas}
+
+    def fuera(t, por):
+        return {"ticker": t, "name": nombre.get(t, t), "why": por}
+
     series, excluidas = {}, []
     for p in abiertas:
         t = p["ticker"]
-        s = _close_series(t)
+        # `_serie_de` y no `_close_series`: una línea sin serie propia la pinta
+        # la gráfica con la de su hermano, y esta tarjeta no puede ser la única
+        # que se entera de que existe.
+        s = _serie_de(t)[0]
         if s is None or not len(s):
-            excluidas.append({"ticker": t, "why": "sin histórico"})
+            excluidas.append(fuera(t, "sin histórico"))
             continue
         cu = p.get("ccy")
         if not cu or cu == "?":
-            excluidas.append({"ticker": t, "why": "sin divisa"})
+            excluidas.append(fuera(t, "sin divisa"))
             continue
         base, f = _ccy_base_factor(cu)
         if base == BASE_CCY:
@@ -1611,7 +2152,7 @@ def _cartera_correlacion(days: int = CORR_DAYS, benchmark: str = "SPY", payload=
         else:
             fx = _fx_series_eur(cu)
             if fx is None or not len(fx):
-                excluidas.append({"ticker": t, "why": "sin tipo de cambio"})
+                excluidas.append(fuera(t, "sin tipo de cambio"))
                 continue
             eur = s * fx.reindex(s.index.union(fx.index)).sort_index().ffill().reindex(s.index)
         # El índice se NORMALIZA a fecha antes de guardarlo. `_close_series`
@@ -1690,7 +2231,6 @@ def _cartera_correlacion(days: int = CORR_DAYS, benchmark: str = "SPY", payload=
             if peor is None or r > peor["rho"]:
                 peor = {"a": tk[i], "b": tk[j], "rho": round(r, 3)}
 
-    nombre = {p["ticker"]: (p.get("name") or p["ticker"]) for p in abiertas}
     return {"n": len(abiertas), "tickers": tk,
             "names": [nombre.get(t, t) for t in tk],
             "weights": [round(float(x) * 100, 2) for x in w],
@@ -1728,6 +2268,37 @@ def api_cartera_rendimiento():
         return jsonify({"error": str(e)}), 502
 
 
+def _zona_para(ticker: str) -> dict:
+    """Zona de HOY de `ticker`, o el aviso de por qué su zona no existe.
+
+    Cotiza pero no tiene gráfico: es un hecho asentado del instrumento, no un
+    fallo pasajero, y decirlo con su nombre evita que alguien busque el error en
+    su cartera. Cuando `HISTORY_PROXY` apunta a un hermano comprobado a mano, la
+    zona SÍ existe —es el mismo instrumento en otra plaza, en la misma divisa—
+    y se devuelve BAJO el ticker real, porque la tarjeta nombra lo que se tiene,
+    no lo que se le prestó; con ese nombre se deja cacheada.
+
+    Un tropiezo pasajero de cualquiera de los dos se PROPAGA en vez de
+    devolverse como respuesta: no se cachea un fallo de red como un hecho del
+    instrumento.
+    """
+    for sym in (ticker, HISTORY_PROXY.get(ticker)):
+        if not sym:
+            return {"error": "sin histórico que puntuar"}
+        try:
+            zona = _zone_of(sym)
+        except NoHistory:
+            continue
+        # La cabecera busca la zona BAJO el ticker real: si el préstamo sólo
+        # quedase con la clave del hermano, esa tarjeta diría «todavía no lo
+        # sé» sobre una zona que esta misma pantalla enseña sin descargar nada.
+        # Las dos piezas leen la misma caché, con el nombre de lo que se tiene.
+        _cache_put(_zone_cache, ticker.upper().strip(), (time.time(), zona),
+                   cap=CACHE_MAX)
+        return zona
+    return {"error": "sin histórico que puntuar"}
+
+
 @app.route("/api/cartera/zonas")
 def api_cartera_zonas():
     """La zona del índice para cada posición ABIERTA de la cartera.
@@ -1763,12 +2334,7 @@ def api_cartera_zonas():
             pending.append(t)
             continue
         try:
-            out[t] = _zone_of(t)
-        except NoHistory:
-            # Cotiza pero no tiene gráfico: es un hecho asentado del instrumento,
-            # no un fallo pasajero, y decirlo con su nombre evita que alguien
-            # busque el error en su cartera.
-            out[t] = {"error": "sin histórico que puntuar"}
+            out[t] = _zona_para(t)
         except BadSymbol:
             out[t] = {"error": "símbolo no válido"}
         except Exception:
@@ -1848,8 +2414,10 @@ def abraham_page(filename: str = "index.html"):
 # ── Página de swing de zonas-v2, servida por este puerto ────────────────────
 # zonas-v2 corre en su propio servicio (:8775) y este panel en el :8771, que es
 # el único que cruza el túnel SSH. En vez de pedir un `-L` más, se reenvía la
-# página: es HTML autocontenido —sin scripts, sin peticiones externas, CSS y SVG
-# en línea—, así que reenviar el cuerpo es TODO el trabajo. Nada que reescribir.
+# página: es HTML autocontenido —CSS, SVG y su único script EN LÍNEA, cero
+# peticiones a fuera—, así que reenviar el cuerpo es TODO el trabajo. Lo que
+# sostiene este reenvío no es que no haya scripts, es que no haya una segunda
+# petición: un `src` cualquiera apuntaría a :8775, que no cruza el túnel.
 ZONAS_V2_URL = os.environ.get("ZONAS_V2_URL", "http://127.0.0.1:8775")
 ZONAS_V2_TIMEOUT = 30
 
@@ -1878,6 +2446,58 @@ def api_search():
     if len(q.strip()) < 2:
         return jsonify({"results": []})
     return jsonify({"results": _yahoo_search(q)})
+
+
+@app.route("/api/instruments/search")
+def api_instruments_search():
+    """El catálogo europeo. Local, sin red, y con la fecha del registro dentro."""
+    q = request.args.get("q", "")
+    if len(q.strip()) < 2:
+        return _json_response({"results": [], "source": _catalogo_meta()}, max_age=0)
+    res = _catalogo_buscar(q,
+                           kind=request.args.get("kind", ""),
+                           dist=request.args.get("dist", ""),
+                           domicile=request.args.get("domicile", ""),
+                           limit=request.args.get("limit", _LIMITE_POR_DEFECTO))
+    return _json_response({"results": res, "source": _catalogo_meta()}, max_age=0)
+
+
+@app.route("/api/instruments/plazas")
+def api_instruments_plazas():
+    return _json_response({"listings": _catalogo_plazas(request.args.get("isin", ""))},
+                          max_age=0)
+
+
+@app.route("/api/instruments/resolver")
+def api_instruments_resolver():
+    """Del ISIN elegido al símbolo con el que la cartera sabrá valorarlo.
+
+    Sale a la red, así que va aparte de la búsqueda: se paga UNA vez, al elegir,
+    y no en cada tecla.
+
+    Y es el camino MÁS caro del servicio: hasta `1 + 2 * _RESOLVER_MAX`
+    peticiones a Yahoo por llamada. Por eso paga el limitador igual que las
+    zonas, el objetivo y el régimen, y además pasa por el tope de resoluciones
+    en vuelo. Que sólo la llame la pantalla no la protege de nada: un GET no
+    lleva cabecera propia, así que cualquier página abierta en el navegador
+    —o un script del propio dueño— puede pedirla en bucle.
+    """
+    isin = (request.args.get("isin", "") or "").strip().upper()
+    # La forma se comprueba ANTES de cobrar. Rechazar no cuesta red, y cobrarlo
+    # dejaría que la basura vacíe el presupuesto que necesitan las buenas.
+    if not _looks_like_isin(isin):
+        return _json_response({"error": "eso no es un ISIN"}, max_age=0)
+    if not _upstream.take():
+        return _busy()
+    if not _resolver_slots.acquire(blocking=False):
+        return _busy()
+    try:
+        d = _catalogo_resolver(isin,
+                               request.args.get("perf_id", ""),
+                               request.args.get("nombre", ""))
+    finally:
+        _resolver_slots.release()
+    return _json_response(d, max_age=0)
 
 
 @app.route("/api/cartera/<int:mid>", methods=["DELETE"])
@@ -1934,7 +2554,7 @@ def api_cartera_edit(mid):
         if "ticker" in d and str(d["ticker"]).strip():
             tk = str(d["ticker"]).strip().upper()
             name, kind = str(d.get("name", "")).strip(), str(d.get("kind", "")).strip()
-            if _looks_like_isin(tk) and not d.get("symbol"):
+            if not d.get("symbol"):            # ISIN o texto libre -> símbolo
                 sym, rn, kd = _resolve_symbol(tk)
                 if sym:
                     tk, kind, name = sym, (kind or kd), (name or rn)
@@ -2093,7 +2713,7 @@ def api_cartera_plan():
     return jsonify(_cartera_estado())
 
 
-def _cartera_estado():
+def _cartera_estado(benchmark: str = "SPY"):
     """El bloque de cabecera: qué tengo, cómo voy, y qué merece una mirada.
 
     Junta en una sola llamada lo que si no serían cinco, porque es lo que se
@@ -2103,7 +2723,8 @@ def _cartera_estado():
     caída y correlación se calculan sobre las posiciones que tienen serie de
     precios utilizable; si eso es el 70% del patrimonio, esas cifras describen
     ese 70%. Publicarlas sin decirlo las convierte en una afirmación sobre la
-    cartera entera que nadie ha comprobado.
+    cartera entera que nadie ha comprobado. `benchmark` es el índice elegido
+    en pantalla, y fija la rejilla diaria de TODO, no sólo la comparación.
     """
     p = _cartera_payload()
     s = p["summary"]
@@ -2112,11 +2733,14 @@ def _cartera_estado():
     total = sum(x["market_value"] for x in valoradas) or 0.0
 
     # ¿De qué posiciones hay serie utilizable? Es el hecho que gobierna la
-    # entrada al gráfico, a la rentabilidad y a la correlación.
+    # entrada al gráfico, a la rentabilidad y a la correlación. Pasa por
+    # `_serie_de`: lo que la gráfica pinta con la serie de un hermano cuenta
+    # aquí también, o la cabecera anunciaría «sin histórico» sobre líneas que
+    # el gráfico dibuja perfectamente.
     con_hist = {}
     for x in abiertas:
         try:
-            serie = _close_series(x["ticker"])
+            serie = _serie_de(x["ticker"])[0]
             con_hist[x["ticker"]] = bool(serie is not None and len(serie))
         except Exception:
             con_hist[x["ticker"]] = False
@@ -2140,17 +2764,24 @@ def _cartera_estado():
         "sin_valorar": len(abiertas) - len(valoradas),
     }
 
+    # El índice con el que se compara viene de quien mira, no fijo: la casilla
+    # «Frente a X» de esta tarjeta y la de Rentabilidad tienen que decir lo
+    # mismo. El del año va con el mismo, aunque no lo enseñe, porque la rejilla
+    # diaria se construye sobre el calendario del índice y dos índices distintos
+    # darían dos TWR ligeramente distintos para la misma cartera.
     rend = ytd = corr = None
     try:
-        rend = _cartera_returns("SPY")
+        rend = _cartera_returns(benchmark)
     except Exception:
         pass
     try:
-        ytd = _cartera_returns("SPY", rango="ytd")
+        ytd = _cartera_returns(benchmark, rango="ytd")
     except Exception:
         pass
     try:
-        corr = _cartera_correlacion(payload=p)
+        # El MISMO índice: este `eff_n_corr` es el del aviso de «apuestas
+        # independientes», y la tarjeta de Diversificación usa el elegido.
+        corr = _cartera_correlacion(benchmark=benchmark, payload=p)
     except Exception:
         pass
 
@@ -2205,7 +2836,8 @@ def _cartera_estado():
         "annualizable": (rend or {}).get("annualizable", False),
         "ytd": ((ytd or {}).get("twr") or {}).get("total"),
         "ytd_from": (ytd or {}).get("from"),
-        "benchmark_ticker": (rend or {}).get("benchmark_ticker", "SPY"),
+        "benchmark_ticker": (rend or {}).get("benchmark_ticker", benchmark),
+        "sessions_ticker": (rend or {}).get("sessions_ticker"),
         "vs_benchmark": vs,
         "drawdown": (rend or {}).get("drawdown"),
         "volatility": (rend or {}).get("volatility"),
@@ -2220,8 +2852,9 @@ def _cartera_estado():
 
 @app.route("/api/cartera/estado")
 def api_cartera_estado():
+    bench = request.args.get("benchmark", "SPY")
     try:
-        return _json_response(_cartera_estado(), max_age=0)
+        return _json_response(_cartera_estado(bench), max_age=0)
     except Exception as e:
         return jsonify({"error": str(e)}), 502
 
@@ -2449,7 +3082,7 @@ def api_cartera_splits_resolver():
         # Devuelve un CÓDIGO de salida, no una ruta: 0 copia nueva, 2 idéntica a
         # la anterior (que también deja el libro a salvo), 1 fallo. Se traduce
         # aquí porque un entero suelto en la respuesta no le dice nada a nadie.
-        rc = _bk.make_backup(CARTERA_DB, _bk.DEFAULT_DIR, quiet=True)
+        rc = _bk.make_backup(CARTERA_DB, _backup_dir(), quiet=True)
         copia = {0: "copia nueva guardada",
                  2: "ya había una copia idéntica"}.get(rc, "la copia falló")
     except Exception as e:
@@ -2569,7 +3202,7 @@ def api_cartera_clear():
 # expirase el TTL. El panel decía «sin consultar» para instrumentos que sí podía
 # mirar, y un split podía pasar desapercibido: justo lo que la función existe
 # para impedir. Compartiendo entrada, no pueden desincronizarse.
-_series_cache: dict[str, tuple[float, object, list]] = {}
+_series_cache: dict[str, tuple[float, object, list, list]] = {}
 
 
 def _splits_of(ticker: str):
@@ -2585,6 +3218,14 @@ def _splits_of(ticker: str):
     return hit[2] if hit else None
 
 
+def _dividends_of(ticker: str):
+    """Repartos por acción que declara la fuente ([{date, amount}]), o None."""
+    t = ticker.upper().strip()
+    _close_series(t)                     # rellena la entrada, sin pedir de más
+    hit = _series_cache.get(t)
+    return hit[3] if hit and len(hit) > 3 else None
+
+
 def _close_series(ticker: str):
     """Daily close series (date-indexed), cached. None if the ticker is unavailable.
 
@@ -2596,12 +3237,13 @@ def _close_series(ticker: str):
     hit = _series_cache.get(t)
     if hit and time.time() - hit[0] < 600:
         return hit[1]
-    splits = []
+    splits, divs = [], []
     try:
         df = fetch_daily(t, years=25)
         # Los splits llegan en la MISMA respuesta, y se guardan con la serie:
         # este es el único sitio por el que pasa el frame entero.
         splits = df.attrs.get("splits") or []
+        divs = df.attrs.get("dividends") or []
         di = pd.DatetimeIndex(pd.to_datetime(df["date"]))
         if di.tz is not None:                    # Yahoo returns tz-aware -> make naive
             di = di.tz_localize(None)
@@ -2611,7 +3253,7 @@ def _close_series(ticker: str):
         s = None                                 # settled fact -> cache it
     except Exception:
         return None                              # transient -> retry next call
-    _cache_put(_series_cache, t, (time.time(), s, splits), cap=CACHE_MAX)
+    _cache_put(_series_cache, t, (time.time(), s, splits, divs), cap=CACHE_MAX)
     return s
 
 
@@ -2636,9 +3278,61 @@ def _proxy_series(original: str, proxy: str):
     if not p_orig or not p_prox:
         return None, "sin cotización para comparar"
     dev = abs(p_prox / p_orig - 1.0)
-    if dev > PROXY_MAX_DEV:
-        return None, f"desvío de precio {dev:.1%} (máx {PROXY_MAX_DEV:.0%})"
-    return s, dev
+    if dev <= PROXY_MAX_DEV:
+        return s, dev
+
+    # Los dos precios pueden ser del MISMO instrumento y no cuadrar: una plaza
+    # cierra con su cierre del día y la otra sigue imprimiendo operaciones, y en
+    # un apalancado 3x eso son varios puntos de desvío a deshora. En vez de una
+    # fotografía de dos instantes, la comparación se hace contra lo que el proxy
+    # ha NEGOCIADO de verdad — sus últimas sesiones y lo cotizado hoy — de modo
+    # que un precio atrasado del original sigue entrando mientras siga siendo del
+    # mismo orden. Lo que NO entra es otra clase de participación: si el GOLD.PA
+    # a mitad de precio metiera la pata, su precio no cae en esa ventana ni con
+    # suerte.
+    lo = hi = None
+    if len(s):
+        lo, hi = float(s.tail(PROXY_VENTANA).min()), float(s.tail(PROXY_VENTANA).max())
+    v_lo, v_hi = _ventana(proxy)                # hoy, si su ficha está traída
+    if v_lo and v_hi:
+        lo = v_lo if lo is None else min(lo, float(v_lo))
+        hi = v_hi if hi is None else max(hi, float(v_hi))
+    if lo is not None and lo * (1 - PROXY_MAX_DEV) <= p_orig <= hi * (1 + PROXY_MAX_DEV):
+        return s, dev
+
+    return None, f"desvío de precio {dev:.1%} (máx {PROXY_MAX_DEV:.0%})"
+
+
+def _serie_de(ticker: str):
+    """(serie, via, motivo): la serie del propio símbolo; si no la tiene, la de un
+    hermano comprobado a mano de `HISTORY_PROXY`.
+
+    Es el ÚNICO sitio por el que pasa la decisión de prestar una serie: la
+    cabecera, la correlación, las zonas y la reconstrucción pasan por aquí, y
+    así dos tarjetas de la misma pantalla no pueden contar dos cosas distintas
+    sobre el mismo ticker.
+
+    `_close_series` se queda PURA —nunca devuelve un prestado— porque el panel
+    DICE de quién es la serie que pinta (`via` en el resolvedor, `proxied` en la
+    gráfica): si el préstamo llegase sin nombre, quien mira no podría saber qué
+    instrumento está viendo.
+
+    Devuelve:
+      * `(serie, None, None)` con serie propia;
+      * `(None, None, None)` sin proxy configurado;
+      * `(None, via, motivo)` cuando el hermano no pasa las comprobaciones;
+      * `(serie_proxy, via, None)` cuando sí las pasa.
+    """
+    s = _close_series(ticker)
+    if s is not None and len(s):
+        return s, None, None
+    via = HISTORY_PROXY.get(ticker)
+    if not via:
+        return None, None, None
+    p, info = _proxy_series(ticker, via)
+    if p is None:
+        return None, via, info
+    return p, via, None
 
 
 def _ffill_on(series, idx):
@@ -2833,18 +3527,32 @@ def _reconstruct_portfolio(benchmark: str = "SPY"):
 
     # A listing with no history of its own may borrow a sibling's, if the
     # sibling still passes every agreement check. Live valuation is untouched:
-    # only the SHAPE OF THE PAST comes from the proxy.
+    # only THE SHAPE OF THE PAST comes from the proxy. `_serie_de` is the ONE
+    # place that decides this, so the chart, the coverage note and this
+    # reconstruction cannot end up disagreeing about whose series a holding is
+    # drawn with.
     proxied, refused = [], {}
     for t in all_tickers:
-        if (series.get(t) is not None and len(series[t])) or t not in HISTORY_PROXY:
+        if series.get(t) is not None and len(series[t]):
             continue
-        via = HISTORY_PROXY[t]
-        s, info = _proxy_series(t, via)
+        s, via, motivo = _serie_de(t)
+        if via is None:
+            continue                      # no own series, and no proxy either
         if s is None:
-            refused[t] = f"{via}: {info}"
-        else:
-            series[t] = s
-            proxied.append({"ticker": t, "via": via, "dev": round(float(info), 5)})
+            refused[t] = f"{via}: {motivo}"
+            continue
+        series[t] = s
+        # `_serie_de` has already passed every agreement check; the DEVIATION
+        # the chart discloses is read back from the same two warm caches rather
+        # than carried in the helper's return value, so one shape serves all of
+        # its callers. A refusal on this re-read means a cache expired in
+        # between, and the holding then reports as refused — never as a borrowed
+        # series with no number behind it.
+        dev = _proxy_series(t, via)[1]
+        if not isinstance(dev, (int, float)):
+            refused[t] = f"{via}: {dev}"
+            continue
+        proxied.append({"ticker": t, "via": via, "dev": round(float(dev), 5)})
 
     # Keep only what can be valued across the whole window, and drop the rest
     # from the cashflow too so the two lines stay comparable. "Valued" means a
@@ -2870,6 +3578,10 @@ def _reconstruct_portfolio(benchmark: str = "SPY"):
     if bench is not None and len(bench):
         bi = bench.index[(bench.index >= start) & (bench.index <= end)]
         idx = bi if len(bi) >= 2 else None
+    # De QUIÉN son las sesiones que se acaban usando. Si el índice no se puede
+    # descargar, la rejilla cae a los calendarios de las posiciones — y entonces
+    # anunciar «sesiones de <índice>» nombraría una fuente que nadie usó.
+    rejilla = benchmark if idx is not None else None
     if idx is None:
         for s in series.values():
             if s is None:
@@ -2918,6 +3630,11 @@ def _reconstruct_portfolio(benchmark: str = "SPY"):
         poss = np.clip(idx.searchsorted(dts), 0, len(idx) - 1)
 
     port = np.zeros(len(idx))
+    # La misma cuenta, guardada también por posición: la rentabilidad por tramos
+    # de cada activo y el resumen del mes necesitan saber QUIÉN movió la suma.
+    # `port` sigue siendo la suma de estos valores, exactamente.
+    pos_t = {t: {"value": None, "flows": np.zeros(len(idx)), "divs": np.zeros(len(idx))}
+           for t in tickers}
     for t in tickers:
         # Every entry here has a series, a currency, an fx array and a matching
         # cashflow. No `continue` may drop a position at this point — that is
@@ -2929,7 +3646,9 @@ def _reconstruct_portfolio(benchmark: str = "SPY"):
             if m["ticker"] == t:
                 qc[poss[k]] += (m["quantity"] if m["side"] == "buy" else -m["quantity"])
         qty = np.cumsum(qc)
-        port += np.where(np.isfinite(price_eur), qty * price_eur, 0.0)
+        val = np.where(np.isfinite(price_eur), qty * price_eur, 0.0)
+        pos_t[t]["value"] = val
+        port += val
 
     bfx = fx_arr(bccy) if bccy else None
     bprice = _ffill_on(bench, idx)
@@ -2940,6 +3659,7 @@ def _reconstruct_portfolio(benchmark: str = "SPY"):
         rate = fx_arr(tccy[m["ticker"]])[poss[k]]          # EUR at the movement date
         cash = ((q * px + fee) if m["side"] == "buy" else -(q * px - fee)) * rate
         inv_c[poss[k]] += cash
+        pos_t[m["ticker"]]["flows"][poss[k]] += cash
         if bprice_eur is not None and np.isfinite(bprice_eur[poss[k]]) and bprice_eur[poss[k]] > 0:
             bsh_c[poss[k]] += cash / bprice_eur[poss[k]]
     invested = np.cumsum(inv_c)
@@ -2956,9 +3676,13 @@ def _reconstruct_portfolio(benchmark: str = "SPY"):
             continue
         pos = int(np.clip(idx.searchsorted(pd.to_datetime(m["date"])), 0, len(idx) - 1))
         rate = fx_arr(tccy[m["ticker"]])[pos]
-        div_c[pos] += (m["quantity"] * m["price"] - (m["fee"] or 0.0)) * rate
+        neto = (m["quantity"] * m["price"] - (m["fee"] or 0.0)) * rate
+        div_c[pos] += neto
+        pos_t[m["ticker"]]["divs"][pos] += neto
 
     return {"empty": False, "idx": idx, "port": port, "invested": invested,
+            "pos": pos_t,
+            "grid_ticker": rejilla,
             "bench_val": bench_val, "bprice_eur": bprice_eur,
             "flows": inv_c, "divs": div_c,
             "excluded": excluded, "proxied": proxied, "refused": refused,
@@ -2972,6 +3696,200 @@ def api_cartera_history():
         return _json_response(_cartera_history(
             bench, rango=request.args.get("range"),
             desde=request.args.get("from"), hasta=request.args.get("to")), max_age=0)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
+
+
+def _nombres_cartera() -> dict:
+    """ticker -> nombre guardado en el libro (el último no vacío)."""
+    with _cartera_conn() as c:
+        rows = c.execute("SELECT ticker, MAX(COALESCE(name,'')) FROM movements "
+                         "GROUP BY ticker").fetchall()
+    return {t: (n or t) for t, n in rows}
+
+
+def _cartera_periodos(benchmark: str = "SPY") -> dict:
+    """Rentabilidad de cada posición abierta en 1D / 1S / 1M / YTD / 1A / Todo.
+
+    Sale de la MISMA reconstrucción que la gráfica, posición a posición, así que
+    la suma de una columna en euros cuadra con lo que la gráfica movió en ese
+    tramo. Lo que la gráfica deja fuera (sin serie o sin cambio) también queda
+    fuera aquí, y se dice en `excluded`.
+    """
+    r = _reconstruct_portfolio(benchmark)
+    if r["empty"]:
+        return {"empty": True, "windows": list(_PERIOD_WINDOWS), "positions": [],
+                "total": {}, "as_of": None, "closed": [],
+                "excluded": r["payload"].get("excluded", [])}
+    res = _period_returns(r["idx"], r["pos"])
+    nombres = _nombres_cartera()
+    filas = [{"ticker": t, "name": nombres.get(t, t), "values": v}
+             for t, v in res["positions"].items()]
+    # Orden por lo que más pesa hoy: es el orden de la tabla de posiciones.
+    peso = {t: float(r["pos"][t]["value"][-1]) for t in res["positions"]}
+    filas.sort(key=lambda f: -peso[f["ticker"]])
+    return {"empty": False, "windows": res["windows"], "positions": filas,
+            "total": res["total"], "as_of": res["as_of"],
+            "closed": [nombres.get(t, t) for t in res["closed"]],
+            "excluded": r["excluded"]}
+
+
+def _cartera_mensual(benchmark: str = "SPY") -> dict:
+    """Rentabilidad de cada mes (TWR, dividendos dentro) y la del índice al lado.
+
+    La cartera usa los mismos flujos que el panel de rentabilidad: compra +,
+    venta −, dividendo −. El índice va por su PRECIO en euros, sin flujos: es lo
+    que hizo el índice ese mes, sin depender de cuándo aportaste tú.
+    """
+    r = _reconstruct_portfolio(benchmark)
+    if r["empty"]:
+        return {"empty": True, "years": [], "benchmark_ticker": benchmark, "base": BASE_CCY}
+    fechas = list(r["idx"])
+    con_div = [float(f - d) for f, d in zip(r["flows"], r["divs"], strict=True)]
+    years = _monthly_grid(_monthly_twr([float(v) for v in r["port"]], con_div, fechas))
+    bench = {}
+    if r["bprice_eur"] is not None:
+        bp = [float(v) for v in r["bprice_eur"]]
+        bench = {y["year"]: y for y in _monthly_grid(_monthly_twr(bp, [0.0] * len(bp), fechas))}
+    for y in years:
+        b = bench.get(y["year"])
+        y["bench"] = b["months"] if b else [None] * 12
+        y["bench_total"] = b["total"] if b else None
+    return {"empty": False, "years": years, "benchmark_ticker": benchmark,
+            "base": BASE_CCY, "excluded": r["excluded"]}
+
+
+@app.route("/api/cartera/mensual")
+def api_cartera_mensual():
+    try:
+        return _json_response(_cartera_mensual(request.args.get("benchmark", "SPY")),
+                              max_age=0)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
+
+
+DIV_NOTE = ("Previsión: estimación que repite cada pago de los últimos 12 meses por "
+            "tus participaciones de hoy, al cambio de hoy, en bruto (antes de "
+            "retención). Cobrado: neto, al cambio de su día.")
+
+
+def _cartera_dividendos(benchmark: str = "SPY") -> dict:
+    """Cobrado por mes (de la reconstrucción) y previsión a 12 meses."""
+    r = _reconstruct_portfolio(benchmark)
+    nombres = _nombres_cartera()
+    received = [] if r["empty"] else _div_received(r["idx"], r["pos"], nombres)
+    hoy = datetime.date.today()
+    corte = (pd.Timestamp(hoy) - pd.DateOffset(months=11)).strftime("%Y-%m")
+    rec12 = sum(m["eur"] for m in received if m["month"] >= corte)
+    payload = _cartera_payload()
+    hold = {p["ticker"]: {"qty": p["qty"], "fx": p.get("fx"), "market_value": p.get("market_value"),
+                          "name": p.get("name") or nombres.get(p["ticker"], p["ticker"])}
+            for p in payload["positions"] if p["qty"] > 1e-9}
+    _prefetch(_close_series, list(hold))
+    # `None` es «la fuente no contestó»; `[]`, «no paga». Lo primero se nombra
+    # en `unknown`: pintarlo como una previsión de cero sería inventar un dato.
+    crudo = {t: _dividends_of(t) for t in hold}
+    fc = _div_forecast(hold, {t: (e or []) for t, e in crudo.items()}, hoy)
+    fc["unknown"] = sorted(t for t, e in crudo.items() if e is None)
+    return {"received": received, "received_12m": round(rec12, 2), "forecast": fc,
+            "portfolio_eur": payload["summary"]["market_value"],
+            "base": BASE_CCY, "note": DIV_NOTE,
+            "excluded": [] if r["empty"] else r["excluded"]}
+
+
+@app.route("/api/cartera/dividendos")
+def api_cartera_dividendos():
+    try:
+        return _json_response(_cartera_dividendos(request.args.get("benchmark", "SPY")),
+                              max_age=0)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
+
+
+_PERIODO_RE = re.compile(r"^(\d{4})(?:-(0[1-9]|1[0-2]))?$")
+
+
+def _cartera_resumen(periodo: str | None, benchmark: str = "SPY"):
+    """(cuerpo, código) del resumen de un mes (`YYYY-MM`) o un año (`YYYY`).
+
+    Todo sale de la misma reconstrucción que la gráfica: el TWR del periodo con
+    sus dividendos, el precio del índice en euros, lo que ganó o perdió cada
+    posición (vendidas dentro incluidas), lo cobrado y lo aportado.
+    """
+    r = _reconstruct_portfolio(benchmark)
+    if r["empty"]:
+        return {"empty": True}, 200
+    idx = r["idx"]
+    disponibles = {"months": sorted({d.strftime("%Y-%m") for d in idx}),
+                   "years": sorted({int(d.year) for d in idx})}
+    periodo = periodo or disponibles["months"][-1]
+    m = _PERIODO_RE.match(periodo)
+    if not m:
+        return {"error": f"periodo no válido: {periodo} (usa AAAA o AAAA-MM)"}, 400
+    if m.group(2):
+        ini = pd.Timestamp(year=int(m.group(1)), month=int(m.group(2)), day=1)
+        fin = ini + pd.offsets.MonthEnd(0)
+    else:
+        ini = pd.Timestamp(year=int(m.group(1)), month=1, day=1)
+        fin = pd.Timestamp(year=int(m.group(1)), month=12, day=31)
+    i1 = int(idx.searchsorted(fin, side="right")) - 1
+    if i1 < 0 or idx[i1] < ini:
+        return {"error": f"no hay datos de {periodo}", "available": disponibles}, 404
+    i0 = int(idx.searchsorted(ini, side="left")) - 1
+    i0 = i0 if i0 >= 0 else None
+    lo = 0 if i0 is None else i0
+    first = 0 if i0 is None else i0 + 1
+
+    vals = [float(v) for v in r["port"][lo:i1 + 1]]
+    con_div = [float(f - d) for f, d in zip(r["flows"][lo:i1 + 1], r["divs"][lo:i1 + 1],
+                                            strict=True)]
+    twr = _twr(vals, con_div, list(idx[lo:i1 + 1]))["total"]
+    bench = None
+    bp = r["bprice_eur"]
+    if bp is not None and np.isfinite(bp[lo]) and bp[lo] > 0 and np.isfinite(bp[i1]):
+        bench = float(bp[i1] / bp[lo] - 1.0)
+
+    nombres = _nombres_cartera()
+    filas = sorted(({"ticker": t, "name": nombres.get(t, t), **c}
+                    for t, c in _range_returns(r["pos"], i0, i1).items()),
+                   key=lambda f: -f["abs"])
+    divs_t = {t: float(p["divs"][first:i1 + 1].sum()) for t, p in r["pos"].items()}
+    fl = r["flows"][first:i1 + 1]
+    return {"empty": False, "periodo": periodo,
+            "from": idx[first].date().isoformat(), "to": idx[i1].date().isoformat(),
+            "partial": bool(idx[first] > ini + pd.Timedelta(days=6)
+                            or idx[i1] < fin - pd.Timedelta(days=6)),
+            "twr": twr, "benchmark": bench, "benchmark_ticker": benchmark,
+            "gain": round(sum(f["abs"] for f in filas), 2),
+            "best": filas[0] if filas else None,
+            "worst": filas[-1] if len(filas) > 1 else None,
+            "positions": filas,
+            "dividends": round(float(r["divs"][first:i1 + 1].sum()), 2),
+            "dividends_by": sorted(({"ticker": t, "name": nombres.get(t, t), "eur": round(v, 2)}
+                                    for t, v in divs_t.items() if v > 1e-9),
+                                   key=lambda x: -x["eur"]),
+            "net_contributions": round(float(fl.sum()), 2),
+            "contributed": round(float(fl[fl > 0].sum()), 2),
+            "withdrawn": round(float(-fl[fl < 0].sum()), 2) + 0.0,     # sin «-0»
+            "value_end": round(float(r["port"][i1]), 2),
+            "available": disponibles, "excluded": r["excluded"]}, 200
+
+
+@app.route("/api/cartera/resumen")
+def api_cartera_resumen():
+    try:
+        body, code = _cartera_resumen(request.args.get("periodo") or None,
+                                      request.args.get("benchmark", "SPY"))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
+    return (_json_response(body, max_age=0) if code == 200 else (jsonify(body), code))
+
+
+@app.route("/api/cartera/periodos")
+def api_cartera_periodos():
+    try:
+        return _json_response(_cartera_periodos(request.args.get("benchmark", "SPY")),
+                              max_age=0)
     except Exception as e:
         return jsonify({"error": str(e)}), 502
 
@@ -3054,6 +3972,32 @@ def api_cartera_geo():
         res["seeding"] = sorted(_seeding)
     return _json_response(res, max_age=0)
 
+
+def _abiertas_y_total():
+    payload = _cartera_payload()
+    return ([p for p in payload["positions"] if p["qty"] > 1e-9],
+            payload["summary"]["market_value"])
+
+
+@app.route("/api/cartera/sectores")
+def api_cartera_sectores():
+    """Reparto sectorial por transparencia, con la misma tabla que el mapa."""
+    open_pos, total = _abiertas_y_total()
+    res = _sector_exposure(open_pos, geo.load_table())
+    res["portfolio_eur"] = total
+    with _seed_lock:
+        res["seeding"] = sorted(_seeding)
+    return _json_response(res, max_age=0)
+
+
+@app.route("/api/cartera/xray")
+def api_cartera_xray():
+    """Las acciones de debajo de los fondos y dónde se repiten."""
+    open_pos, _total = _abiertas_y_total()
+    res = _xray(open_pos, geo.load_table())
+    with _seed_lock:
+        res["seeding"] = sorted(_seeding)
+    return _json_response(res, max_age=0)
 
 def _prewarm() -> None:
     """Warm both caches after startup so the first click is instant.

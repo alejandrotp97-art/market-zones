@@ -155,6 +155,53 @@ def factors(values, flows):
         yield i, (f if f > 0 else None)
 
 
+
+def _month(d):
+    return d.strftime("%Y-%m") if hasattr(d, "strftime") else str(d)[:7]
+
+
+def monthly_twr(values, flows, dates):
+    """TWR de cada mes natural, encadenando los MISMOS tramos que `twr`.
+
+    Mismos argumentos que `twr`. Devuelve `[{month: "YYYY-MM", ret, from, to}]`
+    sólo para los meses con algún tramo medible: un mes sin datos no aparece, y
+    quien lo pinte lo deja en blanco en vez de a cero —un 0 % es un dato.
+    Un tramo se asigna al mes de su día de CIERRE: lo que pasó entre el 31 de
+    enero y el 1 de febrero es rentabilidad de febrero.
+    """
+    if len(values) < 2 or len(flows) != len(values):
+        return []
+    acc = {}
+    for i, f in factors(values, flows):
+        if f is None:
+            continue
+        k = _month(dates[i])
+        a = acc.setdefault(k, {"f": 1.0, "from": str(dates[i])[:10]})
+        a["f"] *= f
+        a["to"] = str(dates[i])[:10]
+    return [{"month": k, "ret": a["f"] - 1.0, "from": a["from"], "to": a["to"]}
+            for k, a in sorted(acc.items())]
+
+
+def monthly_grid(months):
+    """`[{year, months: [12 × ret|None], total}]` a partir de `monthly_twr`.
+
+    `total` encadena los meses del año, que es exactamente el `by_year` de `twr`
+    porque los dos multiplican los mismos factores diarios.
+    """
+    years = {}
+    for m in months:
+        y, mm = int(m["month"][:4]), int(m["month"][5:7])
+        years.setdefault(y, [None] * 12)[mm - 1] = m["ret"]
+    out = []
+    for y in sorted(years):
+        chain = 1.0
+        for r in years[y]:
+            if r is not None:
+                chain *= 1.0 + r
+        out.append({"year": y, "months": years[y], "total": chain - 1.0})
+    return out
+
 def nav_series(values, flows):
     """Cuánto vale 1 € invertido el primer día. Empieza en 1,0.
 

@@ -117,3 +117,16 @@ def test_el_limite_es_el_segmento_no_el_prefijo_de_texto():
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+def test_la_cartera_viva_queda_fuera_de_la_suite():
+    """Ningún test puede abrir el libro real.
+
+    No es teórico: `test_declarar_autenticacion_delante_reabre_la_cartera`
+    llamaba a `/api/cartera` sin tocar `CARTERA_DB`, así que la suite leía —y,
+    desde que `_cartera_conn` migra texto libre, también reescribía— la cartera
+    de verdad en cada pasada. El aislamiento vive en `conftest.py`; aquí se
+    comprueba que sigue vivo, porque un fixture que alguien borra no avisa.
+    """
+    assert os.path.dirname(os.path.abspath(D.CARTERA_DB)) != os.path.dirname(os.path.abspath(D.__file__)), \
+        f"la suite apunta a la cartera viva: {D.CARTERA_DB}"

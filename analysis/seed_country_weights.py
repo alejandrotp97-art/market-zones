@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Seed `data/country_weights.json` — the look-through country table.
 
+The same justETF profile also yields the fund's sector weights and its top-10
+holdings (name, ISIN, weight); they are stored next to the countries and feed
+the sector and X-ray views.
+
     python3 analysis/seed_country_weights.py            # every holding
     python3 analysis/seed_country_weights.py --only IE000M7V94E1.SG
     python3 analysis/seed_country_weights.py --quiet     # for the timer
@@ -77,7 +81,44 @@ PROXIES = {
         "asset_class": "commodity", "proxy_isin": None,
         "proxy_name": None,
         "proxy_note": "el oro físico no tiene país de exposición"},
+    "IE00BZ3XGLD1.SG": {
+        "asset_class": "commodity", "proxy_isin": None,
+        "proxy_name": None,
+        "proxy_note": "oro apalancado, también sin país de exposición"},
+    "BTC-EUR": {
+        "asset_class": "crypto", "proxy_isin": None,
+        "proxy_name": None,
+        "proxy_note": "el bitcoin no tiene país de exposición"},
 }
+
+# Las referencias de instrumentos REALES viven fuera del repositorio público, en
+# `data/local_proxies.json` (ignorado por git), bajo `seed_proxies`, con la
+# misma forma que las entradas de arriba. El panel lee el mismo fichero.
+LOCAL_PROXIES = os.path.join(ROOT, "data", "local_proxies.json")
+
+
+def apply_local_proxies(path: str = LOCAL_PROXIES) -> int:
+    """Añade a PROXIES las entradas locales; devuelve cuántas."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        return 0
+    except (OSError, ValueError) as e:
+        print(f"local_proxies: no se pudo leer {path}: {e}", file=sys.stderr)
+        return 0
+    n = 0
+    for tk, spec in ((data or {}).get("seed_proxies") or {}).items():
+        if isinstance(spec, dict) and spec.get("asset_class") and "proxy_isin" in spec:
+            PROXIES[tk] = {"asset_class": spec["asset_class"],
+                           "proxy_isin": spec["proxy_isin"],
+                           "proxy_name": spec.get("proxy_name"),
+                           "proxy_note": spec.get("proxy_note")}
+            n += 1
+    return n
+
+
+apply_local_proxies()
 
 # Asset class for auto-discovered tickers. justETF does not label this in a form
 # worth parsing, and guessing "equity" for a bond ETF would silently mix
@@ -117,6 +158,18 @@ OTHER = "Other"                       # justETF's aggregated remainder row
 _NAME_RE = re.compile(r'countries_value_name">([^<]+)</td>')
 _PCT_RE = re.compile(r'countries_value_percentage">([\d.,]+)%')
 _MORE_RE = re.compile(r'"u":"(/en/etf-profile\.html\?[^"]*loadMoreCountries[^"]*)"')
+_SECT_NAME_RE = re.compile(r'sectors_value_name">([^<]+)</td>')
+_SECT_PCT_RE = re.compile(r'sectors_value_percentage">([\d.,]+)%')
+_SECT_MORE_RE = re.compile(r'"u":"(/en/etf-profile\.html\?[^"]*loadMoreSectors[^"]*)"')
+# Una fila del top 10: el enlace a la ficha de la acción lleva su ISIN, y el
+# peso va en la celda de al lado. Se casan DENTRO de la misma fila para que un
+# nombre no pueda quedarse con el peso del vecino.
+_HOLD_ROW_RE = re.compile(
+    r'top-holdings_row">(.*?)</tr>', re.S)
+_HOLD_LINK_RE = re.compile(
+    r'top-holdings_link_name" href="/en/stock-profiles/([A-Z0-9]{12})" title="([^"]*)"')
+_HOLD_PCT_RE = re.compile(r'top-holdings_value_percentage">([\d.,]+)%')
+_HOLD_COUNT_RE = re.compile(r'top-holdings_count">\s*out of ([\d.,]+)')
 _TITLE_RE = re.compile(r"<title>([^<|]+)")
 
 
@@ -182,42 +235,82 @@ def _get(op, url: str, extra: dict | None = None) -> str:
     return raw.decode("utf-8", "ignore")
 
 
-def _rows(html: str) -> list[tuple[str, float]]:
-    names, pcts = _NAME_RE.findall(html), _PCT_RE.findall(html)
+def _pairs(html: str, name_re, pct_re, what: str) -> list[tuple[str, float]]:
+    names, pcts = name_re.findall(html), pct_re.findall(html)
     if len(names) != len(pcts):
-        raise SeedError(f"{len(names)} country names vs {len(pcts)} percentages")
+        raise SeedError(f"{len(names)} {what} names vs {len(pcts)} percentages")
     return [(n.strip(), float(p.replace(",", "."))) for n, p in zip(names, pcts)]
 
 
-def fetch_countries(isin: str) -> tuple[list[tuple[str, float]], str]:
-    """(top-N countries + `Other`, fund title) for an ISIN.
+def _rows(html: str) -> list[tuple[str, float]]:
+    return _pairs(html, _NAME_RE, _PCT_RE, "country")
 
-    The profile page renders four countries; a Wicket link expands it to ten.
-    That link is a TOGGLE, so it is followed exactly once — following it twice
-    collapses the table back to four and silently halves the coverage.
+
+def parse_sectors(html: str) -> list[tuple[str, float]]:
+    return _pairs(html, _SECT_NAME_RE, _SECT_PCT_RE, "sector")
+
+
+def parse_holdings(html: str) -> list[dict]:
+    """Top 10 del fondo: [{name, isin, pct}]. Fila sin ISIN o sin peso, fuera."""
+    out = []
+    for row in _HOLD_ROW_RE.findall(html):
+        link, pct = _HOLD_LINK_RE.search(row), _HOLD_PCT_RE.search(row)
+        if not link or not pct:
+            continue
+        out.append({"name": link.group(2).replace("&amp;", "&").strip(),
+                    "isin": link.group(1),
+                    "pct": float(pct.group(1).replace(",", "."))})
+    return out
+
+
+def fetch_profile(isin: str, get=None) -> dict:
+    """{countries, sectors, holdings, holdings_count, title} de la ficha de un ISIN.
+
+    La ficha pinta cuatro países y cuatro sectores; cada tabla tiene su enlace
+    Wicket que la amplía. Esos enlaces son INTERRUPTORES, así que cada uno se
+    sigue exactamente una vez — seguirlo dos veces vuelve a plegar la tabla a
+    cuatro y la cobertura se queda en la mitad sin que nada lo diga.
+
+    `get(url, extra_headers)` se inyecta en los tests; por defecto es una sesión
+    con cookies, que es lo que el enlace Wicket necesita para resolverse.
     """
-    op = _opener()
+    if get is None:
+        op = _opener()
+        get = lambda url, extra=None: _get(op, url, extra)
     base = f"https://www.justetf.com/en/etf-profile.html?isin={isin}"
-    page = _get(op, base)
+    page = get(base)
     rows = _rows(page)
     if not rows:
         raise SeedError("sin tabla de países en la ficha")
     title = (_TITLE_RE.search(page) or [None, ""])[1].strip()
+    ajax = {"Wicket-Ajax": "true",
+            "Wicket-Ajax-BaseURL": f"en/etf-profile.html?isin={isin}",
+            "X-Requested-With": "XMLHttpRequest", "Referer": base}
 
-    m = _MORE_RE.search(page)
-    if m:
-        expanded = _get(
-            op, "https://www.justetf.com" + m.group(1).replace("&amp;", "&"),
-            {"Wicket-Ajax": "true",
-             "Wicket-Ajax-BaseURL": f"en/etf-profile.html?isin={isin}",
-             "X-Requested-With": "XMLHttpRequest", "Referer": base})
-        more = _rows(expanded)
-        # Only accept the expansion when it really is more. If justETF ever
-        # returns the collapsed table here, keeping the smaller list is right —
-        # silently trading ten countries for four would not be visible anywhere.
-        if len(more) > len(rows):
-            rows = more
-    return rows, title
+    def expand(more_re, parse, collapsed):
+        m = more_re.search(page)
+        if not m:
+            return collapsed
+        more = parse(get("https://www.justetf.com" + m.group(1).replace("&amp;", "&"), ajax))
+        # Sólo se acepta la ampliación cuando de verdad trae más. Si justETF
+        # devolviera aquí la tabla plegada, cambiar diez filas por cuatro no se
+        # vería en ningún sitio.
+        return more if len(more) > len(collapsed) else collapsed
+
+    rows = expand(_MORE_RE, _rows, rows)
+    try:
+        sectors = expand(_SECT_MORE_RE, parse_sectors, parse_sectors(page))
+    except (SeedError, OSError):
+        sectors = []           # el país no puede caer por culpa del sector
+    count = _HOLD_COUNT_RE.search(page)
+    return {"countries": rows, "sectors": sectors, "holdings": parse_holdings(page),
+            "holdings_count": count.group(1) if count else None, "title": title}
+
+
+def fetch_countries(isin: str) -> tuple[list[tuple[str, float]], str]:
+    """(top-N countries + `Other`, fund title) for an ISIN."""
+    prof = fetch_profile(isin)
+    return prof["countries"], prof["title"]
 
 
 def to_weights(rows: list[tuple[str, float]]) -> tuple[dict, float]:
@@ -238,6 +331,23 @@ def to_weights(rows: list[tuple[str, float]]) -> tuple[dict, float]:
     total = sum(weights.values()) + other
     if not 95.0 <= total <= 105.0:
         raise SeedError(f"los pesos suman {total:.2f}%")
+    return weights, round(other, 4)
+
+
+def to_sector_weights(rows: list[tuple[str, float]]) -> tuple[dict, float]:
+    """(sector -> percent, other_percent). Los nombres se guardan como los da
+    justETF; la traducción es cosa de quien los pinta. Mismo criterio que con
+    los países: el resto agregado NO se reparte, y una tabla que no suma ~100 %
+    se rechaza antes que escribir pesos a medias."""
+    weights, other = {}, 0.0
+    for name, pct in rows:
+        if name == OTHER:
+            other += pct
+        else:
+            weights[name] = round(weights.get(name, 0.0) + pct, 4)
+    total = sum(weights.values()) + other
+    if not 95.0 <= total <= 105.0:
+        raise SeedError(f"los sectores suman {total:.2f}%")
     return weights, round(other, 4)
 
 
@@ -298,7 +408,8 @@ def seed(only: str | None = None, quiet: bool = False) -> int:
             continue
 
         try:
-            rows, title = fetch_countries(spec["proxy_isin"])
+            prof = fetch_profile(spec["proxy_isin"])
+            rows, title = prof["countries"], prof["title"]
             weights, other = to_weights(rows)
         except (SeedError, OSError) as e:
             # One bad fund must not cost the whole refresh. The previous entry
@@ -308,8 +419,31 @@ def seed(only: str | None = None, quiet: bool = False) -> int:
             say(f"  {tk:18} FALLO, se conserva lo anterior: {e}")
             continue
 
+        # Sectores y principales posiciones salen de la MISMA ficha. Son un
+        # añadido: si su tabla viene rara, los países —que el mapa ya usa— se
+        # escriben igual. Y lo que se sembró bien otro día NO se borra: se
+        # conserva con su fecha (`sectors_as_of`) y el error se dice — mismo
+        # criterio que con un fondo entero que falla, «viejo y fechado mejor
+        # que ausente».
+        old = (prev.get("instruments") or {}).get(tk) or {}
+        try:
+            if not prof["sectors"]:
+                raise SeedError("la ficha no publica sectores")
+            sectors, sectors_other = to_sector_weights(prof["sectors"])
+            sectors_error, sectors_as_of = None, today
+        except SeedError as e:
+            sectors_error = str(e)
+            sectors = old.get("sectors") or {}
+            sectors_other = (old.get("sectors_other") or 0.0) if sectors else 0.0
+            sectors_as_of = (old.get("sectors_as_of") or old.get("as_of")) if sectors else None
+        hold, hold_count = prof["holdings"], prof.get("holdings_count")
+        if not hold and old.get("holdings"):
+            hold, hold_count = old["holdings"], old.get("holdings_count")
         out["instruments"][tk] = {
             **common, "weights": weights, "other": other, "no_geography": False,
+            "sectors": sectors, "sectors_other": sectors_other,
+            "sectors_error": sectors_error, "sectors_as_of": sectors_as_of,
+            "holdings": hold, "holdings_count": hold_count,
             "needs_proxy": False,
             "proxy": ({"isin": spec["proxy_isin"],
                        "name": spec["proxy_name"] or title,

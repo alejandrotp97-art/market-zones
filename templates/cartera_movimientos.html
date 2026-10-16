@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Movimientos · Mi Cartera</title>
+  <link rel="stylesheet" href="{{ asset('regime.css') }}">
+  <link rel="stylesheet" href="{{ asset('cartera.css') }}">
+</head>
+<body>
+  <div class="wrap">
+    <nav class="topnav">
+      <a href="/">Zonas de Mercado</a>
+      <a href="/regime">Régimen de Mercado</a>
+      <a href="/screener">Screener</a>
+      <a href="/comite">Comité</a>
+      <a href="/cartera" class="on">Cartera</a>
+      <a href="/swing" target="_blank" rel="noopener">Swing BTC ↗</a>
+      <a href="/abraham/panorama.html" target="_blank" rel="noopener">Proyecto Abraham ↗</a>
+    </nav>
+
+    <header class="top">
+      <div class="titles">
+        <h1>Diario y movimientos</h1>
+        <!-- El «volver» va aquí arriba y no sólo al pie: esta página se abre
+             desde la cartera y se vuelve a ella, y con el libro largo el pie
+             puede quedar a varias pantallas de distancia. -->
+        <div class="sub"><a href="/cartera" class="backlink">← Mi Cartera</a> ·
+          <span id="n-mov">—</span> operaciones · el registro completo, sin analizar</div>
+      </div>
+      <!-- El mismo ojo que la cartera y la MISMA preferencia guardada: taparlo
+           en una pantalla y verlo destapado en la otra sería no haberlo tapado. -->
+      <button id="eye" class="eye" type="button" aria-pressed="false" title="Ocultar importes">
+        <svg class="on" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3.2"/>
+        </svg>
+        <svg class="off" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M17.9 17.9A10.1 10.1 0 0 1 12 20C5 20 1 12 1 12a18.5 18.5 0 0 1 5.1-5.9m3.8-1.9A9.1 9.1 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.2 3.2m-6.7-1.1a3 3 0 1 1-4.2-4.2"/>
+          <line x1="2" y1="2" x2="22" y2="22"/>
+        </svg>
+        <span class="eye-lbl">Ocultar importes</span>
+      </button>
+    </header>
+
+    <!-- diario: la lectura va primero; el libro de abajo es la fuente -->
+    <section class="card" id="diario-card">
+      <div class="card-h"><span>Diario de tu cartera</span>
+        <span class="legend">hechos propios · ni noticias ni mercado</span></div>
+      <div id="diario"></div>
+    </section>
+
+    <!-- movimientos -->
+    <section class="card">
+      <div class="card-h"><span>Movimientos</span>
+        <button id="clear" class="danger-link">vaciar todo</button></div>
+      <div class="scroll"><table id="mov" class="tbl">
+        <thead><tr>
+          <th>Fecha</th><th>Activo</th><th>Tipo</th><th class="num">Cantidad</th>
+          <th class="num">Precio</th><th class="num">Comisión</th><th>Nota</th><th></th><th></th>
+        </tr></thead><tbody id="mov-body"></tbody>
+      </table></div>
+    </section>
+
+    <!-- Dar de alta e importar siguen en /cartera: corregir un movimiento
+         reutiliza ese mismo formulario, y dos altas en dos pantallas serían dos
+         formularios que mantener en paralelo. -->
+    <a class="card gotolink" href="/cartera">
+      <span><b>Añadir o importar movimientos</b>
+        <span class="mut small">el alta manual y la carga de CSV están en la cartera</span></span>
+      <span class="goto-arrow" aria-hidden="true">→</span>
+    </a>
+
+    <div id="status" class="status" hidden></div>
+  </div>
+  <script src="{{ asset('cartera-movs.js') }}"></script>
+</body>
+</html>

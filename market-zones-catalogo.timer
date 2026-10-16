@@ -1,0 +1,16 @@
+[Unit]
+Description=Reconstruccion semanal del catalogo de fondos y ETFs europeos
+
+[Timer]
+# ESMA publica los FULINS los SABADOS. Se pasa el domingo por la manana: el
+# fichero ya esta arriba con margen de sobra, y es la franja mas tranquila.
+#
+# Semanal y no diario porque la fuente es semanal: pedirlo cada dia bajaria seis
+# veces el mismo fichero y cambiaria la fecha de «ingested» sin cambiar un dato,
+# que es exactamente como se pierde la pista de si el catalogo esta al dia.
+OnCalendar=Sun *-*-* 08:20
+Persistent=true
+RandomizedDelaySec=3600
+
+[Install]
+WantedBy=timers.target

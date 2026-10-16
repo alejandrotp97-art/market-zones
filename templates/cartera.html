@@ -9,7 +9,10 @@
   <link rel="stylesheet" href="{{ asset('cartera-map.css') }}">
 </head>
 <body>
-  <div class="wrap">
+  <!-- `wide` sólo aquí: la cartera es la única pantalla con una columna lateral
+       y una tabla de doce columnas, y con el ancho de las demás la tabla se
+       quedaba sin sitio en cuanto apareció el raíl. -->
+  <div class="wrap wide">
     <nav class="topnav">
       <a href="/">Zonas de Mercado</a>
       <a href="/regime">Régimen de Mercado</a>
@@ -23,7 +26,8 @@
     <header class="top">
       <div class="titles">
         <h1>Mi Cartera</h1>
-        <div class="sub">Libro de movimientos · <span id="n-mov">—</span> operaciones ·
+        <div class="sub"><a href="/cartera/movimientos" class="sublink">Libro de movimientos</a>
+          · <span id="n-mov">—</span> operaciones ·
           valores en <b>EUR</b> · precios y tipo de cambio en tiempo real (Yahoo)</div>
       </div>
       <button id="eye" class="eye" type="button" aria-pressed="false" title="Ocultar importes">
@@ -38,279 +42,375 @@
       </button>
     </header>
 
-    <!-- estado de mi cartera: lo que se lee en diez segundos -->
-    <section class="card estado-card" id="estado-card">
-      <div class="card-h"><span>Estado de mi cartera</span>
-        <span class="legend" id="estado-legend">calculando…</span></div>
-      <div id="estado"></div>
-    </section>
+    <!-- Dos columnas: a la izquierda lo que se LEE en orden —estado, alta,
+         evolución, rentabilidad, posiciones—, y a la derecha lo que se CONSULTA
+         de reojo. En una sola columna, las tres lecturas de composición (países,
+         tipo de activo, divisas) empujaban el resto media pantalla hacia abajo
+         para decir tres cosas que se miran de pasada. -->
+    <div class="shell">
+      <div class="col-main">
 
-    <!-- qué merece tu atención -->
-    <section class="card" id="atencion-card" hidden>
-      <div class="card-h"><span>Qué merece tu atención</span>
-        <span class="legend">hechos, no recomendaciones</span></div>
-      <div id="atencion"></div>
-    </section>
+        <!-- estado de mi cartera: lo que se lee en diez segundos -->
+        <section class="card estado-card" id="estado-card">
+          <div class="card-h"><span>Estado de mi cartera</span>
+            <span class="legend" id="estado-legend">calculando…</span></div>
+          <div id="estado"></div>
+        </section>
 
-    <!-- de dónde sale el resultado -->
-    <section class="hero cart-hero">
-      <div><div class="lbl">Invertido (abierto)</div><div id="s-inv" class="big">—</div></div>
-      <div><div class="lbl">P&L no realizado</div><div id="s-unreal" class="big">—</div><div id="s-unrealpct" class="mut small"></div></div>
-      <!-- El realizado se puede leer con dos criterios de coste y NO dan lo
-           mismo en una venta parcial. El selector no es un adorno: el número de
-           la izquierda es el de la cartera y el de la derecha el de la
-           declaración, y hasta ahora sólo se veía uno sin decir cuál. -->
-      <div><div class="lbl">P&L realizado
-          <span class="seg mini" id="real-mode" role="group" aria-label="Criterio de coste">
-            <button type="button" data-mode="avg" class="on" title="Coste medio ponderado — como se lee una cartera">Medio</button>
-            <button type="button" data-mode="fifo" title="Primera entrada, primera salida — el criterio de la ley española para valores homogéneos">FIFO</button>
-          </span></div>
-        <div id="s-real" class="big">—</div><div id="s-realnote" class="mut small"></div></div>
-      <div><div class="lbl">Dividendos cobrados</div><div id="s-income" class="big">—</div><div id="s-incomenote" class="mut small"></div></div>
-    </section>
+        <!-- de dónde sale el resultado -->
+        <section class="hero cart-hero">
+          <div><div class="lbl">Invertido (abierto)</div><div id="s-inv" class="big">—</div></div>
+          <div><div class="lbl">P&L no realizado</div><div id="s-unreal" class="big">—</div><div id="s-unrealpct" class="mut small"></div></div>
+          <!-- El realizado se puede leer con dos criterios de coste y NO dan lo
+               mismo en una venta parcial. El selector no es un adorno: el número de
+               la izquierda es el de la cartera y el de la derecha el de la
+               declaración, y hasta ahora sólo se veía uno sin decir cuál. -->
+          <div><div class="lbl">P&L realizado
+              <span class="seg mini" id="real-mode" role="group" aria-label="Criterio de coste">
+                <button type="button" data-mode="avg" class="on" title="Coste medio ponderado — como se lee una cartera">Medio</button>
+                <button type="button" data-mode="fifo" title="Primera entrada, primera salida — el criterio de la ley española para valores homogéneos">FIFO</button>
+              </span></div>
+            <div id="s-real" class="big">—</div><div id="s-realnote" class="mut small"></div></div>
+          <div><div class="lbl">Dividendos cobrados</div><div id="s-income" class="big">—</div><div id="s-incomenote" class="mut small"></div></div>
+        </section>
 
-    <!-- evolución -->
-    <section class="card chart-card">
-      <div class="card-h"><span>Evolución de la cartera</span>
-        <span class="ranges" id="hrange" role="group" aria-label="Temporalidad">
-          <button type="button" data-r="1m">1M</button>
-          <button type="button" data-r="3m">3M</button>
-          <button type="button" data-r="6m">6M</button>
-          <button type="button" data-r="ytd">YTD</button>
-          <button type="button" data-r="1y">1A</button>
-          <button type="button" data-r="5y">5A</button>
-          <button type="button" data-r="all" class="on">Todo</button>
-          <button type="button" data-r="custom" title="Elegir fechas">Fechas…</button>
-        </span>
-        <span class="legend">comparar con
-          <span id="bench-wrap" class="search-wrap">
-            <input id="bench" value="SPY" autocomplete="off" spellcheck="false"
-                   placeholder="ticker o nombre" title="Índice, ETF, fondo o acción — escribe y elige de la lista">
-            <div id="bench-results" class="results" hidden></div>
-          </span>
-        </span></div>
-      <div class="custom-range" id="hcustom" hidden>
-        <label>Desde <input type="date" id="hfrom"></label>
-        <label>Hasta <input type="date" id="hto"></label>
-        <button type="button" id="happly" class="primary-mini">Aplicar</button>
-        <span class="mut small" id="hrangenote"></span>
+        <!-- Alta manual: en segundo lugar, nada más leer el estado. Es lo ÚNICO
+             que se viene a hacer aquí —el resto de la página se lee, no se toca— y
+             estaba a veinte tarjetas de distancia, detrás del mapa. Anotar una
+             compra no puede costar media página de scroll. -->
+        <section class="card" id="add-card">
+          <div class="card-h"><span>Añadir movimiento</span>
+            <a class="legend sublink" href="/cartera/movimientos">ver el libro →</a></div>
+          <form id="add-form" class="add-grid">
+            <label class="wide search-wrap">Instrumento — ticker, ISIN o nombre
+              <input type="text" id="f-ticker" placeholder="SPY · IE00B4L5Y983 · MSCI World · Baelo…" autocomplete="off" required>
+              <div id="f-results" class="results" hidden></div>
+              <div id="f-picked" class="picked" hidden></div>
+            </label>
+            <label>Tipo<select id="f-side">
+              <option value="buy">Compra</option>
+              <option value="sell">Venta</option>
+              <option value="div">Dividendo / cupón</option>
+            </select></label>
+            <label>Fecha<input type="date" id="f-date"></label>
+            <label><span id="f-qty-lbl">Cantidad</span><input type="number" id="f-qty" step="any" placeholder="10" required></label>
+            <!-- La divisa se rellena sola al elegir el instrumento. El precio
+                 SIEMPRE ha sido el de la divisa nativa del activo; lo que no había
+                 era ningún sitio donde la pantalla lo dijera. -->
+            <label><span id="f-price-lbl">Precio</span> <span id="f-ccy" class="ccy-hint" hidden></span>
+              <input type="number" id="f-price" step="any" placeholder="450.20" required></label>
+            <label><span id="f-fee-lbl">Comisión</span><input type="number" id="f-fee" step="any" placeholder="0"></label>
+            <!-- La nota deja de ocupar dos columnas: con la rejilla a cuatro,
+                 cerraba la segunda fila con un hueco delante. A una columna la
+                 fila queda completa —cantidad, precio, comisión, nota— y los
+                 cortes caen donde los del resto de la página. -->
+            <label>Nota<input type="text" id="f-note" placeholder="opcional"></label>
+            <button type="submit" class="primary" id="f-submit">Añadir</button>
+            <button type="button" class="ghost" id="f-cancel" hidden>Cancelar</button>
+          </form>
+        </section>
+
+        <!-- evolución -->
+        <section class="card chart-card">
+          <div class="card-h"><span>Evolución de la cartera</span>
+            <span class="ranges" id="hrange" role="group" aria-label="Temporalidad">
+              <button type="button" data-r="1m">1M</button>
+              <button type="button" data-r="3m">3M</button>
+              <button type="button" data-r="6m">6M</button>
+              <button type="button" data-r="ytd">YTD</button>
+              <button type="button" data-r="1y">1A</button>
+              <button type="button" data-r="5y">5A</button>
+              <button type="button" data-r="all" class="on">Todo</button>
+              <button type="button" data-r="custom" title="Elegir fechas">Fechas…</button>
+            </span>
+            <span class="legend">comparar con
+              <span id="bench-wrap" class="search-wrap">
+                <input id="bench" value="SPY" autocomplete="off" spellcheck="false"
+                       placeholder="ticker o nombre" title="Índice, ETF, fondo o acción — escribe y elige de la lista">
+                <div id="bench-results" class="results" hidden></div>
+              </span>
+            </span></div>
+          <div class="custom-range" id="hcustom" hidden>
+            <label>Desde <input type="date" id="hfrom"></label>
+            <label>Hasta <input type="date" id="hto"></label>
+            <button type="button" id="happly" class="primary-mini">Aplicar</button>
+            <span class="mut small" id="hrangenote"></span>
+          </div>
+          <div class="chart-host"><canvas id="pchart"></canvas><div id="ptip" class="tip" hidden></div></div>
+          <div id="chart-legend" class="chart-legend"></div>
+          <div id="rebase-note" class="mut small" hidden></div>
+        </section>
+
+        <!-- rentabilidad -->
+        <section class="card" id="perf-card">
+          <div class="card-h"><span>Rentabilidad</span>
+            <span class="legend" id="perf-legend">calculando…</span></div>
+          <div id="perf"></div>
+        </section>
+
+        <!-- mes a mes: el TWR de cada mes natural (las aportaciones no cuentan
+             como ganancia) y, debajo de cada año, lo que hizo el índice. -->
+        <section class="card" id="mensual-card">
+          <div class="card-h"><span>Mes a mes</span>
+            <span class="legend" id="mensual-legend">calculando…</span></div>
+          <div class="scroll" id="mensual"></div>
+        </section>
+
+        <!-- el resumen de un mes o un año: lo que pasó, en seis cifras. -->
+        <section class="card" id="resumen-card">
+          <div class="card-h"><span>Resumen del periodo</span>
+            <select id="resumen-sel" class="mini-sel" aria-label="Periodo del resumen"></select></div>
+          <div id="resumen"></div>
+        </section>
+
+        <!-- dividendos: lo cobrado mes a mes (neto) y lo que se espera en los
+             próximos doce meses (estimación bruta, a participaciones de hoy). -->
+        <section class="card" id="divs-card">
+          <div class="card-h"><span>Calendario de dividendos</span>
+            <span class="legend" id="divs-legend">calculando…</span></div>
+          <div id="divs"></div>
+        </section>
+
+        <!-- posiciones -->
+        <section class="card">
+          <div class="card-h"><span>Posiciones actuales</span><span id="pos-legend" class="legend"></span></div>
+          <div class="scroll"><table id="pos" class="tbl">
+            <thead><tr>
+              <th>Activo</th>
+              <th title="Zona del Panel de Zonas para este activo, con el modelo diario y el peso de volatilidad por defecto. Es un nivel, no un cuándo.">Zona</th>
+              <th class="num" title="Cuánto pesa esta posición sobre el valor de mercado de la cartera">Peso</th>
+              <th class="num">Cantidad</th><th class="num">Coste medio</th>
+              <th class="num">Invertido</th><th class="num">Último</th><th class="num">Valor</th>
+              <th class="num">P&L no real.</th><th class="num">%</th>
+              <th class="num" title="Dividendos y cupones cobrados, netos de retención. No bajan el coste ni suman al realizado.">Dividendos</th>
+              <th class="num">P&L real.</th>
+            </tr></thead><tbody id="pos-body"></tbody>
+          </table></div>
+        </section>
+
+        <!-- rentabilidad por tramos: la tabla de arriba dice cuánto llevas desde
+             que compraste; esta dice cuánto ha hecho cada posición HOY, esta
+             semana, este mes... Ganancia en euros con las compras y ventas del
+             tramo descontadas, y su % sobre el capital expuesto. -->
+        <section class="card" id="periodos-card">
+          <div class="card-h"><span>Rentabilidad por periodo</span>
+            <span class="legend" id="periodos-legend">calculando…</span></div>
+          <div class="scroll" id="periodos"></div>
+        </section>
+
+        <!-- simulador de venta -->
+        <section class="card" id="fisc-card">
+          <div class="card-h"><span>Si vendo…</span>
+            <span class="legend">estimación, no asesoramiento fiscal</span></div>
+          <div id="fisc"></div>
+        </section>
+
+        <!-- qué cuesta tener esto -->
+        <section class="card" id="costes-card">
+          <div class="card-h"><span>Qué te cuesta</span>
+            <span class="legend">comisiones pagadas · retenciones · gastos corrientes</span></div>
+          <div id="costes"></div>
+        </section>
+
+        <!-- Estas dos se quedan en la columna ancha, y NO emparejadas: las dos
+             son tablas. La del activo y la divisa tiene cuatro columnas y la de
+             correlación es una matriz que crece con cada posición; en el raíl de
+             360px habría que elegir entre encogerlas o hacerlas rodar de lado.
+             Sueltas y a lo ancho, además, `fx-card` puede seguir ocultándose sin
+             dejar medio grid vacío al lado. -->
+        <section class="card" id="fx-card" hidden>
+          <div class="card-h"><span>El activo y la divisa</span>
+            <span class="legend">reparto exacto del resultado no realizado</span></div>
+          <div id="fxsplit"></div>
+        </section>
+
+        <section class="card" id="corr-card">
+          <div class="card-h"><span>Diversificación real</span>
+            <span class="legend" id="corr-legend">midiendo…</span></div>
+          <div id="corr"></div>
+        </section>
+
+        <!-- Importar va donde estaba el alta: cargar un CSV se hace el día que
+             estrenas la cartera o cuando cambias de bróker, no cada semana. La que
+             sube al principio es el alta manual, que es la que se usa a diario. -->
+        <section class="card">
+          <div class="card-h"><span>Importar / exportar CSV</span>
+            <span class="legend">
+              <a id="tpl" href="#" style="cursor:pointer">↓ plantilla</a> ·
+              <!-- Enlace normal, no fetch(): la exportación es un GET que
+                   devuelve un adjunto, así que el navegador ya sabe descargarlo
+                   y no hace falta ni cabecera CSRF ni JavaScript que mantener. -->
+              <a id="export" href="/api/cartera/export"
+                 title="Descarga tus movimientos en CSV. El mismo archivo se puede volver a importar aquí.">↓ mis movimientos</a>
+            </span></div>
+          <div id="drop" class="drop">
+            <input type="file" id="file" accept=".csv,.xlsx,.xls" hidden>
+            <div class="drop-in">Arrastra un archivo aquí o <button type="button" id="pick" class="link">elígelo</button>
+              <div class="mut small">CSV o Excel. Detecto columnas: <b>fecha, ticker, tipo, cantidad, precio, comisión, nota</b>
+                (en español o inglés). El tipo puede ser compra/venta o cantidad con signo.</div></div>
+          </div>
+          <div id="import-msg" class="import-msg"></div>
+        </section>
+
+        <!-- Qué merece tu atención: al final a propósito. Los avisos se leen DESPUÉS
+             de los números a los que se refieren; arriba no había con qué
+             contrastarlos. El libro de movimientos, que antes cerraba la página, se
+             consulta en /cartera/movimientos: es registro, no lectura. -->
+        <section class="card" id="atencion-card" hidden>
+          <div class="card-h"><span>Qué merece tu atención</span>
+            <span class="legend">hechos, no recomendaciones</span></div>
+          <div id="atencion"></div>
+        </section>
+
+        <!-- Salida al registro. Va al pie porque es donde estaba el libro: quien
+             baja hasta el final buscándolo encuentra la puerta en su sitio. -->
+        <a class="card gotolink" href="/cartera/movimientos">
+          <span><b>Diario y movimientos</b>
+            <span class="mut small">la cronología de tu cartera y el libro completo, con
+              <span id="n-mov2">—</span> operaciones</span></span>
+          <span class="goto-arrow" aria-hidden="true">→</span>
+        </a>
       </div>
-      <div class="chart-host"><canvas id="pchart"></canvas><div id="ptip" class="tip" hidden></div></div>
-      <div id="chart-legend" class="chart-legend"></div>
-      <div id="rebase-note" class="mut small" hidden></div>
-    </section>
 
-    <!-- rentabilidad -->
-    <section class="card" id="perf-card">
-      <div class="card-h"><span>Rentabilidad</span>
-        <span class="legend" id="perf-legend">calculando…</span></div>
-      <div id="perf"></div>
-    </section>
+      <!-- El raíl: tres cortes de la MISMA pregunta —¿de qué está hecha la
+           cartera?— en una sola tarjeta con pestañas. Tres tarjetas separadas
+           eran tres marcos y tres títulos para tres respuestas que nunca se
+           comparan a la vez; en pestañas se turnan en el mismo hueco y ninguna
+           deja de estar a un clic. Se queda pegada al hacer scroll: es material
+           de consulta, y consultarlo no debería costar volver arriba. -->
+      <aside class="rail">
+        <section class="card" id="comp-card">
+          <div class="card-h"><span>De qué está hecha</span>
+            <span class="seg mini" id="comp-tabs" role="group" aria-label="Composición de la cartera">
+              <button type="button" data-pane="geo" class="on">Países</button>
+              <button type="button" data-pane="clase">Tipo</button>
+              <button type="button" data-pane="ccy">Divisas</button>
+              <button type="button" data-pane="sect">Sectores</button>
+              <button type="button" data-pane="xray">X-ray</button>
+            </span></div>
 
-    <!-- posiciones -->
-    <section class="card">
-      <div class="card-h"><span>Posiciones actuales</span><span id="pos-legend" class="legend"></span></div>
-      <div class="scroll"><table id="pos" class="tbl">
-        <thead><tr>
-          <th>Activo</th>
-          <th title="Zona del Panel de Zonas para este activo, con el modelo diario y el peso de volatilidad por defecto. Es un nivel, no un cuándo.">Zona</th>
-          <th class="num" title="Cuánto pesa esta posición sobre el valor de mercado de la cartera">Peso</th>
-          <th class="num">Cantidad</th><th class="num">Coste medio</th>
-          <th class="num">Invertido</th><th class="num">Último</th><th class="num">Valor</th>
-          <th class="num">P&L no real.</th><th class="num">%</th>
-          <th class="num" title="Dividendos y cupones cobrados, netos de retención. No bajan el coste ni suman al realizado.">Dividendos</th>
-          <th class="num">P&L real.</th>
-        </tr></thead><tbody id="pos-body"></tbody>
-      </table></div>
-    </section>
+          <div class="pane" id="pane-geo">
+            <div class="pane-h">
+              <span class="legend" id="geo-filter">toda la cartera</span>
+              <button type="button" id="map-expand" class="link">ampliar ⤢</button>
+            </div>
+            <!-- El mapa NO se duplica: este hueco lo presta, y al ampliar el
+                 bloque entero se muda al diálogo y vuelve al cerrarlo. Dos mapas
+                 serían dos geometrías, dos descargas y dos estados que se
+                 separan en cuanto se toca el filtro. -->
+            <div id="geo-slot">
+              <div id="geo-body">
+                <div class="map-grid">
+                  <div class="map-host">
+                    <svg id="wmap" role="img" aria-label="Mapa de exposición por país"
+                         data-geo="{{ asset('world-110m.json') }}">
+                      <defs>
+                        <!-- Relieve: SOLO una sombra, y sobre una capa aparte que va DEBAJO
+                             de los países. Un filtro sobre el mapa visible lo rasteriza
+                             entero y se lleva por delante la nitidez de las fronteras; una
+                             luz especular encima, además, no levanta la tierra: la rodea de
+                             un halo que lava los bordes. La sombra se proyecta desde una
+                             silueta gemela e invisible, así que los países siguen siendo
+                             vectores puros y las divisiones se ven igual de limpias. -->
+                        <filter id="wrelief" x="-5%" y="-5%" width="110%" height="112%">
+                          <feDropShadow dx="0" dy="1.5" stdDeviation="1.1"
+                                        flood-color="#000" flood-opacity="0.55"/>
+                        </filter>
+                      </defs>
+                    </svg>
+                    <div id="mtip" class="tip" hidden></div>
+                    <div id="map-legend" class="map-legend"></div>
+                  </div>
+                  <div class="map-side">
+                    <table id="geo-rank" class="tbl rank-tbl">
+                      <thead><tr><th>País</th><th class="num">%</th><th class="num">EUR</th></tr></thead>
+                      <tbody id="geo-rank-body"></tbody>
+                    </table>
+                  </div>
+                </div>
+                <!-- Fuera del panel con scroll a propósito: aquí es donde se dice qué NO
+                     está pintado (el resto agregado, el oro, lo no valorado). Esconderlo
+                     tras una barra de desplazamiento sería esconder parte de la cartera. -->
+                <div id="geo-notes" class="geo-notes"></div>
+                <p id="geo-src" class="mut small"></p>
+              </div>
+            </div>
+          </div>
 
-    <div class="two">
-      <!-- quién ha puesto el dinero -->
-      <section class="card" id="contrib-card">
-        <div class="card-h"><span>Quién ha puesto el dinero</span>
-          <span class="legend">resultado en euros, no en porcentaje</span></div>
-        <div id="contrib"></div>
-      </section>
+          <div class="pane" id="pane-clase" hidden>
+            <div class="pane-h"><span class="legend" id="clase-legend"></span></div>
+            <div id="clase"></div>
+          </div>
 
-      <!-- rebalanceo -->
-      <section class="card" id="rebal-card">
-        <div class="card-h"><span>Rebalanceo</span>
-          <span class="legend">comprando, sin vender</span></div>
-        <div id="rebal"></div>
-      </section>
+          <div class="pane" id="pane-ccy" hidden>
+            <div class="pane-h"><span class="legend" id="ccy-legend"></span></div>
+            <div id="ccy"></div>
+          </div>
+
+          <!-- Sectores y X-ray abren cada fondo con la misma ficha de justETF
+               que da los países: el reparto sectorial y sus diez mayores
+               posiciones, sumadas por ISIN en toda la cartera. -->
+          <div class="pane" id="pane-sect" hidden>
+            <div class="pane-h"><span class="legend" id="sect-legend"></span></div>
+            <div id="sect"></div>
+          </div>
+
+          <div class="pane" id="pane-xray" hidden>
+            <div class="pane-h"><span class="legend" id="xray-legend"></span></div>
+            <div id="xray"></div>
+          </div>
+        </section>
+
+        <!-- Debajo del mapa: los cuatro paneles pequeños. Ocupaban dos bandas
+             enteras de la columna ancha para pintar barras y listas cortas que
+             cabían en un tercio de ese ancho, y entre ellos y el resto metían
+             novecientos píxeles de scroll. Ninguno es una tabla ancha: barras,
+             tres cifras, dos tablas estrechas y un formulario de cuatro campos.
+             Sus rejillas internas de dos y tres columnas se apilan aquí a una
+             sola, más abajo en el CSS. -->
+        <section class="card" id="contrib-card">
+          <div class="card-h"><span>Quién ha puesto el dinero</span>
+            <span class="legend">en euros, no en %</span></div>
+          <div id="contrib"></div>
+        </section>
+
+        <section class="card" id="rebal-card">
+          <div class="card-h"><span>Rebalanceo</span>
+            <span class="legend">comprando, sin vender</span></div>
+          <div id="rebal"></div>
+        </section>
+
+        <section class="card" id="aport-card">
+          <div class="card-h"><span>Tus aportaciones</span>
+            <span class="legend" id="aport-legend"></span></div>
+          <div id="aport"></div>
+        </section>
+
+        <section class="card" id="plan-card">
+          <div class="card-h"><span>Tu objetivo</span>
+            <span class="legend">progreso, no predicción</span></div>
+          <div id="plan"></div>
+        </section>
+      </aside>
     </div>
 
-    <div class="two">
-      <!-- aportaciones -->
-      <section class="card" id="aport-card">
-        <div class="card-h"><span>Tus aportaciones</span>
-          <span class="legend" id="aport-legend"></span></div>
-        <div id="aport"></div>
-      </section>
-
-      <!-- objetivo propio -->
-      <section class="card" id="plan-card">
-        <div class="card-h"><span>Tu objetivo</span>
-          <span class="legend">progreso, no predicción</span></div>
-        <div id="plan"></div>
-      </section>
-    </div>
-
-    <!-- simulador de venta -->
-    <section class="card" id="fisc-card">
-      <div class="card-h"><span>Si vendo…</span>
-        <span class="legend">estimación, no asesoramiento fiscal</span></div>
-      <div id="fisc"></div>
-    </section>
-
-    <!-- qué cuesta tener esto -->
-    <section class="card" id="costes-card">
-      <div class="card-h"><span>Qué te cuesta</span>
-        <span class="legend">comisiones pagadas · retenciones · gastos corrientes</span></div>
-      <div id="costes"></div>
-    </section>
-
-    <div class="two">
-      <!-- activo frente a divisa -->
-      <section class="card" id="fx-card" hidden>
-        <div class="card-h"><span>El activo y la divisa</span>
-          <span class="legend">reparto exacto del resultado no realizado</span></div>
-        <div id="fxsplit"></div>
-      </section>
-
-      <!-- clase de activo -->
-      <section class="card" id="clase-card">
-        <div class="card-h"><span>En qué tipo de activo estás</span>
-          <span class="legend" id="clase-legend"></span></div>
-        <div id="clase"></div>
-      </section>
-
-      <!-- exposición por divisa -->
-      <section class="card" id="ccy-card">
-        <div class="card-h"><span>De qué divisas dependes</span>
-          <span class="legend" id="ccy-legend"></span></div>
-        <div id="ccy"></div>
-      </section>
-
-      <!-- diversificación real -->
-      <section class="card" id="corr-card">
-        <div class="card-h"><span>Diversificación real</span>
-          <span class="legend" id="corr-legend">midiendo…</span></div>
-        <div id="corr"></div>
-      </section>
-    </div>
-
-    <!-- diario -->
-    <section class="card" id="diario-card">
-      <div class="card-h"><span>Diario de tu cartera</span>
-        <span class="legend">hechos propios · ni noticias ni mercado</span></div>
-      <div id="diario"></div>
-    </section>
-
-    <!-- exposición geográfica -->
-    <section class="card map-card">
-      <div class="card-h"><span>Exposición geográfica</span>
+    <!-- El mapa a tamaño de verdad. En el raíl un país europeo mide dos píxeles
+         y perseguirlo con el ratón no es una función; aquí recupera el ancho, y
+         con él el hover con el peso, el valor y quién lo aporta. El selector de
+         clase vive AQUÍ y no en el raíl: filtrar es algo que se hace mirando el
+         mapa grande, y arriba sólo hacía falta saber qué filtro está puesto. -->
+    <dialog id="map-dlg" class="map-dlg" aria-label="Exposición geográfica">
+      <div class="dlg-h">
+        <span class="dlg-t">Exposición geográfica</span>
         <span class="seg" id="geo-class" role="group" aria-label="Clase de activo">
           <button type="button" data-clase="all" class="on">Todo</button>
           <button type="button" data-clase="equity">Renta variable</button>
           <button type="button" data-clase="bond">Renta fija</button>
-        </span></div>
-      <div class="map-grid">
-        <div class="map-host">
-          <svg id="wmap" role="img" aria-label="Mapa de exposición por país"
-               data-geo="{{ asset('world-110m.json') }}">
-            <defs>
-              <!-- Relieve: SOLO una sombra, y sobre una capa aparte que va DEBAJO
-                   de los países. Un filtro sobre el mapa visible lo rasteriza
-                   entero y se lleva por delante la nitidez de las fronteras; una
-                   luz especular encima, además, no levanta la tierra: la rodea de
-                   un halo que lava los bordes. La sombra se proyecta desde una
-                   silueta gemela e invisible, así que los países siguen siendo
-                   vectores puros y las divisiones se ven igual de limpias. -->
-              <filter id="wrelief" x="-5%" y="-5%" width="110%" height="112%">
-                <feDropShadow dx="0" dy="1.5" stdDeviation="1.1"
-                              flood-color="#000" flood-opacity="0.55"/>
-              </filter>
-            </defs>
-          </svg>
-          <div id="mtip" class="tip" hidden></div>
-          <div id="map-legend" class="map-legend"></div>
-        </div>
-        <div class="map-side">
-          <table id="geo-rank" class="tbl rank-tbl">
-            <thead><tr><th>País</th><th class="num">%</th><th class="num">EUR</th></tr></thead>
-            <tbody id="geo-rank-body"></tbody>
-          </table>
-        </div>
+        </span>
+        <button type="button" id="map-close" class="dlg-x" aria-label="Cerrar el mapa">✕</button>
       </div>
-      <!-- Fuera del panel con scroll a propósito: aquí es donde se dice qué NO
-           está pintado (el resto agregado, el oro, lo no valorado). Esconderlo
-           tras una barra de desplazamiento sería esconder parte de la cartera. -->
-      <div id="geo-notes" class="geo-notes"></div>
-      <p id="geo-src" class="mut small"></p>
-    </section>
-
-    <div class="two">
-      <!-- alta manual -->
-      <section class="card">
-        <div class="card-h"><span>Añadir movimiento</span></div>
-        <form id="add-form" class="add-grid">
-          <label class="wide search-wrap">Instrumento — ticker, ISIN o nombre
-            <input type="text" id="f-ticker" placeholder="SPY · IE00B4L5Y983 · MSCI World · Baelo…" autocomplete="off" required>
-            <div id="f-results" class="results" hidden></div>
-            <div id="f-picked" class="picked" hidden></div>
-          </label>
-          <label>Tipo<select id="f-side">
-            <option value="buy">Compra</option>
-            <option value="sell">Venta</option>
-            <option value="div">Dividendo / cupón</option>
-          </select></label>
-          <label>Fecha<input type="date" id="f-date"></label>
-          <label><span id="f-qty-lbl">Cantidad</span><input type="number" id="f-qty" step="any" placeholder="10" required></label>
-          <!-- La divisa se rellena sola al elegir el instrumento. El precio
-               SIEMPRE ha sido el de la divisa nativa del activo; lo que no había
-               era ningún sitio donde la pantalla lo dijera. -->
-          <label><span id="f-price-lbl">Precio</span> <span id="f-ccy" class="ccy-hint" hidden></span>
-            <input type="number" id="f-price" step="any" placeholder="450.20" required></label>
-          <label><span id="f-fee-lbl">Comisión</span><input type="number" id="f-fee" step="any" placeholder="0"></label>
-          <label class="wide">Nota<input type="text" id="f-note" placeholder="opcional"></label>
-          <button type="submit" class="primary" id="f-submit">Añadir</button>
-          <button type="button" class="ghost" id="f-cancel" hidden>Cancelar</button>
-        </form>
-      </section>
-
-      <!-- importar -->
-      <section class="card">
-        <div class="card-h"><span>Importar / exportar CSV</span>
-          <span class="legend">
-            <a id="tpl" href="#" style="cursor:pointer">↓ plantilla</a> ·
-            <!-- Enlace normal, no fetch(): la exportación es un GET que
-                 devuelve un adjunto, así que el navegador ya sabe descargarlo
-                 y no hace falta ni cabecera CSRF ni JavaScript que mantener. -->
-            <a id="export" href="/api/cartera/export"
-               title="Descarga tus movimientos en CSV. El mismo archivo se puede volver a importar aquí.">↓ mis movimientos</a>
-          </span></div>
-        <div id="drop" class="drop">
-          <input type="file" id="file" accept=".csv,.xlsx,.xls" hidden>
-          <div class="drop-in">Arrastra un archivo aquí o <button type="button" id="pick" class="link">elígelo</button>
-            <div class="mut small">CSV o Excel. Detecto columnas: <b>fecha, ticker, tipo, cantidad, precio, comisión, nota</b>
-              (en español o inglés). El tipo puede ser compra/venta o cantidad con signo.</div></div>
-        </div>
-        <div id="import-msg" class="import-msg"></div>
-      </section>
-    </div>
-
-    <!-- movimientos -->
-    <section class="card">
-      <div class="card-h"><span>Movimientos</span>
-        <button id="clear" class="danger-link">vaciar todo</button></div>
-      <div class="scroll"><table id="mov" class="tbl">
-        <thead><tr>
-          <th>Fecha</th><th>Activo</th><th>Tipo</th><th class="num">Cantidad</th>
-          <th class="num">Precio</th><th class="num">Comisión</th><th>Nota</th><th></th><th></th>
-        </tr></thead><tbody id="mov-body"></tbody>
-      </table></div>
-    </section>
+      <div id="map-dlg-host"></div>
+    </dialog>
 
     <div id="status" class="status" hidden></div>
   </div>

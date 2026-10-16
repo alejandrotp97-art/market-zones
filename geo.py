@@ -22,7 +22,7 @@ import threading
 _HERE = os.path.dirname(os.path.abspath(__file__))
 TABLE_PATH = os.path.join(_HERE, "data", "country_weights.json")
 
-ASSET_CLASSES = ("equity", "bond", "commodity")
+ASSET_CLASSES = ("equity", "bond", "commodity", "crypto")
 
 # Display names for the countries the table can produce. A code with no name
 # falls back to the code itself — an unfamiliar label is a small problem; a
@@ -92,8 +92,9 @@ def country_exposure(positions, table: dict, asset_class: str | None = None) -> 
     the rest come back in `excluded` with the reason the portfolio gave.
 
     `asset_class` filters to one of ASSET_CLASSES, or None for everything. The
-    filter partitions the total: equity + bond + commodity always sums back to
-    the unfiltered figure, so switching the toggle never invents or loses money.
+    filter partitions the total: equity + bond + commodity + crypto always sums
+    back to the unfiltered figure, so switching the toggle never invents or
+    loses money.
 
     Percentages are of `mapped_eur` — the money actually placed on a country —
     never of the portfolio. Dividing by the portfolio would shrink every country

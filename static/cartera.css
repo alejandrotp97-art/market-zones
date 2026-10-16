@@ -1,5 +1,16 @@
 /* Cartera — reutiliza los tokens de regime.css (enlazado antes). */
-.cart-hero{grid-template-columns:repeat(4,1fr);}
+
+/* El envoltorio que hace rodar de lado las tablas anchas. Estaba en el HTML
+   desde el principio, pero la regla vivía sólo en `comite.css`, que esta
+   página no carga: la clase prometía un scroll que no existía y la tabla de
+   posiciones —doce columnas— se salía por la derecha en cuanto la ventana no
+   daba para las doce. Con la columna lateral eso dejó de ser un caso raro. */
+.scroll{overflow-x:auto;}
+/* Los cuatro números no viven dentro de una tarjeta, así que de suyo van 15px
+   más anchos por cada lado que el interior de todas las demás: 1 de borde y 14
+   de relleno. Ese sangrado es lo que los pone sobre la MISMA rejilla que las
+   cajas de arriba y las de abajo, en vez de a un palmo de distancia. */
+.cart-hero{grid-template-columns:repeat(4,1fr);padding:0 15px;}
 .cart-hero .big{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.01em;margin-top:2px;}
 @media(max-width:1180px){.cart-hero{grid-template-columns:1fr 1fr;}}
 @media(max-width:760px){.cart-hero{grid-template-columns:1fr 1fr;}}
@@ -25,7 +36,7 @@
 .del:hover{color:#cf5b3a;background:color-mix(in srgb,#cf5b3a 14%,transparent);}
 
 /* alta manual */
-.add-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px 14px;align-items:end;}
+.add-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;align-items:end;}
 .add-grid label{display:flex;flex-direction:column;gap:5px;font-size:11.5px;color:var(--muted);}
 .add-grid input,.add-grid select{width:100%;}
 .add-grid .wide{grid-column:span 2;}
@@ -102,6 +113,58 @@ body.amounts-hidden .eye .off{display:block;}
 .r-sym{font-family:var(--mono);color:var(--muted);font-size:11px;white-space:nowrap;}
 .r-empty{padding:10px 12px;color:var(--muted);font-size:12px;}
 .picked{margin-top:5px;font-size:12px;color:var(--muted);}
+
+/* El desplegable ahora mezcla dos fuentes, y hay que poder distinguirlas de un
+   vistazo: cada bloque lleva su cabecera, pegajosa al hacer scroll, para que al
+   bajar por la lista no se pierda de vista de dónde sale lo que se está mirando. */
+/* Más ancha que la casilla a propósito. La columna del formulario mide unos 340
+   px, y el renglón de datos —ISIN, reparto, domicilio, plazas, divisa— es justo
+   lo que distingue una clase de otra: cortarlo con puntos suspensivos deja una
+   lista de filas que parecen la misma. El ancho no se lo puede imponer el hueco
+   donde vive el campo. */
+.results{max-height:400px;right:auto;min-width:100%;width:max(100%,480px);
+  max-width:calc(100vw - 32px);}
+.r-head{position:sticky;top:0;z-index:1;background:var(--panel2,var(--panel));
+  padding:6px 11px;font-family:var(--mono);font-size:10px;text-transform:uppercase;
+  letter-spacing:.04em;color:var(--faint);border-bottom:1px solid var(--border);}
+/* Un fondo ocupa dos renglones: el nombre y, debajo, lo que lo distingue de las
+   otras once clases del mismo producto. Sin el ISIN y el reparto, media lista
+   parece la misma fila repetida. */
+.r-fund{grid-template-columns:auto 1fr;row-gap:1px;align-items:start;}
+.r-fund .r-name{white-space:normal;}
+.r-sub{grid-column:2;font-family:var(--mono);font-size:10.5px;color:var(--muted);
+  line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+/* Subtítulo de tipo. Más discreto que la cabecera de fuente —que es la que dice
+   de quién te fías— pero suficiente para ver dónde acaban los ETF. */
+.r-nota{padding:6px 11px 8px;font-size:11px;color:var(--faint);line-height:1.4;}
+.ter-hint{font-size:10px;font-weight:600;padding:1px 6px;border-radius:5px;vertical-align:1px;
+  color:#8a63d2;background:color-mix(in srgb,#8a63d2 16%,transparent);cursor:help;}
+.r-sub-head{padding:5px 11px 3px;font-size:10.5px;font-weight:600;color:var(--muted);
+  border-top:1px solid var(--border);}
+.r-empty code{font-family:var(--mono);background:color-mix(in srgb,var(--text) 8%,transparent);
+  padding:0 4px;border-radius:3px;}
+.r-empty b{color:var(--text);}
+.r-filt{position:sticky;top:0;z-index:2;display:flex;flex-wrap:wrap;gap:4px;align-items:center;
+  padding:7px 10px;background:var(--panel);border-bottom:1px solid var(--border);}
+.r-chip{background:none;border:1px solid var(--border);color:var(--muted);cursor:pointer;
+  border-radius:999px;padding:2px 10px;font-size:11px;font-family:inherit;}
+.r-chip:hover{color:var(--text);border-color:var(--accent);}
+.r-chip.on{background:color-mix(in srgb,var(--accent) 18%,transparent);
+  border-color:var(--accent);color:var(--text);}
+.r-sep{width:1px;align-self:stretch;background:var(--border);margin:0 3px;}
+.picked .warn{color:#cf5b3a;}
+/* Chip de apalancamiento: color de aviso, no de error. El producto es legítimo
+   y puede ser justo el que buscas; lo que no puede es parecerse al físico. */
+/* Las plazas donde se cruza el mismo fondo. Botones y no un desplegable: son
+   dos o tres, se leen de un vistazo, y la divisa es lo que hay que comparar. */
+.lineas{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px;}
+.linea{background:none;border:1px solid var(--border);color:var(--muted);cursor:pointer;
+  border-radius:6px;padding:2px 8px;font-size:11px;font-family:var(--mono);}
+.linea:hover{color:var(--text);border-color:var(--accent);}
+.linea.on{background:color-mix(in srgb,var(--accent) 18%,transparent);
+  border-color:var(--accent);color:var(--text);}
+.lev{font-size:10px;font-weight:600;padding:1px 6px;border-radius:5px;vertical-align:1px;
+  color:#c07a2a;background:color-mix(in srgb,#c07a2a 16%,transparent);cursor:help;}
 .picked b{color:var(--text);}
 
 /* ── zona del índice por posición ─────────────────────────────────────────
@@ -144,14 +207,24 @@ body.amounts-hidden .eye .off{display:block;}
   border:1px solid var(--border);border-radius:8px;cursor:pointer;font-size:12px;}
 .add-grid .ghost:hover{color:var(--text);}
 
-/* ── rentabilidad ─────────────────────────────────────────────────────────*/
-.perf-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:6px;}
+/* ── rentabilidad ─────────────────────────────────────────────────────────
+   Tres cajas sobre una rejilla de CUATRO, con la última ocupando dos. Tres
+   columnas iguales cortan en el 33% y el 66%, que no son líneas de esta
+   página: aquí los cortes están en el 25, el 50 y el 75, y ahí es donde tienen
+   que caer también los de este bloque. La tercera es la que se ensancha porque
+   es la que lleva el texto más largo —«Acumulado · desde el primer
+   movimiento», «Volatilidad · Sharpe»—, así que gana el hueco que necesita.
+
+   La usan tres tarjetas —rentabilidad, riesgo y qué te cuesta—, y las tres
+   traen exactamente tres cajas. */
+.perf-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:6px;}
+.perf-grid>*:last-child{grid-column:span 2;}
 .perf-kpi{background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;}
 .perf-big{font-size:24px;font-weight:700;letter-spacing:-.01em;font-variant-numeric:tabular-nums;margin:2px 0 6px;}
 .perf-note{margin:14px 0 0;padding:10px 13px;border-radius:9px;font-size:12.5px;
   background:color-mix(in srgb,var(--accent) 8%,transparent);
   border:1px solid color-mix(in srgb,var(--accent) 25%,transparent);}
-.perf-two{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-top:16px;}
+.perf-two{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:16px;}
 .warn-txt{color:#cf8b3a;}
 
 /* Por año: la barra es de doble sentido y el CERO está en el borde, no en el
@@ -179,7 +252,34 @@ table.yr-tbl td{padding:5px 10px;}
 table.corr-tbl{min-width:0;font-size:11.5px;}
 table.corr-tbl td.cm{text-align:right;font-family:var(--mono);padding:5px 8px;
   border-bottom:1px solid var(--panel);}
-table.corr-tbl td.sym{font-size:11px;}
+/* El rótulo de la fila es el NOMBRE del activo, no su símbolo: se sale del
+   monoespaciado y de la negrita que `.tbl .sym` reserva para los tickers.
+
+   Se llama `corr-nm` y no `nm` porque `.nm` YA EXISTE arriba, suelto y sin
+   contenedor, con `white-space:normal` dentro. Acotarlo a `.corr-tbl` gana en
+   especificidad SÓLO en lo que se declara: el `white-space` seguía llegando de
+   allí, y con envoltura de línea `text-overflow:ellipsis` no se pinta NUNCA.
+   Heredaba además su color apagado y su tamaño, que anulaban los de la celda.
+   Un nombre propio corta las tres herencias de raíz; el `nowrap` explícito se
+   escribe igual, para no depender de qué declare la regla de al lado.
+
+   El corte va en un elemento de LÍNEA dentro de la celda, no en la celda. En
+   una tabla de ancho automático el `max-width` de un `td` no se respeta —el
+   navegador dimensiona la columna por su contenido— y un fondo de sesenta
+   caracteres se llevaba la matriz entera de paseo a lo ancho. */
+table.corr-tbl td.sym{font-family:inherit;font-weight:500;font-size:11.5px;}
+.corr-tbl .corr-nm{display:inline-block;max-width:260px;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;vertical-align:bottom;}
+.corr-tbl .ix{display:inline-block;min-width:15px;margin-right:7px;
+  font-family:var(--mono);font-size:10px;color:var(--muted);text-align:right;}
+
+/* `.ccy-row` nació para `EUR`, `USD`, `GBP` y clava esa columna a 42px. La
+   lista contra el índice reutiliza la rejilla y ahora escribe nombres: sin
+   esta excepción el rótulo se salía por encima de la cifra y los dos se leían
+   pisados el uno sobre el otro. */
+.corr-vs .ccy-row{grid-template-columns:9px minmax(0,1fr) auto auto;}
+.corr-vs .ccy-n{font-family:inherit;font-size:12px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 
 @media(max-width:900px){.perf-grid,.perf-two{grid-template-columns:1fr;}}
 table.corr-tbl td.cm.diag{background:var(--panel2);color:var(--faint);}
@@ -224,10 +324,16 @@ table.corr-tbl td.cm.diag{background:var(--panel2);color:var(--faint);}
 /* ── estado de mi cartera ─────────────────────────────────────────────────
    Ocho casillas de igual peso visual y a propósito: en cuanto una se hace más
    grande que las demás, decide por quien mira cuál es la importante, y la que
-   importa depende del día. */
-.estado-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;
-  background:var(--border);border:1px solid var(--border);border-radius:10px;overflow:hidden;}
-.et{background:var(--panel);padding:12px 14px;}
+   importa depende del día.
+
+   Separación de 14 como el resto de la página, y no la retícula de 1px que
+   tenía: con hueco de 1px las columnas salían 3px más anchas que las del resto
+   de rejillas, y esos 3px eran justo lo que impedía que los cortes cayeran a
+   plomo con las cajas de abajo. Las casillas pasan a llevar su propio marco
+   —el mismo de `.perf-kpi`—, así que la página entera usa una sola caja
+   interior en vez de dos. */
+.estado-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;}
+.et{background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;}
 .et-l{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.05em;
   color:var(--faint);margin-bottom:4px;}
 .et-v{font-size:21px;font-weight:700;letter-spacing:-.01em;font-variant-numeric:tabular-nums;}
@@ -236,7 +342,7 @@ table.corr-tbl td.cm.diag{background:var(--panel2);color:var(--faint);}
 /* ── qué merece tu atención ───────────────────────────────────────────────
    La franja de color va a la IZQUIERDA y no de fondo: un aviso con el fondo
    teñido se lee como una alarma, y la mayoría de estos no lo son. */
-.avisos{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.avisos{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
 .aviso{border:1px solid var(--border);border-left:3px solid var(--faint);
   border-radius:8px;padding:10px 13px;background:var(--panel2);}
 .aviso.warn{border-left-color:#cf8b3a;}
@@ -331,3 +437,138 @@ table.fi-lots td,table.fi-lots th{padding:4px 8px;}
 .dia-fila.high .dia-t,.dia-fila.dd .dia-t,.dia-fila.rec .dia-t{font-weight:600;}
 .dia-d{font-size:11.5px;text-align:right;}
 @media(max-width:760px){.dia-fila{grid-template-columns:78px 16px 1fr;}.dia-d{display:none;}}
+
+/* ── puertas entre la cartera y su registro ──────────────────────────────
+   El diario y el libro viven en /cartera/movimientos. Estos enlaces son la
+   única forma de llegar, así que se les da peso de verdad: el de cabecera
+   subrayado sólo al pasar por encima —ahí compite con el texto— y el del pie
+   con forma de tarjeta, que es lo que había en ese hueco. */
+.sublink{color:var(--accent);text-decoration:none;}
+.sublink:hover{text-decoration:underline;}
+.gotolink{display:flex;align-items:center;justify-content:space-between;gap:14px;
+  text-decoration:none;color:var(--text);}
+.gotolink:hover{border-color:var(--accent);}
+.gotolink b{display:block;font-size:14px;}
+.gotolink .small{display:block;margin-top:2px;}
+.goto-arrow{color:var(--faint);font-size:18px;transition:transform .12s,color .12s;}
+.gotolink:hover .goto-arrow{color:var(--accent);transform:translateX(3px);}
+@media(prefers-reduced-motion:reduce){.goto-arrow{transition:none;}
+  .gotolink:hover .goto-arrow{transform:none;}}
+/* La vuelta desde el registro: mismo enlace, sin el subrayado que ya lleva el
+   propio ← como señal. */
+.backlink{color:var(--muted);text-decoration:none;}
+.backlink:hover{color:var(--accent);}
+
+/* ── el armazón: el relato a la izquierda, la consulta a la derecha ───────
+   Una sola columna obligaba a bajar media pantalla para mirar de qué está
+   hecha la cartera, y dejaba a la derecha de las tarjetas pequeñas un palmo
+   de fondo vacío. A la izquierda se queda lo que necesita ancho de verdad
+   —gráfico, tablas anchas, matriz—; a la derecha, lo que se pintaba con
+   barras y tres cifras dentro de media pantalla que no usaba. */
+/* 1840 y no los 1500 de las demás pantallas: el raíl se lleva 400, y con el
+   ancho de antes la tabla de posiciones —doce columnas, 1400px— pasaba a rodar
+   de lado en una pantalla en la que hoy entra entera. */
+.wrap.wide{max-width:1840px;}
+/* `minmax(0,…)` y no `1fr` a secas: la tabla de posiciones tiene doce
+   columnas y su ancho mínimo empujaría la columna hasta echar el raíl fuera
+   de la pantalla. Con esto la que cede es la tabla, que ya sabe rodar de
+   lado dentro de su `.scroll`. */
+.shell{display:grid;grid-template-columns:minmax(0,1fr) 400px;gap:16px;align-items:start;}
+/* El hueco entre tarjetas lo pone AQUÍ el contenedor. Antes no lo ponía
+   nadie: las tarjetas se tocaban de dos en dos y sólo tres —hero, gráfico y
+   mapa— traían margen propio, así que la página tenía tres escalones
+   sueltos y el resto pegado. */
+.col-main{display:flex;flex-direction:column;gap:14px;min-width:0;}
+.col-main>.hero,.col-main>.chart-card{margin-bottom:0;}
+
+/* El raíl NO va pegado al scroll. Con una sola tarjeta encima se podía; con
+   cinco mide más que la ventana, y pegarlo obligaría a darle su propia barra
+   de desplazamiento — una columna de 400px con formularios dentro y scroll
+   propio se maneja peor que bajando la página entera. */
+.rail{display:flex;flex-direction:column;gap:14px;min-width:0;}
+@media(max-width:1200px){.shell{grid-template-columns:1fr;}}
+
+/* pestañas del raíl: cabecera propia por pestaña, que cada una tiene su
+   letra pequeña (el filtro del mapa, la cobertura, lo sin clasificar) */
+.pane-h{display:flex;justify-content:space-between;align-items:center;gap:8px;
+  min-height:16px;margin-bottom:7px;}
+.pane-h .link{font-size:11.5px;text-decoration:none;white-space:nowrap;}
+.pane-h .link:hover{text-decoration:underline;}
+
+/* ── lo que hay que apretar para que quepa en 400px ──────────────────────
+   Todas estas rejillas se escribieron para media pantalla. Aquí se apilan a
+   una columna: ninguna pierde un dato, sólo dejan de repartirse un ancho que
+   ya no existe. */
+.rail .ccy-list,.rail .ap-kpis,.rail .plan-form{grid-template-columns:1fr;}
+.rail .ap-kpis{gap:10px;}
+/* `min-width:640px` es el suelo de las tablas de la columna ancha; aquí las
+   dos del rebalanceo lo único que harían es rodar de lado dentro de una
+   tarjeta estrecha. Sin suelo caben, porque son de tres y cinco columnas
+   cortas. */
+.rail .tbl{min-width:0;font-size:12px;}
+.rail .tbl th,.rail .tbl td{padding:6px 5px;}
+/* Y aquí SÍ se permite partir el renglón. En la columna ancha `nowrap` evita
+   que un nombre largo desmonte la alineación de doce columnas; en 400px lo que
+   hace es empujar la tabla fuera de su tarjeta —«MSCI World Index P Acc EUR»
+   en una sola línea son 66px de más—. Las cifras no se parten igual: no
+   tienen dónde. */
+.rail .tbl th,.rail .tbl td{white-space:normal;}
+.rail .nm,.rail .tbl .note{max-width:none;}
+.rail .tgt-in{width:54px;}
+.rail .cbar-row{grid-template-columns:52px 1fr auto;gap:8px;}
+.rail .rb-bar{flex-wrap:wrap;}
+.rail .rb-bar input{width:76px;}
+
+/* ── el mapa a tamaño de verdad ──────────────────────────────────────────
+   Modal y no un desplegable en el sitio: lo que le falta al mapa del raíl es
+   ANCHO, y el ancho sólo está fuera de la columna. */
+.map-dlg{width:min(1400px,94vw);max-height:92vh;overflow:auto;
+  background:var(--panel);color:var(--text);border:1px solid var(--border);
+  border-radius:14px;padding:14px 16px 18px;}
+.map-dlg::backdrop{background:rgba(0,0,0,.62);}
+.dlg-h{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:12px;}
+.dlg-t{font-size:14px;font-weight:600;}
+.dlg-x{margin-left:auto;background:none;border:none;color:var(--muted);
+  font-size:15px;line-height:1;padding:5px 9px;cursor:pointer;}
+.dlg-x:hover{color:var(--text);border-color:transparent;}
+
+/* ── sectores y X-ray ─────────────────────────────────────────────────────
+   Rejilla propia: estas filas llevan NOMBRES largos, y `.ccy-row` clava 42px
+   para un código de divisa. */
+.lt-list{display:grid;gap:3px;font-size:12px;}
+.lt-row{display:grid;grid-template-columns:9px minmax(0,1fr) auto auto;gap:8px;
+  align-items:center;font-variant-numeric:tabular-nums;}
+.lt-row i{width:9px;height:9px;border-radius:2px;}
+.lt-n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.lt-via{grid-column:2 / -1;font-size:11px;color:var(--muted);margin:-1px 0 3px;}
+.lt-h{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.04em;
+  color:var(--muted);margin:12px 0 4px;}
+
+/* ── mes a mes ───────────────────────────────────────────────────────────*/
+.hm{width:100%;border-collapse:separate;border-spacing:2px;font-size:11.5px;
+  font-variant-numeric:tabular-nums;font-family:var(--mono);}
+.hm th{font-size:10px;color:var(--muted);font-weight:500;padding:2px 4px;text-align:center;}
+.hm td{padding:5px 4px;text-align:center;border-radius:3px;white-space:nowrap;}
+.hm td.y{font-weight:600;text-align:left;}
+.hm tr.hm-ix td{font-size:10px;color:var(--muted);padding-top:0;}
+.hm td.tot{font-weight:600;border-left:1px solid var(--border);}
+
+/* ── resumen del periodo ─────────────────────────────────────────────────*/
+.rw-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;}
+.rw{border:1px solid var(--border);border-radius:8px;padding:10px 12px;min-width:0;}
+.rw-k{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);}
+.rw-v{font-size:18px;font-weight:600;margin-top:4px;font-variant-numeric:tabular-nums;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.rw-s{font-size:11.5px;color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.mini-sel{font-size:12px;padding:2px 6px;background:var(--panel2);color:var(--text);
+  border:1px solid var(--border);border-radius:5px;}
+@media(max-width:760px){.rw-grid{grid-template-columns:repeat(2,minmax(0,1fr));}}
+
+/* ── calendario de dividendos ────────────────────────────────────────────*/
+.dv-bars{display:flex;align-items:flex-end;gap:3px;height:120px;margin:8px 0 2px;}
+.dv-col{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;min-width:0;height:100%;}
+.dv-bar{width:100%;border-radius:3px 3px 0 0;min-height:1px;background:var(--accent,#4a90d9);}
+.dv-bar.fc{background:transparent;border:1px dashed var(--muted);border-bottom:none;}
+.dv-lbl{display:flex;gap:3px;font-family:var(--mono);font-size:9px;color:var(--muted);}
+.dv-lbl span{flex:1;text-align:center;min-width:0;overflow:hidden;}
+.dv-kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:10px;}
