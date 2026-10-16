@@ -121,3 +121,39 @@ def test_un_fallo_de_red_al_ampliar_sectores_no_tira_los_paises():
     prof = S.fetch_profile("IE00B4L5Y983", get=get)
     assert prof["countries"][0] == ("United States", 70.32)
     assert prof["sectors"] == []
+
+
+def test_un_fallo_de_sectores_conserva_los_sectores_y_posiciones_anteriores(tmp_path, monkeypatch):
+    """Lo sembrado bien la semana pasada no se borra porque hoy falle la tabla:
+    se conserva, fechado, y el error se dice."""
+    out = tmp_path / "country_weights.json"
+    out.write_text(json.dumps({"as_of": "2026-10-01", "instruments": {"IE00B4L5Y983.SG": {
+        "weights": {"US": 70.0}, "other": 30.0,
+        "sectors": {"Technology": 60.0, "Finance": 40.0}, "sectors_other": 0.0,
+        "sectors_as_of": "2026-10-01", "as_of": "2026-10-01",
+        "holdings": [{"name": "Apple", "isin": "US0378331005", "pct": 5.0}],
+        "holdings_count": "1,000"}}}))
+    monkeypatch.setattr(S, "OUT", str(out))
+    monkeypatch.setattr(S, "holdings", lambda: [{"ticker": "IE00B4L5Y983.SG", "name": "World"}])
+    monkeypatch.setattr(S, "fetch_profile", lambda isin, get=None: {
+        "countries": [("United States", 70.32), ("Other", 29.68)],
+        "sectors": [], "holdings": [], "title": "W", "holdings_count": None})
+    assert S.seed(quiet=True) == 0
+    inst = json.loads(out.read_text())["instruments"]["IE00B4L5Y983.SG"]
+    assert inst["weights"] == {"US": 70.32}
+    assert inst["sectors"] == {"Technology": 60.0, "Finance": 40.0}
+    assert inst["sectors_as_of"] == "2026-10-01"
+    assert inst["sectors_error"]
+    assert inst["holdings"][0]["isin"] == "US0378331005"
+    assert inst["holdings_count"] == "1,000"
+
+
+def test_sectores_frescos_llevan_su_fecha(tmp_path, monkeypatch):
+    out = tmp_path / "country_weights.json"
+    monkeypatch.setattr(S, "OUT", str(out))
+    monkeypatch.setattr(S, "holdings", lambda: [{"ticker": "IE00B4L5Y983.SG", "name": "World"}])
+    real = S.fetch_profile
+    monkeypatch.setattr(S, "fetch_profile", lambda isin, get=None: real(isin, get=_fake_get([])))
+    S.seed(quiet=True)
+    inst = json.loads(out.read_text())["instruments"]["IE00B4L5Y983.SG"]
+    assert inst["sectors_as_of"] == inst["as_of"]

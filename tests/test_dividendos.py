@@ -114,3 +114,18 @@ def test_ruta_dividendos(libro, monkeypatch):
 def test_ruta_dividendos_sin_movimientos(libro):
     d = libro.get("/api/cartera/dividendos").get_json()
     assert d["received"] == [] and d["forecast"]["total"] == 0
+
+
+def test_sin_datos_de_reparto_se_dice_en_vez_de_callarlo(libro, monkeypatch):
+    """`None` es «no lo sé» (Yahoo no contestó); `[]` es «no paga». Lo primero
+    no puede pintarse como una previsión de cero."""
+    end = pd.Timestamp.today().normalize()
+    idx = pd.bdate_range(end=end, periods=20)
+    monkeypatch.setattr(D, "_close_series", lambda t: pd.Series([100.0] * 20, index=idx))
+    monkeypatch.setattr(D, "_dividends_of", lambda t: None if t == "AAA" else [])
+    for tk in ("AAA", "BBB"):
+        assert libro.post("/api/cartera", json={"ticker": tk, "side": "buy", "quantity": 1,
+                                                "price": 100, "date": idx[0].date().isoformat()},
+                          headers={D.CSRF_HEADER: "1"}).status_code == 200
+    d = libro.get("/api/cartera/dividendos").get_json()
+    assert d["forecast"]["unknown"] == ["AAA"]

@@ -1075,7 +1075,8 @@
       `<tr><td title="${esc(p.ticker)}">${esc(p.name)}</td>${ws.map((w) => celdaPeriodo(p.values[w])).join("")}</tr>`).join("");
     const total = `<tr class="total"><td><b>Cartera</b></td>${ws.map((w) => celdaPeriodo(d.total[w])).join("")}</tr>`;
     box.innerHTML = `<table class="tbl"><thead>${head}</thead><tbody>${rows}${total}</tbody></table>
-      <p class="mut small">Los fondos no cotizados publican su valor liquidativo con un día de retraso:
+      <p class="mut small">${d.closed && d.closed.length ? `La fila «Cartera» incluye lo vendido en cada periodo
+        (${d.closed.map(esc).join(", ")}). ` : ""}Los fondos no cotizados publican su valor liquidativo con un día de retraso:
         su 1D sale a cero hasta que llega.</p>`;
   }
 
@@ -1246,7 +1247,7 @@
     try { d = await (await fetch("/api/cartera/dividendos")).json(); } catch (e) { /* d sigue null */ }
     if (!d || d.error) { leg.textContent = ""; box.innerHTML = `<div class="mut">No pude calcularlo.</div>`; return; }
     const past = d.received.slice(-12), fut = d.forecast.months;
-    if (!past.length && !d.forecast.total) {
+    if (!past.length && !d.forecast.total && !(d.forecast.unknown || []).length) {
       leg.textContent = ""; box.innerHTML = `<div class="mut">Ni cobros registrados ni repartos previstos para lo que tienes.</div>`; return;
     }
     leg.textContent = "cobrado · previsto (estimación)";
@@ -1267,6 +1268,7 @@
         <div class="lt-row"><i style="background:var(--accent,#4a90d9)"></i><span class="lt-n">${esc(t.name)}</span>
         <b>${eur(t.eur, 0)}</b><span class="mut">${t.yield != null ? pct(t.yield).replace("+", "") : ""}</span></div>`).join("")}</div>` : ""}
       ${d.forecast.no_fx.length ? `<p class="mut small">Sin tipo de cambio, no se prevé: ${d.forecast.no_fx.map(esc).join(", ")}.</p>` : ""}
+      ${(d.forecast.unknown || []).length ? `<p class="mut small">⚠ Sin datos de reparto ahora mismo (la fuente no contestó), no se prevé: ${d.forecast.unknown.map(esc).join(", ")}.</p>` : ""}
       <p class="mut small">${esc(d.note)}</p>`;
   }
 

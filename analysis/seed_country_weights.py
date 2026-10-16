@@ -392,20 +392,29 @@ def seed(only: str | None = None, quiet: bool = False) -> int:
 
         # Sectores y principales posiciones salen de la MISMA ficha. Son un
         # añadido: si su tabla viene rara, los países —que el mapa ya usa— se
-        # escriben igual y el sector queda vacío con el motivo dicho.
+        # escriben igual. Y lo que se sembró bien otro día NO se borra: se
+        # conserva con su fecha (`sectors_as_of`) y el error se dice — mismo
+        # criterio que con un fondo entero que falla, «viejo y fechado mejor
+        # que ausente».
+        old = (prev.get("instruments") or {}).get(tk) or {}
         try:
             if not prof["sectors"]:
                 raise SeedError("la ficha no publica sectores")
             sectors, sectors_other = to_sector_weights(prof["sectors"])
-            sectors_error = None
+            sectors_error, sectors_as_of = None, today
         except SeedError as e:
-            sectors, sectors_other, sectors_error = {}, 0.0, str(e)
+            sectors_error = str(e)
+            sectors = old.get("sectors") or {}
+            sectors_other = (old.get("sectors_other") or 0.0) if sectors else 0.0
+            sectors_as_of = (old.get("sectors_as_of") or old.get("as_of")) if sectors else None
+        hold, hold_count = prof["holdings"], prof.get("holdings_count")
+        if not hold and old.get("holdings"):
+            hold, hold_count = old["holdings"], old.get("holdings_count")
         out["instruments"][tk] = {
             **common, "weights": weights, "other": other, "no_geography": False,
             "sectors": sectors, "sectors_other": sectors_other,
-            "sectors_error": sectors_error,
-            "holdings": prof["holdings"],
-            "holdings_count": prof.get("holdings_count"),
+            "sectors_error": sectors_error, "sectors_as_of": sectors_as_of,
+            "holdings": hold, "holdings_count": hold_count,
             "needs_proxy": False,
             "proxy": ({"isin": spec["proxy_isin"],
                        "name": spec["proxy_name"] or title,
