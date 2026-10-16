@@ -271,7 +271,7 @@ def fetch_profile(isin: str, get=None) -> dict:
     rows = expand(_MORE_RE, _rows, rows)
     try:
         sectors = expand(_SECT_MORE_RE, parse_sectors, parse_sectors(page))
-    except SeedError:
+    except (SeedError, OSError):
         sectors = []           # el país no puede caer por culpa del sector
     count = _HOLD_COUNT_RE.search(page)
     return {"countries": rows, "sectors": sectors, "holdings": parse_holdings(page),

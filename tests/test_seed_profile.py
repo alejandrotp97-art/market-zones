@@ -111,3 +111,13 @@ def test_un_fallo_en_sectores_no_tira_los_paises(tmp_path, monkeypatch):
     inst = json.loads(out.read_text())["instruments"]["IE00B4L5Y983.SG"]
     assert inst["weights"] == {"US": 70.32}
     assert inst["sectors"] == {} and inst["sectors_error"]
+
+
+def test_un_fallo_de_red_al_ampliar_sectores_no_tira_los_paises():
+    def get(url, extra=None):
+        if "loadMoreSectors" in url:
+            raise OSError("timeout")
+        return PAGE
+    prof = S.fetch_profile("IE00B4L5Y983", get=get)
+    assert prof["countries"][0] == ("United States", 70.32)
+    assert prof["sectors"] == []
