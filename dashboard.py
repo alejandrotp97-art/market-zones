@@ -62,6 +62,7 @@ from cartera.parsing import sniff_sep as _sniff_sep
 from cartera.parsing import symbol_isin as _symbol_isin
 from cartera.periods import WINDOWS as _PERIOD_WINDOWS
 from cartera.periods import period_returns as _period_returns
+from cartera.periods import range_returns as _range_returns
 from cartera.plan import attention as _attention
 from cartera.plan import contribution_stats as _contrib_stats
 from cartera.plan import diary as _diary
@@ -3721,6 +3722,85 @@ def api_cartera_mensual():
                               max_age=0)
     except Exception as e:
         return jsonify({"error": str(e)}), 502
+
+
+_PERIODO_RE = re.compile(r"^(\d{4})(?:-(0[1-9]|1[0-2]))?$")
+
+
+def _cartera_resumen(periodo: str | None, benchmark: str = "SPY"):
+    """(cuerpo, código) del resumen de un mes (`YYYY-MM`) o un año (`YYYY`).
+
+    Todo sale de la misma reconstrucción que la gráfica: el TWR del periodo con
+    sus dividendos, el precio del índice en euros, lo que ganó o perdió cada
+    posición (vendidas dentro incluidas), lo cobrado y lo aportado.
+    """
+    r = _reconstruct_portfolio(benchmark)
+    if r["empty"]:
+        return {"empty": True}, 200
+    idx = r["idx"]
+    disponibles = {"months": sorted({d.strftime("%Y-%m") for d in idx}),
+                   "years": sorted({int(d.year) for d in idx})}
+    periodo = periodo or disponibles["months"][-1]
+    m = _PERIODO_RE.match(periodo)
+    if not m:
+        return {"error": f"periodo no válido: {periodo} (usa AAAA o AAAA-MM)"}, 400
+    if m.group(2):
+        ini = pd.Timestamp(year=int(m.group(1)), month=int(m.group(2)), day=1)
+        fin = ini + pd.offsets.MonthEnd(0)
+    else:
+        ini = pd.Timestamp(year=int(m.group(1)), month=1, day=1)
+        fin = pd.Timestamp(year=int(m.group(1)), month=12, day=31)
+    i1 = int(idx.searchsorted(fin, side="right")) - 1
+    if i1 < 0 or idx[i1] < ini:
+        return {"error": f"no hay datos de {periodo}", "available": disponibles}, 404
+    i0 = int(idx.searchsorted(ini, side="left")) - 1
+    i0 = i0 if i0 >= 0 else None
+    lo = 0 if i0 is None else i0
+    first = 0 if i0 is None else i0 + 1
+
+    vals = [float(v) for v in r["port"][lo:i1 + 1]]
+    con_div = [float(f - d) for f, d in zip(r["flows"][lo:i1 + 1], r["divs"][lo:i1 + 1],
+                                            strict=True)]
+    twr = _twr(vals, con_div, list(idx[lo:i1 + 1]))["total"]
+    bench = None
+    bp = r["bprice_eur"]
+    if bp is not None and np.isfinite(bp[lo]) and bp[lo] > 0 and np.isfinite(bp[i1]):
+        bench = float(bp[i1] / bp[lo] - 1.0)
+
+    nombres = _nombres_cartera()
+    filas = sorted(({"ticker": t, "name": nombres.get(t, t), **c}
+                    for t, c in _range_returns(r["pos"], i0, i1).items()),
+                   key=lambda f: -f["abs"])
+    divs_t = {t: float(p["divs"][first:i1 + 1].sum()) for t, p in r["pos"].items()}
+    fl = r["flows"][first:i1 + 1]
+    return {"empty": False, "periodo": periodo,
+            "from": idx[first].date().isoformat(), "to": idx[i1].date().isoformat(),
+            "partial": bool(idx[first] > ini + pd.Timedelta(days=6)
+                            or idx[i1] < fin - pd.Timedelta(days=6)),
+            "twr": twr, "benchmark": bench, "benchmark_ticker": benchmark,
+            "gain": round(sum(f["abs"] for f in filas), 2),
+            "best": filas[0] if filas else None,
+            "worst": filas[-1] if len(filas) > 1 else None,
+            "positions": filas,
+            "dividends": round(float(r["divs"][first:i1 + 1].sum()), 2),
+            "dividends_by": sorted(({"ticker": t, "name": nombres.get(t, t), "eur": round(v, 2)}
+                                    for t, v in divs_t.items() if v > 1e-9),
+                                   key=lambda x: -x["eur"]),
+            "net_contributions": round(float(fl.sum()), 2),
+            "contributed": round(float(fl[fl > 0].sum()), 2),
+            "withdrawn": round(float(-fl[fl < 0].sum()), 2),
+            "value_end": round(float(r["port"][i1]), 2),
+            "available": disponibles, "excluded": r["excluded"]}, 200
+
+
+@app.route("/api/cartera/resumen")
+def api_cartera_resumen():
+    try:
+        body, code = _cartera_resumen(request.args.get("periodo") or None,
+                                      request.args.get("benchmark", "SPY"))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
+    return (_json_response(body, max_age=0) if code == 200 else (jsonify(body), code))
 
 
 @app.route("/api/cartera/periodos")

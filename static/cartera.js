@@ -1192,7 +1192,47 @@
   // Y si el rendimiento se descartó por obsoleto, la correlación NO se pinta:
   // dejaría «Beta contra X» con el PERF viejo al lado de «Cada posición contra
   // Y» recién traído, dos índices distintos dentro de la misma tarjeta.
-  async function loadPerfYCorr() { if (await loadPerf() !== false) { loadCorr(); loadMensual(); } }
+  async function loadPerfYCorr() {
+    if (await loadPerf() !== false) { loadCorr(); loadMensual(); loadResumen($("resumen-sel").value || null); }
+  }
+
+  // ══ resumen del periodo ═══════════════════════════════════════════════
+  // Un mes o un año en seis cifras: lo que rentó contra el índice, lo que
+  // ganó en euros, la mejor y la peor posición, lo cobrado y lo aportado.
+  const MES_LARGO = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
+    "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+  const nombrePeriodo = (p) => p.length === 4 ? `Año ${p}` : `${MES_LARGO[+p.slice(5) - 1]} ${p.slice(0, 4)}`;
+  const rwBox = (k, v, sub) => `<div class="rw"><div class="rw-k">${k}</div><div class="rw-v">${v}</div>
+    ${sub ? `<div class="rw-s">${sub}</div>` : ""}</div>`;
+
+  async function loadResumen(periodo) {
+    const box = $("resumen"), sel = $("resumen-sel");
+    const b = benchVal();
+    const q = new URLSearchParams({ benchmark: b });
+    if (periodo) q.set("periodo", periodo);
+    let d = null;
+    try { d = await (await fetch(`/api/cartera/resumen?${q}`)).json(); } catch (e) { /* d sigue null */ }
+    if (b !== benchVal()) return;
+    if (!d || d.error) { box.innerHTML = `<div class="mut">${esc((d && d.error) || "No pude calcularlo.")}</div>`; return; }
+    if (d.empty) { sel.hidden = true; box.innerHTML = `<div class="mut">Sin histórico todavía.</div>`; return; }
+    sel.hidden = false;
+    const ops = [...d.available.months].reverse().map((m) => [m, nombrePeriodo(m)])
+      .concat([...d.available.years].reverse().map((y) => [String(y), nombrePeriodo(String(y))]));
+    sel.innerHTML = ops.map(([v, t]) => `<option value="${v}"${v === d.periodo ? " selected" : ""}>${esc(t)}</option>`).join("");
+    const vs = d.twr != null && d.benchmark != null ? d.twr - d.benchmark : null;
+    const pos = (f) => f ? `<span style="${pcol(f.abs)}">${esc(f.name)}</span>` : "—";
+    box.innerHTML = `<div class="rw-grid">
+      ${rwBox("Rentabilidad", `<span style="${pcol(d.twr)}">${pct(d.twr)}</span>`,
+        d.benchmark != null ? `${esc(d.benchmark_ticker)} ${pct(d.benchmark)} · ${vs >= 0 ? "le ganas" : "te gana"} por ${pct(Math.abs(vs)).replace("+", "")}` : "sin índice")}
+      ${rwBox("Ganancia", signed(d.gain, " €"), `valor al cierre ${eur(d.value_end, 0)}`)}
+      ${rwBox("Lo mejor", pos(d.best), d.best ? `${signed(d.best.abs, " €")} · ${pct(d.best.pct)}` : "")}
+      ${rwBox("Lo peor", pos(d.worst), d.worst ? `${signed(d.worst.abs, " €")} · ${pct(d.worst.pct)}` : "")}
+      ${rwBox("Dividendos", eur(d.dividends), d.dividends_by.slice(0, 2).map((x) => esc(x.name)).join(", ") || "ninguno")}
+      ${rwBox("Aportado neto", signed(d.net_contributions, " €"), `entró ${eur(d.contributed, 0)} · salió ${eur(d.withdrawn, 0)}`)}
+    </div>
+    <p class="mut small">Del ${d.from} al ${d.to}${d.partial ? " (periodo incompleto)" : ""}. Rentabilidad ponderada por tiempo; la ganancia de cada posición descuenta sus compras y ventas.</p>`;
+  }
+  $("resumen-sel").addEventListener("change", (e) => loadResumen(e.target.value));
 
   // ══ mes a mes ═════════════════════════════════════════════════════════
   // Cada casilla, el TWR del mes con un fondo que se intensifica hasta ±8 %.
