@@ -262,6 +262,8 @@
               <button type="button" data-pane="geo" class="on">Países</button>
               <button type="button" data-pane="clase">Tipo</button>
               <button type="button" data-pane="ccy">Divisas</button>
+              <button type="button" data-pane="sect">Sectores</button>
+              <button type="button" data-pane="xray">X-ray</button>
             </span></div>
 
           <div class="pane" id="pane-geo">
@@ -320,6 +322,19 @@
           <div class="pane" id="pane-ccy" hidden>
             <div class="pane-h"><span class="legend" id="ccy-legend"></span></div>
             <div id="ccy"></div>
+          </div>
+
+          <!-- Sectores y X-ray abren cada fondo con la misma ficha de justETF
+               que da los países: el reparto sectorial y sus diez mayores
+               posiciones, sumadas por ISIN en toda la cartera. -->
+          <div class="pane" id="pane-sect" hidden>
+            <div class="pane-h"><span class="legend" id="sect-legend"></span></div>
+            <div id="sect"></div>
+          </div>
+
+          <div class="pane" id="pane-xray" hidden>
+            <div class="pane-h"><span class="legend" id="xray-legend"></span></div>
+            <div id="xray"></div>
           </div>
         </section>
 
