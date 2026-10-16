@@ -72,6 +72,8 @@ from cartera.positions import compute as _compute_positions
 from cartera.returns import beta as _beta
 from cartera.returns import drawdown as _drawdown
 from cartera.returns import effective_n as _effective_n
+from cartera.returns import monthly_grid as _monthly_grid
+from cartera.returns import monthly_twr as _monthly_twr
 from cartera.returns import nav_series as _nav_series
 from cartera.returns import rebalance_with_cash as _rebalance
 from cartera.returns import sharpe as _sharpe
@@ -3685,6 +3687,40 @@ def _cartera_periodos(benchmark: str = "SPY") -> dict:
     return {"empty": False, "windows": res["windows"], "positions": filas,
             "total": res["total"], "as_of": res["as_of"],
             "excluded": r["excluded"]}
+
+
+def _cartera_mensual(benchmark: str = "SPY") -> dict:
+    """Rentabilidad de cada mes (TWR, dividendos dentro) y la del índice al lado.
+
+    La cartera usa los mismos flujos que el panel de rentabilidad: compra +,
+    venta −, dividendo −. El índice va por su PRECIO en euros, sin flujos: es lo
+    que hizo el índice ese mes, sin depender de cuándo aportaste tú.
+    """
+    r = _reconstruct_portfolio(benchmark)
+    if r["empty"]:
+        return {"empty": True, "years": [], "benchmark_ticker": benchmark, "base": BASE_CCY}
+    fechas = list(r["idx"])
+    con_div = [float(f - d) for f, d in zip(r["flows"], r["divs"], strict=True)]
+    years = _monthly_grid(_monthly_twr([float(v) for v in r["port"]], con_div, fechas))
+    bench = {}
+    if r["bprice_eur"] is not None:
+        bp = [float(v) for v in r["bprice_eur"]]
+        bench = {y["year"]: y for y in _monthly_grid(_monthly_twr(bp, [0.0] * len(bp), fechas))}
+    for y in years:
+        b = bench.get(y["year"])
+        y["bench"] = b["months"] if b else [None] * 12
+        y["bench_total"] = b["total"] if b else None
+    return {"empty": False, "years": years, "benchmark_ticker": benchmark,
+            "base": BASE_CCY, "excluded": r["excluded"]}
+
+
+@app.route("/api/cartera/mensual")
+def api_cartera_mensual():
+    try:
+        return _json_response(_cartera_mensual(request.args.get("benchmark", "SPY")),
+                              max_age=0)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
 
 
 @app.route("/api/cartera/periodos")

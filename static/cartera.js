@@ -1192,7 +1192,38 @@
   // Y si el rendimiento se descartó por obsoleto, la correlación NO se pinta:
   // dejaría «Beta contra X» con el PERF viejo al lado de «Cada posición contra
   // Y» recién traído, dos índices distintos dentro de la misma tarjeta.
-  async function loadPerfYCorr() { if (await loadPerf() !== false) loadCorr(); }
+  async function loadPerfYCorr() { if (await loadPerf() !== false) { loadCorr(); loadMensual(); } }
+
+  // ══ mes a mes ═════════════════════════════════════════════════════════
+  // Cada casilla, el TWR del mes con un fondo que se intensifica hasta ±8 %.
+  // Debajo, en gris, el índice: el mes se lee contra lo que hizo el mercado.
+  const MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+  const hmBg = (x) => {
+    if (x == null) return "";
+    const a = Math.min(1, Math.abs(x) / 0.08) * 0.55;
+    return `background:${x >= 0 ? `rgba(63,174,107,${a.toFixed(2)})` : `rgba(207,91,58,${a.toFixed(2)})`}`;
+  };
+  const hmTxt = (x) => x == null ? "" : (x >= 0 ? "+" : "") + (x * 100).toFixed(1);
+
+  async function loadMensual() {
+    const leg = $("mensual-legend"), box = $("mensual");
+    const b = benchVal();
+    let d = null;
+    try { d = await (await fetch(`/api/cartera/mensual?benchmark=${encodeURIComponent(b)}`)).json(); } catch (e) { /* d sigue null */ }
+    if (b !== benchVal()) return;
+    if (!d || d.error) { leg.textContent = ""; box.innerHTML = `<div class="mut">No pude calcularlo.</div>`; return; }
+    if (d.empty || !d.years.length) { leg.textContent = ""; box.innerHTML = `<div class="mut">Sin histórico todavía.</div>`; return; }
+    leg.textContent = `% del mes · debajo, ${d.benchmark_ticker} en euros`;
+    const head = `<tr><th></th>${MESES.map((m) => `<th>${m}</th>`).join("")}<th>Año</th></tr>`;
+    const rows = d.years.slice().reverse().map((y) => `
+      <tr><td class="y">${y.year}</td>${y.months.map((x) => `<td style="${hmBg(x)}">${hmTxt(x)}</td>`).join("")}
+        <td class="tot" style="${hmBg(y.total)}">${hmTxt(y.total)}</td></tr>
+      <tr class="hm-ix"><td></td>${y.bench.map((x) => `<td>${hmTxt(x)}</td>`).join("")}
+        <td class="tot">${hmTxt(y.bench_total)}</td></tr>`).join("");
+    box.innerHTML = `<table class="hm"><thead>${head}</thead><tbody>${rows}</tbody></table>
+      <p class="mut small">Rentabilidad ponderada por tiempo: aportar o vender no mueve la casilla.
+        El primer y el último año suelen ser parciales.</p>`;
+  }
 
   $("hrange").addEventListener("click", (e) => {
     const b = e.target.closest("button[data-r]");
