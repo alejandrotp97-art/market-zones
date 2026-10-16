@@ -211,7 +211,8 @@
     renderContrib(p);
     if (dataChanged) loadRebal();
     if (dataChanged) { loadZones(); loadPerfYCorr(); loadEstado(); loadAport();
-                       loadCcy(); loadClases(); loadPeriodos(); loadSectores(); loadXray(); }
+                       loadCcy(); loadClases(); loadPeriodos(); loadSectores(); loadXray();
+                       loadDividendos(); }
     else paintZones();
     if (reloadHistory) loadHistory();     // skipped on first load: already in flight
   }
@@ -1233,6 +1234,39 @@
     <p class="mut small">Del ${d.from} al ${d.to}${d.partial ? " (periodo incompleto)" : ""}. Rentabilidad ponderada por tiempo; la ganancia de cada posición descuenta sus compras y ventas.</p>`;
   }
   $("resumen-sel").addEventListener("change", (e) => loadResumen(e.target.value));
+
+  // ══ calendario de dividendos ══════════════════════════════════════════
+  // Barras llenas: lo cobrado (neto). Barras discontinuas: lo previsto, que es
+  // una estimación y se dibuja como tal.
+  async function loadDividendos() {
+    const leg = $("divs-legend"), box = $("divs");
+    let d = null;
+    try { d = await (await fetch("/api/cartera/dividendos")).json(); } catch (e) { /* d sigue null */ }
+    if (!d || d.error) { leg.textContent = ""; box.innerHTML = `<div class="mut">No pude calcularlo.</div>`; return; }
+    const past = d.received.slice(-12), fut = d.forecast.months;
+    if (!past.length && !d.forecast.total) {
+      leg.textContent = ""; box.innerHTML = `<div class="mut">Ni cobros registrados ni repartos previstos para lo que tienes.</div>`; return;
+    }
+    leg.textContent = "cobrado · previsto (estimación)";
+    const all = past.map((m) => ({ ...m, fc: false })).concat(fut.map((m) => ({ ...m, fc: true })));
+    const max = Math.max(1, ...all.map((m) => m.eur));
+    const tip = (m) => `${m.month}: ${money(m.eur)} €` + (m.by.length ? "\n" + m.by.map((b) => `${b.name}: ${money(b.eur)} €`).join("\n") : "");
+    const yld = d.portfolio_eur ? d.forecast.total / d.portfolio_eur : null;
+    box.innerHTML = `
+      <div class="dv-bars">${all.map((m) => `<div class="dv-col" title="${esc(tip(m))}">
+        <div class="dv-bar${m.fc ? " fc" : ""}" style="height:${(m.eur / max * 100).toFixed(1)}%"></div></div>`).join("")}</div>
+      <div class="dv-lbl">${all.map((m) => `<span>${MESES[+m.month.slice(5) - 1].slice(0, 1)}</span>`).join("")}</div>
+      <div class="dv-kpis">
+        ${rwBox("Cobrado 12 meses", eur(d.received_12m), "neto de retención")}
+        ${rwBox("Previsto 12 meses", eur(d.forecast.total), "bruto, estimación")}
+        ${rwBox("Rentabilidad prevista", yld != null ? pct(yld).replace("+", "") : "—", "sobre el valor de hoy")}
+      </div>
+      ${d.forecast.by_ticker.length ? `<div class="lt-h">Quién lo paga</div><div class="lt-list">${d.forecast.by_ticker.map((t) => `
+        <div class="lt-row"><i style="background:var(--accent,#4a90d9)"></i><span class="lt-n">${esc(t.name)}</span>
+        <b>${eur(t.eur, 0)}</b><span class="mut">${t.yield != null ? pct(t.yield).replace("+", "") : ""}</span></div>`).join("")}</div>` : ""}
+      ${d.forecast.no_fx.length ? `<p class="mut small">Sin tipo de cambio, no se prevé: ${d.forecast.no_fx.map(esc).join(", ")}.</p>` : ""}
+      <p class="mut small">${esc(d.note)}</p>`;
+  }
 
   // ══ mes a mes ═════════════════════════════════════════════════════════
   // Cada casilla, el TWR del mes con un fondo que se intensifica hasta ±8 %.
