@@ -19,13 +19,14 @@ Assumption: UI copy in Spanish, matching the existing page.
 
 | ID | Specs | Route | Status | Evidence |
 |----|-------|-------|--------|----------|
-| T1 | S1 | inline | pending | |
-| T2 | S2,S3 | inline | pending | seeder scrapes sectors + top holdings |
-| T3 | S3 | inline | pending | |
-| T4 | S2 | inline | pending | |
-| T5 | S4 | inline | pending | |
-| T6 | S5 | inline | pending | |
-| T7 | S6 | inline | pending | |
+| T1 | S1 | inline | done | c71c20b; RED 3 failed → GREEN 12 passed; suite 649 passed; assess high (process_boundary dashboard.py), review deferred to one slice review |
+| T2 | S2,S3 | inline | done | 356ff45; RED 8 failed → GREEN; live smoke IE00B0M63177 (12 países, 14 sectores, top 10) |
+| T3 | S3 | inline | done | cf92a9e (with T4); RED collection error → GREEN 11 passed |
+| T4 | S2 | inline | done | cf92a9e |
+| T5 | S4 | inline | done | 8628a14; RED → GREEN 6 passed; fixed `.ix` class clash caught by layout test |
+| T6 | S5 | inline | done | eb7f5c1; RED 6 failed → GREEN 7 passed |
+| T7 | S6 | inline | done | 8d6c35f; RED → GREEN 7 passed |
+| T8 | docs | inline | done | 1d14934 docs/CARTERA.md + display polish (−0, Sovereign, 1D NAV note) |
 
 Route evidence: no Writer trigger reason (tasks share `dashboard.py`, `static/cartera.js`, `templates/cartera.html`, so they are not disjoint); parent writes inline.
 
@@ -35,3 +36,4 @@ Route evidence: no Writer trigger reason (tasks share `dashboard.py`, `static/ca
 - L2 (2026-10-16, user): "Arranca con todos los puntos" — the six gaps listed: (1) rentabilidad por periodo por posición, (2) X-ray de fondos, (3) sector/industria, (4) mapa de calor mensual, (5) resumen tipo Rewind, (6) calendario y previsión de dividendos.
 - L3 (2026-10-16, user): target repo = market-zones (production), not cartera-2.0.
 - L4: justETF profile verified to expose `sectors_value_name/percentage` (top 4 + Other, `loadMoreSectors` toggle) and top-10 holdings with ISIN in `/en/stock-profiles/<ISIN>` links. Worktree used so production (which runs from the main checkout) and the uncommitted OKX work stay untouched.
+- L5 (2026-10-16): all tasks green; full suite 695 passed; ruff clean except 4 pre-existing findings (test_catalogo, test_firds). Visual check on a copy of the real DB at :8799 from the worktree (headless Chromium, no console errors). Every commit assesses `high` (process_boundary signal in dashboard.py) → one slice review over 0a320f3..HEAD instead of per-commit consent. Known: data/country_weights.json in production needs one reseed for sectors/holdings; the pension-plan proxy lives in the uncommitted main-checkout change.
