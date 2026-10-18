@@ -175,6 +175,48 @@ Todo lo que muta pasa por un guard CSRF **global** (`before_request`), no por un
 decorador por ruta: una ruta nueva nace protegida. Lo mismo el guard de
 publicación: cubre `/cartera` y `/api/cartera*` por prefijo.
 
+### Ciclo económico (2026-10-18)
+
+`GET /api/cartera/ciclo` — en qué fase está la economía de EE. UU.: **Auge,
+Recesión, Crisis o Recuperación**. No lee la cartera: es el contexto en el que
+se mueve, igual para todas las instancias. Código en `macro/` (Blueprint
+`macro/web.py`; `dashboard.py` sólo lo cuelga).
+
+* **El reloj** (`macro/cycle.py`). CLI de la OCDE (100 = tendencia) × su
+  impulso de 3 meses: encima y subiendo = Auge; encima y bajando = Recesión;
+  debajo y subiendo = Recuperación. Debajo y bajando es Recesión **salvo que
+  haya estrés**, y sólo entonces Crisis, en proporción a su severidad. Cada
+  respuesta es una probabilidad (logística), no un sí/no.
+* **Ocho pilares, 26 indicadores** (`macro/pillars.py`), cada uno en [−1, 1]:
+  adelantados, actividad coincidente, empleo, crédito y condiciones
+  financieras, política monetaria y curva, riesgo de mercado, noticias e
+  incertidumbre, inflación. Un pilar sin datos queda fuera; no cuenta como 0.
+* **Alarmas.** Graves (Sahm ≥ 0,5, high yield ≥ 6 % o +1,5 pp en 3 meses,
+  NFCI > 0, St. Louis > 1, VIX ≥ 30, S&P −20 %): cada una mueve un 20 % de la
+  probabilidad un paso hacia la crisis. Leves (curva invertida, subsidios
+  +20 %, EPU ≥ 250): se enseñan y no mueven la fase.
+* **Fuentes, sin clave de API**: FRED (`fredgraph.csv`, una serie por
+  petición: con varias devuelve un ZIP), OCDE SDMX, Google News RSS. Caché
+  en `data/macro/` (ignorado por git); si la red falla se usa la copia de disco
+  y la tarjeta lo dice.
+* **Sustitutos, etiquetados en la tarjeta**: LEI de The Conference Board → CLI
+  de la OCDE; CEI → sus cuatro componentes en FRED; CME FedWatch → bono a 2
+  años − tipo efectivo de la Fed. Los tres originales son de pago o no tienen
+  acceso público. GDELT se descartó: rechaza a este servidor desde la primera
+  petición.
+* **Validación** contra las recesiones del NBER (`USREC`, 2000-2026): los 28
+  meses de recesión salen Crisis (22) o Recesión (6). Sin la regla del estrés,
+  78 meses de **expansión** salían Crisis; con ella, 24, todos de estrés real
+  (2002, 2011, COVID).
+* **Sin mirar el futuro**: cada serie se usa desde su fecha habitual de
+  publicación (`PUB_LAG`: CLI 40 d, empleo 35, IPC 45, renta y PCE 58…). Los
+  datos son **revisados**, no las cifras que se conocían en su día.
+* **Límites conocidos**: el tono de titulares es un léxico simple (pasó de
+  +0,06 a −0,40 sobre los mismos 100 titulares al añadir cinco palabras): es un
+  tercio de un pilar del 10 %. Los diferenciales ICE BofA sólo tienen 3 años en
+  FRED y el S&P 500 diez, así que el estrés del historial antiguo se apoya en
+  NFCI, St. Louis y VIX.
+
 ---
 
 ## 5. La pantalla, en orden
@@ -201,17 +243,20 @@ cortarían en el 33% y el 66%, que no son líneas de esta página.
    movimiento (`?editar=`) reutiliza este mismo formulario.
 3. **Evolución** — cartera vs capital aportado vs un índice a elegir, con
    **selector de temporalidad** (1M · 3M · 6M · YTD · 1A · 5A · Todo · fechas).
-4. **Rentabilidad** — TWR, TIR, acumulado; la frase que sale de restarlos;
+4. **Ciclo económico** — reloj de la OCDE con la estela de 24 meses y el G20,
+   fase y probabilidad de cada una, alarmas, pilares desplegables, franja
+   mensual desde 2000 (con su tabla de tramos) y titulares.
+5. **Rentabilidad** — TWR, TIR, acumulado; la frase que sale de restarlos;
    caída máxima, caída actual, volatilidad y Sharpe; desglose por año; y la
    comparación con el índice.
-5. **Posiciones** — 12 columnas: activo, **zona**, **peso**, cantidad, coste
+6. **Posiciones** — 12 columnas: activo, **zona**, **peso**, cantidad, coste
    medio, invertido, último, valor, P&L no realizado, %, **dividendos**, P&L
    realizado.
-6. **Si vendo… · Qué te cuesta** — simulación de venta; comisiones pagadas,
+7. **Si vendo… · Qué te cuesta** — simulación de venta; comisiones pagadas,
    retenciones, gastos corrientes y su arrastre a 10 y 20 años.
-7. **El activo y la divisa** — reparto exacto (se oculta si todo está en euros).
-8. **Diversificación real** — «contando líneas» → «apuestas reales», matriz.
-9. **Importar/exportar · Qué merece tu atención · Movimientos**.
+8. **El activo y la divisa** — reparto exacto (se oculta si todo está en euros).
+9. **Diversificación real** — «contando líneas» → «apuestas reales», matriz.
+10. **Importar/exportar · Qué merece tu atención · Movimientos**.
 
 Las dos tarjetas de análisis que quedan aquí son TABLAS —cuatro columnas la del
 cambio, una matriz que crece con cada posición la de correlación—, y por eso no
@@ -510,6 +555,7 @@ Ordenados por lo que aportarían a quien tiene dinero dentro.
 | `market-zones.service` | siempre | el panel (loopback) |
 | `market-zones-cartera-backup.timer` | 05:15 UTC | copia en línea de SQLite, verificada, 14 estados **distintos** |
 | `market-zones-alertas.timer` | 23:30 UTC | avisa al entrar o salir de una zona extrema |
+| `market-zones-ciclo.timer` | cada 6 h (:25) | foto del ciclo en `data/macro/ciclo.json`; el panel la recalcula si tiene más de 36 h |
 
 - La copia usa `Connection.backup()`, **no `cp`**: la base está viva y un `cp` a
   mitad de escritura da un fichero que abre sin quejarse y al que le faltan
