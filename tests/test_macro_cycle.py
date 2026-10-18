@@ -96,3 +96,13 @@ def test_debajo_y_cayendo_sin_estres_es_recesion_y_con_estres_crisis():
 def test_un_impulso_absurdo_no_desborda():
     p = C.base_probs(100.0, -1e6)
     assert sum(p.values()) == pytest.approx(1)
+
+
+def test_el_historial_de_la_foto_lleva_la_onda():
+    # La gráfica es una onda: CLI − 100 mes a mes, con su fase. Cada punto es el
+    # CLI ya publicado a fin de ese mes, el mismo que decidió su fase.
+    r = C.classify({"CLI:USA": _serie_cli()}, date="2025-12-31", start="2025-05")
+    h = {x["month"]: x for x in r["history"]}
+    assert h["2025-05"]["level"] == 100.2 and h["2025-12"]["level"] == 99.3
+    assert h["2025-12"]["momentum"] == pytest.approx((99.3 - 100.6) / 3)
+    assert all(set(x) >= {"month", "phase", "level", "momentum", "composite"} for x in r["history"])

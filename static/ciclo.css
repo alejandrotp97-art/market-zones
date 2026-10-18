@@ -9,22 +9,27 @@
   --ph-auge:#1f9a6c;--ph-recesion:#a87c0a;--ph-crisis:#a32f5a;--ph-recuperacion:#3a72cc;}}
 
 .ciclo-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:10px;}
-.ciclo-grid>.ciclo-clock,.ciclo-grid>.ciclo-read{grid-column:span 2;}
+.ciclo-grid>.ciclo-read,.ciclo-grid>.ciclo-pillars{grid-column:span 2;}
 .ciclo-grid>.ciclo-wide{grid-column:1/-1;}
-@media(max-width:820px){.ciclo-grid>.ciclo-clock,.ciclo-grid>.ciclo-read{grid-column:1/-1;}}
+@media(max-width:1100px){.ciclo-grid>.ciclo-read,.ciclo-grid>.ciclo-pillars{grid-column:1/-1;}}
 
-.ciclo-clock{position:relative;}
-.ciclo-clock svg{width:100%;height:auto;display:block;max-width:420px;margin:0 auto;}
-.ciclo-clock .ax{stroke:var(--border);stroke-width:1;}
-.ciclo-clock .q-lbl{font:600 11px var(--sans);fill:var(--muted);}
-.ciclo-clock .q-sw{rx:2;}
-.ciclo-clock .trail{fill:none;stroke:var(--faint);stroke-width:2;stroke-linejoin:round;stroke-linecap:round;opacity:.7;}
-.ciclo-clock .dot{stroke:var(--panel);stroke-width:2;}
-.ciclo-clock .now{stroke:var(--text);stroke-width:2.5;}
-.ciclo-clock .g20{fill:none;stroke:var(--muted);stroke-width:2;stroke-dasharray:3 2;}
-.ciclo-clock .pt-lbl{font:600 11px var(--sans);fill:var(--text);}
-.ciclo-clock .ax-lbl{font:10.5px var(--sans);fill:var(--faint);}
-.ciclo-clock .hit{fill:transparent;cursor:default;}
+/* La onda se dibuja a la anchura real de su caja (sin estirar el SVG), así
+   que el texto de los ejes conserva su tamaño en cualquier pantalla. */
+.ciclo-wave-h{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;}
+.ciclo-wave-host{position:relative;min-height:286px;}
+.ciclo-wave .clip-lbl{font:600 10.5px var(--mono);fill:var(--muted);}
+.ciclo-wave-host svg{display:block;}
+.ciclo-wave .grid{stroke:var(--border);stroke-width:1;}
+.ciclo-wave .trend{stroke:var(--faint);stroke-width:1;stroke-dasharray:4 3;}
+.ciclo-wave .ylbl,.ciclo-wave .xlbl{font:10.5px var(--mono);fill:var(--faint);}
+.ciclo-wave .tk{stroke:var(--faint);stroke-width:1;}
+.ciclo-wave .wave{fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round;}
+.ciclo-wave .fill{opacity:.14;stroke:none;}
+.ciclo-wave .now{stroke:var(--panel);stroke-width:2;}
+.ciclo-wave .cross{stroke:var(--muted);stroke-width:1;}
+.ciclo-wave .hit{fill:transparent;}
+.ciclo-wave .pt-lbl{font:600 11px var(--sans);fill:var(--text);}
+.ciclo-runs .sw{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:6px;}
 
 .ciclo-phase{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;}
 .ciclo-phase .ph-sw{width:12px;height:12px;border-radius:3px;display:inline-block;align-self:center;}
@@ -57,7 +62,7 @@
 .ciclo-pillars summary .nm::before{content:"▸";color:var(--faint);margin-right:6px;}
 .ciclo-pillars details[open] summary .nm::before{content:"▾";}
 .ciclo-pillars summary .nm{display:flex;align-items:center;}
-.ciclo-pillars .w{color:var(--faint);font:11px var(--mono);margin-left:6px;}
+.ciclo-pillars .w{color:var(--faint);font:11px var(--mono);margin-left:6px;white-space:nowrap;}
 .ciclo-pillars .sc{font:600 12px var(--mono);text-align:right;font-variant-numeric:tabular-nums;color:var(--text);}
 .div-bar{position:relative;height:10px;background:var(--panel2);border-radius:4px;}
 .div-bar::after{content:"";position:absolute;left:50%;top:-2px;bottom:-2px;width:1px;background:var(--faint);}
@@ -72,11 +77,6 @@
 .ciclo-ind .nt{display:block;color:var(--faint);font-size:11px;}
 .ciclo-ind .na{color:var(--faint);}
 
-.ciclo-strip{position:relative;}
-.ciclo-strip svg{width:100%;height:34px;display:block;}
-.ciclo-years{position:relative;height:14px;}
-.ciclo-years span{position:absolute;top:0;font:10px var(--mono);color:var(--faint);padding-left:2px;}
-.ciclo-strip .tk{stroke:var(--faint);stroke-width:1;}
 .ciclo-runs{font-size:12px;margin-top:6px;}
 .ciclo-runs table{border-collapse:collapse;width:100%;max-width:520px;}
 .ciclo-runs td{padding:3px 8px;border-top:1px solid var(--border);font-variant-numeric:tabular-nums;}
