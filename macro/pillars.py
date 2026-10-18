@@ -96,6 +96,13 @@ INDICATORS = [
     Indicator("core_pce", "PCE subyacente, interanual", "inflacion", "PCEPILFE", "yoy", 2.3, 1.0, -1, "%", M),
 ]
 BY_KEY = {i.key: i for i in INDICATORS}
+
+# Días entre la fecha de un dato y el día en que se PUBLICA. FRED fecha el mes
+# en su día 1 y el IPC de septiembre no existe hasta mediados de octubre: sin
+# este retraso, el historial evaluaría cada mes con datos que aún no se sabían.
+PUB_LAG = {"CLI:USA": 40, "CLI:G20": 40, "PAYEMS": 35, "UNRATE": 35, "SAHMREALTIME": 35,
+           "CPIAUCSL": 45, "INDPRO": 47, "RRSFS": 47, "W875RX1": 58, "PCEPILFE": 58,
+           "EMVOVERALLEMV": 35, "ICSA": 5, "NFCI": 5, "STLFSI4": 7}
 DERIVED = {"DGS2-DFF", "REAL_RATE", "NEWS_TONE"}
 FRED_IDS = sorted({i.series for i in INDICATORS if ":" not in i.series and i.series not in DERIVED}
                   | {"DGS2", "DFF"})
@@ -143,7 +150,7 @@ def transform(s: Series, kind: str, date: str) -> float | None:
         win = [x for _, x in s[lo:_upto(s, d)]]
         return sum(win) / len(win)
     if kind in ("yoy", "chg_12m", "chg_3m"):
-        prev = _ago(s, d, 91 if kind == "chg_3m" else 365)
+        prev = _ago(s, d, 89 if kind == "chg_3m" else 365)   # 89: el trimestre natural más corto
         if prev is None:
             return None
         if kind == "yoy":
@@ -184,8 +191,9 @@ def derive(data: dict[str, Series]) -> dict[str, Series]:
         cpi = data["CPIAUCSL"]
         yoy = [(d, y) for d, _ in cpi if (y := transform(cpi, "yoy", d)) is not None]
         # El IPC sale a mes vencido: se resta el último publicado a cada fin de mes.
+        lag = PUB_LAG["CPIAUCSL"]
         out["REAL_RATE"] = [(d, v - got[1]) for d, v in data["DFF"]
-                            if d.endswith("-01") and (got := value_at(yoy, d, max_age_days=70))]
+                            if d.endswith("-01") and (got := value_at(yoy, _shift(d, lag), max_age_days=70))]
     return out
 
 
@@ -206,7 +214,7 @@ def evaluate(data: dict[str, Series], date: str | None = None, derived: bool = F
         rows = []
         for ind in (i for i in INDICATORS if i.pillar == key):
             s = full.get(ind.series) or []
-            got = value_at(s, date, ind.max_age_days)
+            got = value_at(s, _shift(date, PUB_LAG.get(ind.series, 0)), ind.max_age_days)
             x = transform(s, ind.transform, got[0]) if got else None
             rows.append({"key": ind.key, "label": ind.label, "unit": ind.unit, "note": ind.note,
                          "source": ind.series, "value": x, "as_of": got[0] if got else None,
