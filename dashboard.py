@@ -90,6 +90,7 @@ from cartera.splits import preview as _splits_preview
 
 # The regime panel reuses its own builder + cache (import is side-effect-free;
 # its prewarm/run only fire under __main__, which we never trigger here).
+from macro.web import bp as _ciclo_bp
 from regime.dashboard import CURATED as REGIME_CURATED
 from regime.dashboard import _get as regime_get
 from zones import WEEKLY, BadSymbol, NoHistory, analyze, fetch_daily, safe_symbol, to_weekly
@@ -3804,6 +3805,11 @@ def api_cartera_dividendos():
                               max_age=0)
     except Exception as e:
         return jsonify({"error": str(e)}), 502
+
+
+# El ciclo económico (`macro/`) no lee la cartera: es macro de EE. UU. común a
+# todas las instancias. Vive en su Blueprint y aquí sólo se cuelga.
+app.register_blueprint(_ciclo_bp)
 
 
 _PERIODO_RE = re.compile(r"^(\d{4})(?:-(0[1-9]|1[0-2]))?$")
