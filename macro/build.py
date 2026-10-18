@@ -107,11 +107,7 @@ def snapshot(data: dict, headlines: list[dict], status: list[dict],
 
 def write_snapshot(snap: dict, path: str | None = None) -> dict:
     path = path or SNAPSHOT_PATH
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    tmp = path + ".parcial"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(snap, f, ensure_ascii=False)
-    os.replace(tmp, path)
+    S.atomic_write_text(path, json.dumps(snap, ensure_ascii=False))
     return snap
 
 

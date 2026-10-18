@@ -15,10 +15,12 @@ uno en blanco porque FRED tardó, no.
 """
 from __future__ import annotations
 
+import contextlib
 import csv
 import io
 import json
 import os
+import tempfile
 import time
 import urllib.request
 from collections.abc import Callable
@@ -36,6 +38,23 @@ Series = list[tuple[str, float]]          # [(fecha ISO, valor)], ordenada por f
 
 class SourceError(RuntimeError):
     """Ni la red ni la caché tienen la serie."""
+
+
+def atomic_write_text(path: str, text: str) -> None:
+    """Escribe y renombra encima. El temporal es ÚNICO por escritor: el timer y
+    las tres instancias del panel pueden escribir a la vez, y con un nombre fijo
+    (`.parcial`) uno truncaba el fichero del otro antes del `os.replace`."""
+    directory = os.path.dirname(path)
+    os.makedirs(directory, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=directory, prefix=os.path.basename(path) + ".", suffix=".parcial")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
 
 
 def http_get(url: str, timeout: float = 30) -> str:
@@ -117,11 +136,10 @@ class Cache:
                 cached.stale = True
                 return cached
             raise SourceError(f"{key}: {e}") from e
-        os.makedirs(self.dir, exist_ok=True)
-        tmp = self._path(key) + ".parcial"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump({"text": text, "fetched_at": self.now(), "url": url}, f)
-        os.replace(tmp, self._path(key))
+        try:
+            atomic_write_text(self._path(key), json.dumps({"text": text, "fetched_at": self.now(), "url": url}))
+        except OSError:
+            pass        # sin caché en disco se sigue: el dato ya está en memoria
         return Fetched(text, self.now(), False)
 
 
