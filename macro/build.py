@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Foto del ciclo económico: descarga todo, clasifica y lo guarda en un JSON.
 
-Lo ejecuta el timer `market-zones-ciclo` cada 6 horas, pero también sirve a mano:
+Lo ejecuta el timer `market-zones-ciclo` una vez a la semana (domingo, 07:30
+hora de Madrid), pero también sirve a mano:
 
     .venv/bin/python -m macro.build
 
 El panel sólo LEE la foto (`data/macro/ciclo.json`); la recalcula él mismo si no
-existe o tiene más de 36 h. Una serie que no se pudo bajar no tumba la foto: se
+existe o tiene más de 8 días. Una serie que no se pudo bajar no tumba la foto: se
 calcula con el resto y queda listada en `sources.failed`. Sin el CLI de la OCDE
 no hay reloj, y entonces no hay foto.
 

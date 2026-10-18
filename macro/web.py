@@ -14,7 +14,10 @@ from flask import Blueprint, jsonify
 from . import build as B
 
 bp = Blueprint("ciclo", __name__)
-MAX_AGE_S = 36 * 3600          # el timer refresca cada 6 h; 36 h = varios fallos seguidos
+# La foto es SEMANAL (timer: domingo 07:30 hora de Madrid). Ocho días = la
+# semana más uno de margen si el domingo falla; con menos, el panel la
+# recalcularía a mitad de semana y el calendario semanal no serviría de nada.
+MAX_AGE_S = 8 * 24 * 3600
 _lock = threading.Lock()
 
 

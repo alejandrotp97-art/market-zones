@@ -1,11 +1,13 @@
 [Unit]
-Description=Foto del ciclo economico cada 6 horas
+Description=Foto semanal del ciclo economico (domingo por la manana)
 
 [Timer]
-# FRED publica los datos diarios (VIX, diferenciales, tipos) al cierre de EE. UU.
-# y los mensuales a primera hora de Nueva York; cada 6 h la foto nunca va mas
-# de medio dia por detras. Mas a menudo no cambiaria nada: el CLI es mensual.
-OnCalendar=*-*-* 00/6:25
+# Una vez a la semana, decision del usuario (2026-10-18): el ciclo se mueve en
+# meses y el CLI de la OCDE es mensual; una foto semanal basta y no cambia de
+# fase cada vez que se abre el panel. Domingo 07:30 hora de MADRID (el servidor
+# va en UTC; con la zona escrita aqui el cambio de hora no la mueve). Va antes
+# del catalogo (08:20) para no coincidir con el.
+OnCalendar=Sun *-*-* 07:30 Europe/Madrid
 Persistent=true
 RandomizedDelaySec=600
 

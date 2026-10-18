@@ -555,7 +555,7 @@ Ordenados por lo que aportarían a quien tiene dinero dentro.
 | `market-zones.service` | siempre | el panel (loopback) |
 | `market-zones-cartera-backup.timer` | 05:15 UTC | copia en línea de SQLite, verificada, 14 estados **distintos** |
 | `market-zones-alertas.timer` | 23:30 UTC | avisa al entrar o salir de una zona extrema |
-| `market-zones-ciclo.timer` | cada 6 h (:25) | foto del ciclo en `data/macro/ciclo.json`; el panel la recalcula si tiene más de 36 h |
+| `market-zones-ciclo.timer` | domingo 07:30 (Madrid) | foto **semanal** del ciclo en `data/macro/ciclo.json`; el panel sólo la recalcula si tiene más de 8 días |
 
 - La copia usa `Connection.backup()`, **no `cp`**: la base está viva y un `cp` a
   mitad de escritura da un fichero que abre sin quejarse y al que le faltan

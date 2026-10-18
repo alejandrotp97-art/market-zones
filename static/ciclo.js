@@ -276,6 +276,7 @@
     }
     const when = new Date(d.generated_at * 1000);
     leg.textContent = `EE. UU. · dato a ${d.as_of} · calculado ${when.toLocaleString("es-ES", { dateStyle: "short", timeStyle: "short" })}` +
+      " · se actualiza cada domingo" +
       (d.stale ? " · copia anterior" : "");
     const grid = el("div", { class: "ciclo-grid" });
     grid.append(clock(d), reading(d), pillars(d), strip(d), newsBlock(d), foot(d));
