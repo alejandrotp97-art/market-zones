@@ -50,3 +50,6 @@ venv/
 .DS_Store
 *.swp
 *~
+
+# Caché de series macro (FRED/OCDE/GDELT) y la foto del ciclo: dato público regenerable
+data/macro/
