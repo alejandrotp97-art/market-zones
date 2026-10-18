@@ -1,0 +1,29 @@
+[Unit]
+Description=market-zones - foto del ciclo economico (FRED, OCDE, Google News). Solo lee de la red; escribe data/macro/.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/alex/bots/market-zones
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/alex/bots/market-zones/.venv/bin/python -m macro.build
+
+# 26 series de FRED (6 en paralelo), el CLI de la OCDE y un RSS. Medido: ~15 s
+# con la red bien. Si una fuente no contesta, cada peticion corta a los 30 s y
+# se usa la copia de disco: el margen cubre varias caidas seguidas.
+TimeoutStartSec=300
+ProtectSystem=strict
+PrivateTmp=true
+NoNewPrivileges=true
+MemoryHigh=200M
+MemoryMax=400M
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=market-zones-ciclo
+
+# Instalar:
+#   cp market-zones-ciclo.{service,timer} ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now market-zones-ciclo.timer
+# Probar ahora:  systemctl --user start market-zones-ciclo.service

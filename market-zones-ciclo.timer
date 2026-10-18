@@ -1,0 +1,13 @@
+[Unit]
+Description=Foto del ciclo economico cada 6 horas
+
+[Timer]
+# FRED publica los datos diarios (VIX, diferenciales, tipos) al cierre de EE. UU.
+# y los mensuales a primera hora de Nueva York; cada 6 h la foto nunca va mas
+# de medio dia por detras. Mas a menudo no cambiaria nada: el CLI es mensual.
+OnCalendar=*-*-* 00/6:25
+Persistent=true
+RandomizedDelaySec=600
+
+[Install]
+WantedBy=timers.target
