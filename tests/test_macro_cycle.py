@@ -91,3 +91,8 @@ def test_debajo_y_cayendo_sin_estres_es_recesion_y_con_estres_crisis():
     tension = C.final_probs(q, graves, composite=-0.5)
     assert max(tension, key=tension.get) == "crisis"
     assert sum(tension.values()) == pytest.approx(1)
+
+
+def test_un_impulso_absurdo_no_desborda():
+    p = C.base_probs(100.0, -1e6)
+    assert sum(p.values()) == pytest.approx(1)
