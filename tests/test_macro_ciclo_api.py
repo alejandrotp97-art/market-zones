@@ -87,3 +87,15 @@ def test_sin_foto_y_sin_recalculo_es_un_error_claro(cliente, monkeypatch):
     monkeypatch.setattr(B, "refresh", roto)
     r = cliente.get("/api/cartera/ciclo")
     assert r.status_code == 502 and "OCDE caída" in r.get_json()["error"]
+
+
+def test_la_foto_es_semanal_tres_dias_valen_y_nueve_no(cliente, monkeypatch):
+    # El timer la rehace los domingos: a mitad de semana la foto es la buena y
+    # recalcularla al abrir la página haría inútil el calendario semanal.
+    dia = 24 * 3600
+    B.write_snapshot({"phase": "auge", "generated_at": W.time.time() - 3 * dia})
+    monkeypatch.setattr(B, "refresh", lambda: pytest.fail("a los 3 días no se recalcula"))
+    assert cliente.get("/api/cartera/ciclo").get_json()["phase"] == "auge"
+    B.write_snapshot({"phase": "auge", "generated_at": W.time.time() - 9 * dia})
+    monkeypatch.setattr(B, "refresh", lambda: B.write_snapshot({"phase": "crisis", "generated_at": 1.0}))
+    assert cliente.get("/api/cartera/ciclo").get_json()["phase"] == "crisis"

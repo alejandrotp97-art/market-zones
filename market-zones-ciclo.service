@@ -1,5 +1,5 @@
 [Unit]
-Description=market-zones - foto del ciclo economico (FRED, OCDE, Google News). Solo lee de la red; escribe data/macro/.
+Description=market-zones - foto semanal del ciclo economico (FRED, OCDE, Google News). Solo lee de la red; escribe data/macro/.
 After=network-online.target
 Wants=network-online.target
 
