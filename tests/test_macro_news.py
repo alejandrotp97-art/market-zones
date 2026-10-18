@@ -60,3 +60,11 @@ def test_el_pilar_de_noticias_tiene_sus_tres_patas():
     data = {"NEWS_TONE": [("2026-10-18", -0.5)]}
     pil = {p["key"]: p for p in P.evaluate(data, "2026-10-18")["pillars"]}
     assert pil["noticias"]["score"] == pytest.approx(P.score(P.BY_KEY["headlines"], -0.5))
+
+
+def test_el_sufijo_se_quita_aunque_el_medio_lleve_guiones():
+    rss = RSS.replace("Recession fears grow as layoffs mount - Reuters</title>",
+                      "Fed warns - ABC News - Breaking News</title>").replace(
+        "<source url=\"https://reuters.com\">Reuters</source>",
+        "<source url=\"https://abc.com\">ABC News - Breaking News</source>")
+    assert N.parse_rss(rss)[0]["title"] == "Fed warns"

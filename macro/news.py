@@ -29,7 +29,8 @@ NEGATIVE = ["recession", "recessions", "crisis", "crash", "crashes", "layoff", "
             "slump", "plunge", "plunges", "selloff", "sell-off", "default", "defaults", "bankruptcy",
             "contraction", "downturn", "slowdown", "stagflation", "bear market", "turmoil", "panic",
             "fear", "fears", "worries", "warning", "weak", "weakens", "slowing", "tumble", "tumbles",
-            "sinks", "slides", "losses", "struggle", "struggles", "wobble"]
+            "sinks", "slides", "losses", "struggle", "struggles", "wobble", "worse", "risk", "risks",
+            "warn", "warns"]
 POSITIVE = ["growth", "rally", "rallies", "record high", "record highs", "hiring", "rebound",
             "rebounds", "expansion", "boom", "soft landing", "beats expectations", "grows", "strong",
             "gains", "jumps", "soars", "optimism", "beats", "upbeat"]
@@ -54,9 +55,15 @@ def parse_rss(text: str) -> list[dict]:
         title = (it.findtext("title") or "").strip()
         source = (it.findtext("source") or "").strip()
         # Google News añade « - Medio» al titular; se quita para no repetirlo.
-        head, sep, tail = title.rpartition(" - ")
-        if sep and (not source or tail.strip() == source):
-            title, source = head.strip(), source or tail.strip()
+        # El medio puede llevar guiones él mismo («ABC News - Breaking News»):
+        # primero se busca su nombre entero al final, y sólo sin él se corta
+        # por el último guion.
+        if source and title.endswith(" - " + source):
+            title = title[:-len(" - " + source)].strip()
+        else:
+            head, sep, tail = title.rpartition(" - ")
+            if sep and not source:
+                title, source = head.strip(), tail.strip()
         try:
             date = parsedate_to_datetime(it.findtext("pubDate") or "").date().isoformat()
         except (TypeError, ValueError):

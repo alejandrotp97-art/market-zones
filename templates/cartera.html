@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="{{ asset('regime.css') }}">
   <link rel="stylesheet" href="{{ asset('cartera.css') }}">
   <link rel="stylesheet" href="{{ asset('cartera-map.css') }}">
+  <link rel="stylesheet" href="{{ asset('ciclo.css') }}">
 </head>
 <body>
   <!-- `wide` sólo aquí: la cartera es la única pantalla con una columna lateral
@@ -139,6 +140,15 @@
           <div class="chart-host"><canvas id="pchart"></canvas><div id="ptip" class="tip" hidden></div></div>
           <div id="chart-legend" class="chart-legend"></div>
           <div id="rebase-note" class="mut small" hidden></div>
+        </section>
+
+        <!-- ciclo económico: en qué fase está la economía de EE. UU. (reloj de la
+             OCDE corregido por el estrés de crédito, mercado y empleo). No lee
+             la cartera; es el contexto en el que se mueve. -->
+        <section class="card" id="ciclo-card">
+          <div class="card-h"><span>Ciclo económico</span>
+            <span class="legend" id="ciclo-legend">calculando…</span></div>
+          <div id="ciclo"></div>
         </section>
 
         <!-- rentabilidad -->
@@ -416,5 +426,6 @@
   </div>
   <script src="{{ asset('cartera.js') }}"></script>
   <script src="{{ asset('cartera-map.js') }}"></script>
+  <script src="{{ asset('ciclo.js') }}"></script>
 </body>
 </html>
