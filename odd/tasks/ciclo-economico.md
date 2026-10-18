@@ -21,7 +21,7 @@ Assumption: UI copy in Spanish, matching the existing page. Not investment advic
 | T0 | S5 | inline | done | `odd/arbol.py` + this document |
 | T1 | S3 | inline | done | `macro/sources.py`: FRED CSV + OCDE CLI con caché en disco; 7 tests (escritos a la vez que el código, sin RED previo); smoke real 19 series FRED + CLI USA/G20 |
 | T2 | S2,S3 | inline | done | `macro/pillars.py`: 7 pilares, 23 indicadores, sustitutos LEI/CEI/FedWatch etiquetados; RED (collection error) → GREEN 8 passed |
-| T3 | S2 | inline | pending | Noticias: tono GDELT sobre recesión/crisis (fuente frágil: 429, degradación limpia) |
+| T3 | S2 | inline | done | `macro/news.py` + pilar «noticias»: EPU diario y EMV (FRED, índices de prensa) + tono de 100 titulares Google News; RED (collection error) → GREEN 6 passed |
 | T4 | S1 | inline | pending | Clasificador: reloj del ciclo OCDE + capas de estrés → fase, confianza e historial |
 | T5 | S4 | inline | pending | API `/api/cartera/ciclo` + caché + timer de refresco |
 | T6 | S1,S4 | inline | pending | Gráfica en `/cartera`: reloj con estela, línea de fase y barras por pilar |
@@ -33,3 +33,4 @@ Assumption: UI copy in Spanish, matching the existing page. Not investment advic
 - L2 (2026-10-18): source probe — FRED CSV 200 (NFCI 2026-10-09 = −0.499), OECD SDMX 200, CME FedWatch no response, GDELT 429 (rate limited). Next: T1.
 - L3 (2026-10-18): T1 smoke — FRED multi-id returns a ZIP (one series per request). ICE BofA OAS only last 3 y on FRED (2023-10→), SP500 10 y; long history stress relies on NFCI/STLFSI4/VIX. Latest: CLI USA 100.999 (2026-09), HY OAS 3.23, NFCI −0.499, VIX 16.46, 2Y 4.77 vs EFFR 3.88.
 - L4 (2026-10-18): T2 live check — composite 2026-10-16 +0.43; 2008-11 −0.70; 2020-04 −0.75; 2021-06 +0.75; 2019-08 −0.04 (leading −0.84). Monthly max age raised 75→100 d: series dated day 1 and published ~45 d later were dropped.
+- L5 (2026-10-18): GDELT rejected — answers «limit requests to one every 5 seconds» even to the first request from this VPS. News pillar uses FRED USEPUINDXD (daily, 149.2 on 2026-10-15) and EMVOVERALLEMV (22.0, 2026-09) plus Google News RSS headline tone (100 items, 15 carry cycle words, tone +0.06). Headlines are rendered as text only.
