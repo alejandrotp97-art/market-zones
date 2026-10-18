@@ -64,72 +64,144 @@
     return p ? p.label : "—";
   }
 
-  // ── El reloj: x = impulso (pts/mes), y = CLI − 100 ───────────────────────
-  function clock(d) {
-    const box = el("div", { class: "ciclo-clock" });
-    const tip = el("div", { class: "tip", hidden: "" });
-    const W = 400, H = 340, L = 34, R = 386, T = 14, B = 300;
-    const pts = d.trail.filter((t) => t.level != null);
-    const xs = pts.map((t) => Math.abs(t.momentum)).concat([0.15]);
-    const ys = pts.map((t) => Math.abs(t.level - 100)).concat([0.8]);
-    if (d.clock_g20) { xs.push(Math.abs(d.clock_g20.momentum)); ys.push(Math.abs(d.clock_g20.level - 100)); }
-    const mx = Math.max(...xs) * 1.2, my = Math.max(...ys) * 1.2;
-    const X = (m) => L + (m + mx) / (2 * mx) * (R - L);
-    const Y = (lv) => B - (lv - 100 + my) / (2 * my) * (B - T);
-    const s = svg("svg", { viewBox: `0 0 ${W} ${H}`, role: "img",
-      "aria-label": `Reloj del ciclo: ${phaseLabel(d, d.phase)}` });
-    s.append(svg("line", { class: "ax", x1: L, x2: R, y1: Y(100), y2: Y(100) }),
-      svg("line", { class: "ax", x1: X(0), x2: X(0), y1: T, y2: B }));
-    const quads = [["recesion", L + 6, T + 14, "start"], ["auge", R - 6, T + 14, "end"],
-      ["crisis", L + 6, B - 8, "start"], ["recuperacion", R - 6, B - 8, "end"]];
-    // El cuadrado de color va por FUERA del texto (a la izquierda o a la
-    // derecha según el lado), así no depende de cuánto mida la palabra.
-    for (const [k, x, y, anchor] of quads) {
-      const label = k === "crisis" ? "Crisis · con estrés" : phaseLabel(d, k);
-      const left = anchor === "start";
-      s.append(svg("rect", { class: "q-sw", x: left ? x : x - 9, y: y - 9, width: 9, height: 9, fill: color(k) }),
-        svg("text", { class: "q-lbl", x: left ? x + 14 : x - 14, y, "text-anchor": anchor }, label));
-    }
-    s.append(svg("text", { class: "ax-lbl", x: (L + R) / 2, y: B + 18, "text-anchor": "middle" },
-      "← pierde impulso · impulso del CLI (3 meses) · gana impulso →"),
-    svg("text", { class: "ax-lbl", x: 12, y: (T + B) / 2, "text-anchor": "middle",
-      transform: `rotate(-90 12 ${(T + B) / 2})` }, "← bajo la tendencia · CLI − 100 · sobre ella →"));
-    if (pts.length > 1) {
-      s.append(svg("polyline", { class: "trail",
-        points: pts.map((t) => `${X(t.momentum).toFixed(1)},${Y(t.level).toFixed(1)}`).join(" ") }));
-    }
-    const hover = [];
-    pts.forEach((t, i) => {
-      const last = i === pts.length - 1;
-      s.append(svg("circle", { class: last ? "dot now" : "dot", cx: X(t.momentum), cy: Y(t.level),
-        r: last ? 7 : 4, fill: color(t.phase || "auge") }));
-      hover.push([X(t.momentum), Y(t.level), [mes(t.month + "-01"), ["Fase", phaseLabel(d, t.phase)],
-        ["CLI", num(t.level)], ["Impulso", signed(t.momentum, 3) + " pts/mes"]]]);
+  // ── La onda: CLI − 100 en el tiempo, como la señal de una radio ─────────
+  // Por encima de 0 la economía va sobre su tendencia; cada cresta es un pico
+  // del ciclo y cada valle un fondo. El color de cada tramo es la fase que se
+  // leyó ese mes, y debajo va la misma fase como franja, con el mismo eje X.
+  const RANGES = [["5A", 60], ["10A", 120], ["Todo", 0]];
+
+  function runsOf(h) {
+    const runs = [];
+    h.forEach((x, i) => {
+      const last = runs[runs.length - 1];
+      if (last && last.phase === x.phase) { last.to = x.month; last.b = i; }
+      else runs.push({ phase: x.phase, from: x.month, to: x.month, a: i, b: i });
     });
-    if (pts.length) {
-      const t = pts[pts.length - 1];
-      // A la izquierda del punto si está en la mitad derecha, para no pisar
-      // la etiqueta de su propio cuadrante.
-      const right = X(t.momentum) > (L + R) / 2;
-      s.append(svg("text", { class: "pt-lbl", x: X(t.momentum) + (right ? -12 : 12), y: Y(t.level) + 4,
-        "text-anchor": right ? "end" : "start" }, "Hoy"));
+    return runs;
+  }
+
+  function wave(d) {
+    const box = el("div", { class: "ciclo-wide ciclo-wave" });
+    const all = d.history.filter((x) => x.level != null && x.phase);
+    let months = 120;
+    try {
+      const saved = localStorage.getItem("ciclo-rango");
+      if (saved !== null && RANGES.some(([, m]) => String(m) === saved)) months = +saved;
+    } catch (e) { /* sin almacenamiento: se queda en 10 años */ }
+    const seg = el("span", { class: "seg mini", role: "group", "aria-label": "Periodo de la onda" });
+    const host = el("div", { class: "ciclo-wave-host" });
+    const tip = el("div", { class: "tip", hidden: "" });
+    box.append(el("div", { class: "ciclo-h ciclo-wave-h" },
+      el("span", {}, "La onda del ciclo · CLI OCDE EE. UU. frente a su tendencia"), seg), host);
+
+    function draw() {
+      const pts = months ? all.slice(-months) : all;
+      if (pts.length < 2) { host.replaceChildren(el("p", { class: "mut small" }, "Sin historia suficiente.")); return; }
+      const W = Math.max(280, Math.floor(host.clientWidth || 600)), H = 286;
+      const L = 38, R = W - 14, T = 18, B = 232, BAND = 10, BY = B + 10;
+      // Escala por el percentil 95, no por el extremo: un desplome como el del
+      // COVID (−7) aplastaba el resto de la onda hasta dejarla casi plana. Lo
+      // que se sale se recorta en el borde y se rotula con su valor real.
+      const devs = pts.map((p) => Math.abs(p.level - 100)).sort((a, b) => a - b);
+      const amp = Math.max(1, devs[Math.floor((devs.length - 1) * 0.95)] * 1.25);
+      const clip = (lv) => 100 + Math.max(-amp, Math.min(amp, lv - 100));
+      const n = pts.length, dx = (R - L) / (n - 1);
+      const X = (i) => L + i * dx;
+      const Y = (lv) => T + (1 - (clip(lv) - 100 + amp) / (2 * amp)) * (B - T);
+      const s = svg("svg", { width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: "img",
+        "aria-label": `Onda del ciclo: hoy ${phaseLabel(d, d.phase)}; la tabla de tramos lo da en texto` });
+      const step = amp <= 1.5 ? 0.5 : amp <= 3.5 ? 1 : 2;
+      for (let v = -Math.floor(amp / step) * step; v <= amp; v += step) {
+        const y = Y(100 + v);
+        s.append(svg("line", { class: v === 0 ? "trend" : "grid", x1: L, x2: R, y1: y, y2: y }),
+          svg("text", { class: "ylbl", x: L - 6, y: y + 3.5, "text-anchor": "end" },
+            v === 0 ? "100" : (v > 0 ? "+" : "−") + num(Math.abs(v), step < 1 ? 1 : 0)));
+      }
+      const y0 = Y(100);
+      for (const r of runsOf(pts)) {
+        // Cada tramo se une con el primer punto del siguiente: la onda no se corta.
+        const idx = [];
+        for (let i = r.a; i <= Math.min(r.b + 1, n - 1); i++) idx.push(i);
+        const line = idx.map((i) => `${X(i).toFixed(1)},${Y(pts[i].level).toFixed(1)}`).join(" ");
+        s.append(svg("polygon", { class: "fill", fill: color(r.phase),
+          points: `${X(idx[0]).toFixed(1)},${y0.toFixed(1)} ${line} ${X(idx[idx.length - 1]).toFixed(1)},${y0.toFixed(1)}` }),
+        svg("polyline", { class: "wave", stroke: color(r.phase), points: line }),
+        svg("rect", { x: (X(r.a) - dx / 2).toFixed(1), y: BY, height: BAND,
+          width: Math.max(1, (r.b - r.a + 1) * dx).toFixed(1), fill: color(r.phase) }));
+      }
+      // Rótulo de cada tramo recortado, en su punto más extremo.
+      let i0 = 0;
+      while (i0 < n) {
+        if (Math.abs(pts[i0].level - 100) <= amp) { i0++; continue; }
+        let j = i0, k = i0;
+        while (j + 1 < n && Math.abs(pts[j + 1].level - 100) > amp) { j++; if (Math.abs(pts[j].level - 100) > Math.abs(pts[k].level - 100)) k = j; }
+        const below = pts[k].level < 100;
+        s.append(svg("text", { class: "clip-lbl", x: X(k), y: below ? B + 2 - 4 : T + 9, "text-anchor": X(k) < L + 60 ? "start" : "middle" },
+          `${below ? "▼" : "▲"} ${signed(pts[k].level - 100, 1)} ${mes(pts[k].month + "-01")}`));
+        i0 = j + 1;
+      }
+      const span = n / 12, every = span <= 6 ? 1 : span <= 12 ? 2 : 5;
+      pts.forEach((p, i) => {
+        if (p.month.endsWith("-01") && +p.month.slice(0, 4) % every === 0) {
+          s.append(svg("line", { class: "tk", x1: X(i), x2: X(i), y1: BY + BAND, y2: BY + BAND + 4 }),
+            svg("text", { class: "xlbl", x: X(i), y: BY + BAND + 16, "text-anchor": "middle" }, p.month.slice(0, 4)));
+        }
+      });
+      const last = pts[n - 1];
+      s.append(svg("circle", { class: "now", cx: X(n - 1), cy: Y(last.level), r: 5, fill: color(last.phase) }),
+        svg("text", { class: "pt-lbl", x: X(n - 1) - 9, y: Y(last.level) - 9, "text-anchor": "end" }, "Hoy"));
+      const cross = svg("line", { class: "cross", x1: 0, x2: 0, y1: T, y2: BY + BAND, visibility: "hidden" });
+      const dot = svg("circle", { class: "now", r: 4, visibility: "hidden" });
+      const hit = svg("rect", { class: "hit", x: L - dx / 2, y: T, width: R - L + dx, height: BY + BAND - T });
+      s.append(cross, dot, hit);
+      hit.addEventListener("mousemove", (e) => {
+        const box2 = s.getBoundingClientRect();
+        const i = Math.max(0, Math.min(n - 1, Math.round((e.clientX - box2.left - L) / dx)));
+        const p = pts[i];
+        for (const a of ["x1", "x2"]) cross.setAttribute(a, X(i));
+        dot.setAttribute("cx", X(i)); dot.setAttribute("cy", Y(p.level)); dot.setAttribute("fill", color(p.phase));
+        cross.setAttribute("visibility", "visible"); dot.setAttribute("visibility", "visible");
+        tipAt(host, tip, e, [mes(p.month + "-01"), ["Fase", phaseLabel(d, p.phase)],
+          ["CLI", num(p.level)], ["Sobre la tendencia", signed(p.level - 100)],
+          ["Impulso", signed(p.momentum, 3) + " pts/mes"]]);
+      });
+      hit.addEventListener("mouseleave", () => {
+        tip.hidden = true; cross.setAttribute("visibility", "hidden"); dot.setAttribute("visibility", "hidden");
+      });
+      host.replaceChildren(s, tip);
     }
-    if (d.clock_g20) {
-      const g = d.clock_g20;
-      s.append(svg("circle", { class: "g20", cx: X(g.momentum), cy: Y(g.level), r: 6 }),
-        svg("text", { class: "pt-lbl", x: X(g.momentum) + 10, y: Y(g.level) + 14 }, "G20"));
-      hover.push([X(g.momentum), Y(g.level), [`G20 · ${mes(g.date)}`, ["Fase (solo reloj)", phaseLabel(d, d.phase_g20)],
-        ["CLI", num(g.level)], ["Impulso", signed(g.momentum, 3) + " pts/mes"]]]);
+
+    for (const [label, m] of RANGES) {
+      const b = el("button", { type: "button", class: m === months ? "on" : "" }, label);
+      b.addEventListener("click", () => {
+        months = m;
+        for (const x of seg.children) x.classList.toggle("on", x === b);
+        try { localStorage.setItem("ciclo-rango", String(m)); } catch (e) { /* sin almacenamiento */ }
+        draw();
+      });
+      seg.append(b);
     }
-    for (const [x, y, rows] of hover) {
-      const hit = svg("circle", { class: "hit", cx: x, cy: y, r: 11 });
-      hit.addEventListener("mousemove", (e) => tipAt(box, tip, e, rows));
-      hit.addEventListener("mouseleave", () => { tip.hidden = true; });
-      s.append(hit);
+
+    const leg = el("div", { class: "chart-legend" });
+    for (const p of d.phases) leg.append(el("span", {}, el("i", { style: `background:${color(p.key)}` }), p.label));
+    const tb = el("table", {});
+    for (const r of runsOf(all).reverse()) {
+      tb.append(el("tr", {}, el("td", {}, `${mes(r.from + "-01")} → ${mes(r.to + "-01")}`),
+        el("td", {}, el("i", { class: "sw", style: `background:${color(r.phase)}` }), phaseLabel(d, r.phase))));
     }
-    box.append(s, tip, el("div", { class: "mut small" },
-      `Estela: últimos ${pts.length} meses, cada punto con el color de su fase. Debajo de la tendencia y cayendo ` +
-      "es Recesión mientras no haya estrés grave; con él, Crisis. Círculo discontinuo: G20 (solo el reloj; los pilares son de EE. UU.)."));
+    box.append(leg, el("p", { class: "mut small" },
+      "Por encima de la línea de 100 la economía crece más que su tendencia; por debajo, menos. " +
+      "Debajo y cayendo es Recesión mientras no haya estrés grave; con él, Crisis."),
+    el("details", { class: "ciclo-runs" }, el("summary", {}, `Ver los ${tb.children.length} tramos en tabla`), tb));
+
+    // Se dibuja a la anchura real (el texto del SVG no se deforma) y se
+    // redibuja si la tarjeta cambia de ancho.
+    let lastW = 0;
+    const ro = new ResizeObserver(() => {
+      const w = Math.floor(host.clientWidth);
+      if (w && w !== lastW) { lastW = w; draw(); }
+    });
+    ro.observe(host);
     return box;
   }
 
@@ -164,7 +236,7 @@
 
   // ── Pilares, con el detalle de cada indicador plegado ────────────────────
   function pillars(d) {
-    const box = el("div", { class: "ciclo-wide ciclo-pillars" });
+    const box = el("div", { class: "ciclo-pillars" });
     box.append(el("div", { class: "ciclo-h" }, `Pilares · termómetro compuesto ${signed(d.composite)}`,
       el("span", { class: "w", title: "−1: economía en contracción o estresada · +1: en expansión" }, "(de −1 a +1)")));
     for (const p of d.pillars) {
@@ -183,52 +255,6 @@
       det.append(tb);
       box.append(det);
     }
-    return box;
-  }
-
-  // ── Historial: una franja de meses coloreada por fase, más su tabla ──────
-  function strip(d) {
-    const box = el("div", { class: "ciclo-wide" });
-    const h = d.history.filter((x) => x.phase);
-    box.append(el("div", { class: "ciclo-h" }, `Historial desde ${mes(h[0].month + "-01")}`));
-    const wrap = el("div", { class: "ciclo-strip" });
-    const tip = el("div", { class: "tip", hidden: "" });
-    const W = 1000, s = svg("svg", { viewBox: `0 0 ${W} 34`, preserveAspectRatio: "none", role: "img",
-      "aria-label": "Fase del ciclo mes a mes; la tabla de abajo la da en texto" });
-    const w = W / h.length;
-    const years = el("div", { class: "ciclo-years", "aria-hidden": "true" });
-    h.forEach((x, i) => {
-      s.append(svg("rect", { x: (i * w).toFixed(2), y: 0, width: (w + 0.4).toFixed(2), height: 28, fill: color(x.phase) }));
-      if (x.month.endsWith("-01") && +x.month.slice(0, 4) % 5 === 0) {
-        s.append(svg("line", { class: "tk", x1: i * w, x2: i * w, y1: 28, y2: 33 }));
-        // Los años en HTML: el SVG se estira sin conservar proporción y un texto
-        // dentro saldría aplastado en el móvil.
-        years.append(el("span", { style: `left:${(i / h.length * 100).toFixed(2)}%` }, x.month.slice(0, 4)));
-      }
-    });
-    s.addEventListener("mousemove", (e) => {
-      const r = s.getBoundingClientRect();
-      const i = Math.min(h.length - 1, Math.max(0, Math.floor((e.clientX - r.left) / r.width * h.length)));
-      tipAt(wrap, tip, e, [mes(h[i].month + "-01"), ["Fase", phaseLabel(d, h[i].phase)],
-        ["Compuesto", signed(h[i].composite)]]);
-    });
-    s.addEventListener("mouseleave", () => { tip.hidden = true; });
-    wrap.append(s, years, tip);
-    const leg = el("div", { class: "chart-legend" });
-    for (const p of d.phases) leg.append(el("span", {}, el("i", { style: `background:${color(p.key)}` }), p.label));
-    // La misma información en texto: tramos seguidos de la misma fase.
-    const runs = [];
-    for (const x of h) {
-      const last = runs[runs.length - 1];
-      if (last && last.phase === x.phase) last.to = x.month; else runs.push({ phase: x.phase, from: x.month, to: x.month });
-    }
-    const tb = el("table", {});
-    for (const r of runs.slice().reverse()) {
-      tb.append(el("tr", {}, el("td", {}, `${mes(r.from + "-01")} → ${mes(r.to + "-01")}`),
-        el("td", {}, el("i", { style: `display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:6px;background:${color(r.phase)}` }),
-          phaseLabel(d, r.phase))));
-    }
-    box.append(wrap, leg, el("details", { class: "ciclo-runs" }, el("summary", {}, `Ver los ${runs.length} tramos en tabla`), tb));
     return box;
   }
 
@@ -279,7 +305,7 @@
       " · se actualiza cada domingo" +
       (d.stale ? " · copia anterior" : "");
     const grid = el("div", { class: "ciclo-grid" });
-    grid.append(clock(d), reading(d), pillars(d), strip(d), newsBlock(d), foot(d));
+    grid.append(wave(d), reading(d), pillars(d), newsBlock(d), foot(d));
     host.replaceChildren(grid);
   }
 

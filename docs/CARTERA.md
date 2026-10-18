@@ -248,9 +248,11 @@ cortarían en el 33% y el 66%, que no son líneas de esta página.
    movimiento (`?editar=`) reutiliza este mismo formulario.
 3. **Evolución** — cartera vs capital aportado vs un índice a elegir, con
    **selector de temporalidad** (1M · 3M · 6M · YTD · 1A · 5A · Todo · fechas).
-4. **Ciclo económico** — reloj de la OCDE con la estela de 24 meses y el G20,
-   fase y probabilidad de cada una, alarmas, pilares desplegables, franja
-   mensual desde 2000 (con su tabla de tramos) y titulares.
+4. **Ciclo económico** — la **onda** del ciclo: CLI − 100 mes a mes (5A · 10A ·
+   Todo), coloreada por fase y con la franja de fases debajo en el mismo eje;
+   la escala va por el percentil 95 y lo que se sale (el COVID) se recorta y se
+   rotula con su valor real. Debajo, fase y probabilidades, alarmas, pilares
+   desplegables, la tabla de tramos y los titulares.
 5. **Rentabilidad** — TWR, TIR, acumulado; la frase que sale de restarlos;
    caída máxima, caída actual, volatilidad y Sharpe; desglose por año; y la
    comparación con el índice.

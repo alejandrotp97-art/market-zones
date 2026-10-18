@@ -201,5 +201,7 @@ def classify(data: dict[str, Series], date: str | None = None, start: str = "200
         "pillars": now["evaluation"]["pillars"],
         "composite": now["evaluation"]["composite"],
         "trail": trail,
-        "history": [{"month": h["month"], "phase": h["phase"], "composite": h["composite"]} for h in hist],
+        # La onda de la tarjeta: CLI − 100 mes a mes con su fase.
+        "history": [{"month": h["month"], "phase": h["phase"], "composite": h["composite"],
+                     "level": h["level"], "momentum": h["momentum"]} for h in hist],
     }
