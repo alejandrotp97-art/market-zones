@@ -20,7 +20,7 @@ tendencia no es una crisis. Validado contra las recesiones del NBER (2000-2026),
 el cuadrante «debajo y cayendo» a secas marcaba Crisis en 78 meses de expansión
 (2012, 2016, 2023). Por eso ese cuadrante es Recesión (contracción) y sólo se
 vuelve Crisis en la proporción de su severidad: alarmas graves y un compuesto
-de pilares hundido. Con eso quedan 23 meses —2002, 2011, el COVID—, todos de
+de pilares hundido. Con eso quedan 24 meses —2002, 2011, el COVID—, todos de
 estrés real, y los 28 meses de recesión del NBER siguen cayendo en Crisis o
 Recesión.
 
@@ -73,7 +73,7 @@ ALARM_RULES = [
 
 
 def _sig(x: float) -> float:
-    return 1 / (1 + math.exp(-x))
+    return 1 / (1 + math.exp(-max(-50.0, min(50.0, x))))     # acotado: sin OverflowError
 
 
 def base_probs(level: float, momentum: float) -> dict[str, float]:

@@ -99,3 +99,10 @@ def test_la_foto_es_semanal_tres_dias_valen_y_nueve_no(cliente, monkeypatch):
     B.write_snapshot({"phase": "auge", "generated_at": W.time.time() - 9 * dia})
     monkeypatch.setattr(B, "refresh", lambda: B.write_snapshot({"phase": "crisis", "generated_at": 1.0}))
     assert cliente.get("/api/cartera/ciclo").get_json()["phase"] == "crisis"
+
+
+def test_un_cli_caducado_tampoco_da_foto():
+    # Existe pero no sirve (un solo dato, viejo): sin reloj no hay fase, y una
+    # foto con fase vacía dejaba la tarjeta en blanco y tumbaba `build.main`.
+    with pytest.raises(B.BuildError, match="CLI"):
+        B.snapshot({"CLI:USA": [("2020-01-01", 100.5)]}, [], [], today="2026-10-18", now=0)

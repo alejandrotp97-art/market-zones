@@ -9,7 +9,7 @@ hora de Madrid), pero también sirve a mano:
 El panel sólo LEE la foto (`data/macro/ciclo.json`); la recalcula él mismo si no
 existe o tiene más de 8 días. Una serie que no se pudo bajar no tumba la foto: se
 calcula con el resto y queda listada en `sources.failed`. Sin el CLI de la OCDE
-no hay reloj, y entonces no hay foto.
+(o sin uno reciente) no hay reloj, y entonces no hay foto.
 
 Códigos de salida:  0 foto escrita · 1 no se pudo calcular.
 """
@@ -88,6 +88,10 @@ def snapshot(data: dict, headlines: list[dict], status: list[dict],
     if tone["score"] is not None:
         data["NEWS_TONE"] = [(today, tone["score"])]
     r = C.classify(data)
+    if r["clock"] is None:
+        # Presente pero inservible (viejo o sin historia para el impulso): una
+        # foto sin fase dejaría la tarjeta en blanco.
+        raise BuildError("el CLI de la OCDE no tiene un dato reciente con el que situar el reloj")
     shown = sorted(tone["headlines"], key=lambda h: h["mood"] == 0)   # estable: primero con tono
     r.update({
         "generated_at": time.time() if now is None else now,
