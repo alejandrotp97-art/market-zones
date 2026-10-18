@@ -33,7 +33,7 @@ class Indicator:
     label: str
     pillar: str
     series: str            # id de FRED o derivada (CLI:USA, DGS2-DFF, REAL_RATE)
-    transform: str         # level | yoy | chg_3m | chg_12m | pct_ma200 | dd_52w | avg4_yoy
+    transform: str         # level | avg30 | yoy | chg_3m | chg_12m | pct_ma200 | dd_52w | avg4_yoy
     neutral: float
     scale: float
     direction: int         # +1: más es mejor para el ciclo; -1: más es peor
@@ -49,6 +49,7 @@ PILLARS = [
     ("credito", "Crédito y condiciones financieras", 0.15),
     ("monetaria", "Política monetaria y curva", 0.10),
     ("riesgo", "Riesgo de mercado", 0.10),
+    ("noticias", "Noticias e incertidumbre", 0.10),
     ("inflacion", "Inflación", 0.05),
 ]
 M, W, D = 100, 21, 10      # caducidad: mensual (fechado el día 1 y publicado ~45 d después), semanal, diaria
@@ -85,12 +86,19 @@ INDICATORS = [
     Indicator("vix", "VIX", "riesgo", "VIXCLS", "level", 18, 8, -1, "", D),
     Indicator("spx_ma", "S&P 500 vs su media de 200 sesiones", "riesgo", "SP500", "pct_ma200", 0, 8, 1, "%", D),
     Indicator("spx_dd", "S&P 500, caída desde máximo de 52 sem.", "riesgo", "SP500", "dd_52w", -5, 10, 1, "%", D),
+    Indicator("epu", "Incertidumbre económica en prensa (EPU, media 30 d)", "noticias", "USEPUINDXD", "avg30",
+              130, 90, -1, "", D, "Baker, Bloom y Davis: cuenta artículos de prensa sobre incertidumbre"),
+    Indicator("emv", "Volatilidad bursátil según las noticias (EMV)", "noticias", "EMVOVERALLEMV", "level",
+              20, 8, -1, "", M),
+    Indicator("headlines", "Tono de los titulares (Google News, 3 días)", "noticias", "NEWS_TONE", "level",
+              0, 0.5, 1, "", 3, "léxico de ciclo sobre los titulares; −1 todo negativo, +1 todo positivo"),
     Indicator("cpi", "IPC, interanual", "inflacion", "CPIAUCSL", "yoy", 2.5, 1.5, -1, "%", M),
     Indicator("core_pce", "PCE subyacente, interanual", "inflacion", "PCEPILFE", "yoy", 2.3, 1.0, -1, "%", M),
 ]
 BY_KEY = {i.key: i for i in INDICATORS}
-FRED_IDS = sorted({i.series for i in INDICATORS if ":" not in i.series and "-" not in i.series
-                   and i.series != "REAL_RATE"} | {"DGS2", "DFF"})
+DERIVED = {"DGS2-DFF", "REAL_RATE", "NEWS_TONE"}
+FRED_IDS = sorted({i.series for i in INDICATORS if ":" not in i.series and i.series not in DERIVED}
+                  | {"DGS2", "DFF"})
 
 
 def _d(s: str) -> dt.date:
@@ -130,6 +138,10 @@ def transform(s: Series, kind: str, date: str) -> float | None:
     d, v = cur
     if kind == "level":
         return v
+    if kind == "avg30":
+        lo = bisect.bisect_left(s, (_shift(d, 30),))
+        win = [x for _, x in s[lo:_upto(s, d)]]
+        return sum(win) / len(win)
     if kind in ("yoy", "chg_12m", "chg_3m"):
         prev = _ago(s, d, 91 if kind == "chg_3m" else 365)
         if prev is None:
