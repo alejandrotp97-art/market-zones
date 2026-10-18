@@ -9,8 +9,8 @@ WorkingDirectory=/home/alex/bots/market-zones
 Environment=PYTHONUNBUFFERED=1
 ExecStart=/home/alex/bots/market-zones/.venv/bin/python -m macro.build
 
-# 26 series de FRED (6 en paralelo), el CLI de la OCDE y un RSS. Medido: ~15 s
-# con la red bien. Si una fuente no contesta, cada peticion corta a los 30 s y
+# 20 series de FRED (6 en paralelo), el CLI de la OCDE y un RSS. Medido: 1 s con
+# la cache vacia. Si una fuente no contesta, cada peticion corta a los 30 s y
 # se usa la copia de disco: el margen cubre varias caidas seguidas.
 TimeoutStartSec=300
 ProtectSystem=strict
