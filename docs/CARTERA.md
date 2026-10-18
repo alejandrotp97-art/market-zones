@@ -204,6 +204,11 @@ se mueve, igual para todas las instancias. Código en `macro/` (Blueprint
   años − tipo efectivo de la Fed. Los tres originales son de pago o no tienen
   acceso público. GDELT se descartó: rechaza a este servidor desde la primera
   petición.
+* **Cuándo se recalcula**: el timer, los domingos. El panel sólo lo hace él
+  mismo si la foto tiene más de 8 días, o más de 6 h si se hizo con alguna copia
+  de disco por fallo de red. Tras un fallo espera 10 min antes de reintentar
+  (sin esa espera, cada carga repetía la descarga entera) y el 502 no enseña el
+  error interno: el detalle va al journal.
 * **Validación** contra las recesiones del NBER (`USREC`, 2000-2026): los 28
   meses de recesión salen Crisis (22) o Recesión (6). Sin la regla del estrés,
   78 meses de **expansión** salían Crisis; con ella, 24, todos de estrés real
