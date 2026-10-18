@@ -55,7 +55,7 @@ def collect(cache: S.Cache) -> tuple[dict, list[dict], list[dict]]:
         except S.SourceError as e:
             return sid, None, {"id": sid, "ok": False, "error": str(e)}
 
-    # FRED aguanta bien unas pocas peticiones en paralelo; 26 en serie son ~40 s.
+    # FRED aguanta bien unas pocas peticiones en paralelo; en serie se sumarían las 20 latencias.
     with ThreadPoolExecutor(6) as ex:
         for sid, s, st in ex.map(one, P.FRED_IDS):
             status.append(st)

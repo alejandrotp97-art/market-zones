@@ -2,7 +2,7 @@
 
 La foto es la misma para todas las instancias (es macro de EE. UU., no dato de
 ninguna cartera) y se recalcula como mucho una vez a la vez: el candado evita
-que tres pestañas abiertas lancen tres descargas de 26 series.
+que tres pestañas abiertas lancen tres descargas de 20 series.
 """
 from __future__ import annotations
 
