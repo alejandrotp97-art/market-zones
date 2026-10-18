@@ -20,7 +20,7 @@ Assumption: UI copy in Spanish, matching the existing page. Not investment advic
 |----|-------|-------|--------|----------|
 | T0 | S5 | inline | done | `odd/arbol.py` + this document |
 | T1 | S3 | inline | done | `macro/sources.py`: FRED CSV + OCDE CLI con caché en disco; 7 tests (escritos a la vez que el código, sin RED previo); smoke real 19 series FRED + CLI USA/G20 |
-| T2 | S2,S3 | inline | pending | Pilares: crecimiento, empleo, inflación, política monetaria, crédito/condiciones, riesgo de mercado |
+| T2 | S2,S3 | inline | done | `macro/pillars.py`: 7 pilares, 23 indicadores, sustitutos LEI/CEI/FedWatch etiquetados; RED (collection error) → GREEN 8 passed |
 | T3 | S2 | inline | pending | Noticias: tono GDELT sobre recesión/crisis (fuente frágil: 429, degradación limpia) |
 | T4 | S1 | inline | pending | Clasificador: reloj del ciclo OCDE + capas de estrés → fase, confianza e historial |
 | T5 | S4 | inline | pending | API `/api/cartera/ciclo` + caché + timer de refresco |
@@ -32,3 +32,4 @@ Assumption: UI copy in Spanish, matching the existing page. Not investment advic
 - L1 (2026-10-18, user, verbatim): "Vamos a hacer una actualización al proyecto de situación del mercado de cada activo y lo vamos a meter dentro de la cartera. Va a consitir en crear una gráfica que indique en que estado del ciclo econocimo estamos; Auge, recesion, crissis o recuperacion. Tiene que analizarse en funcion de las noticias, datos macroeconomicos, situación de riesgo de los mercados. Puedes usar OCDE — indicadores adelantados,  FRED — macroeconomía de EE. UU., The Conference Board — LEI y CEI, CME FedWatch — política monetaria, Spreads de crédito y condiciones financieras y demás datos que creas relevantas. Crea primero un arbol en la terminal de la evolución del proyecto para que pueda ir viendo la evolución de la omplementación y actulizacion de los cambios"
 - L2 (2026-10-18): source probe — FRED CSV 200 (NFCI 2026-10-09 = −0.499), OECD SDMX 200, CME FedWatch no response, GDELT 429 (rate limited). Next: T1.
 - L3 (2026-10-18): T1 smoke — FRED multi-id returns a ZIP (one series per request). ICE BofA OAS only last 3 y on FRED (2023-10→), SP500 10 y; long history stress relies on NFCI/STLFSI4/VIX. Latest: CLI USA 100.999 (2026-09), HY OAS 3.23, NFCI −0.499, VIX 16.46, 2Y 4.77 vs EFFR 3.88.
+- L4 (2026-10-18): T2 live check — composite 2026-10-16 +0.43; 2008-11 −0.70; 2020-04 −0.75; 2021-06 +0.75; 2019-08 −0.04 (leading −0.84). Monthly max age raised 75→100 d: series dated day 1 and published ~45 d later were dropped.
