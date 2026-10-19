@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="{{ asset('cartera.css') }}">
   <link rel="stylesheet" href="{{ asset('cartera-map.css') }}">
   <link rel="stylesheet" href="{{ asset('ciclo.css') }}">
+  <link rel="stylesheet" href="{{ asset('orden.css') }}">
 </head>
 <body>
   <!-- `wide` sólo aquí: la cartera es la única pantalla con una columna lateral
@@ -59,7 +60,7 @@
         </section>
 
         <!-- de dónde sale el resultado -->
-        <section class="hero cart-hero">
+        <section class="hero cart-hero" data-card="cifras">
           <div><div class="lbl">Invertido (abierto)</div><div id="s-inv" class="big">—</div></div>
           <div><div class="lbl">P&L no realizado</div><div id="s-unreal" class="big">—</div><div id="s-unrealpct" class="mut small"></div></div>
           <!-- El realizado se puede leer con dos criterios de coste y NO dan lo
@@ -112,7 +113,7 @@
         </section>
 
         <!-- evolución -->
-        <section class="card chart-card">
+        <section class="card chart-card" data-card="evolucion">
           <div class="card-h"><span>Evolución de la cartera</span>
             <span class="ranges" id="hrange" role="group" aria-label="Temporalidad">
               <button type="button" data-r="1m">1M</button>
@@ -182,7 +183,7 @@
         </section>
 
         <!-- posiciones -->
-        <section class="card">
+        <section class="card" data-card="posiciones">
           <div class="card-h"><span>Posiciones actuales</span><span id="pos-legend" class="legend"></span></div>
           <div class="scroll"><table id="pos" class="tbl">
             <thead><tr>
@@ -261,7 +262,7 @@
         <!-- Importar va donde estaba el alta: cargar un CSV se hace el día que
              estrenas la cartera o cuando cambias de bróker, no cada semana. La que
              sube al principio es el alta manual, que es la que se usa a diario. -->
-        <section class="card">
+        <section class="card" data-card="importar">
           <div class="card-h"><span>Importar / exportar CSV</span>
             <span class="legend">
               <a id="tpl" href="#" style="cursor:pointer">↓ plantilla</a> ·
@@ -292,7 +293,7 @@
 
         <!-- Salida al registro. Va al pie porque es donde estaba el libro: quien
              baja hasta el final buscándolo encuentra la puerta en su sitio. -->
-        <a class="card gotolink" href="/cartera/movimientos">
+        <a class="card gotolink" href="/cartera/movimientos" data-card="movimientos">
           <span><b>Diario y movimientos</b>
             <span class="mut small">la cronología de tu cartera y el libro completo, con
               <span id="n-mov2">—</span> operaciones</span></span>
@@ -445,5 +446,6 @@
   <script src="{{ asset('cartera.js') }}"></script>
   <script src="{{ asset('cartera-map.js') }}"></script>
   <script src="{{ asset('ciclo.js') }}"></script>
+  <script src="{{ asset('orden.js') }}"></script>
 </body>
 </html>

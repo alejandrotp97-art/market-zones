@@ -1,0 +1,10 @@
+/* Asa para arrastrar las tarjetas de /cartera (ver orden.js). */
+.grip{display:inline-block;margin-right:7px;padding:1px 3px;border-radius:4px;
+  color:var(--faint);font-size:13px;line-height:1;cursor:grab;user-select:none;touch-action:none;}
+.grip:hover,.grip:focus-visible{color:var(--accent);outline:1px solid var(--border);}
+.has-grip{position:relative;}
+.has-grip>.grip{position:absolute;top:5px;left:4px;margin:0;}
+body.ordenando,body.ordenando *{cursor:grabbing !important;user-select:none;}
+.dragging{outline:2px dashed var(--accent);outline-offset:3px;opacity:.9;}
+.orden-reset{text-align:right;margin:10px 0 0;font-size:12px;}
+.orden-reset[hidden]{display:none;}
