@@ -146,6 +146,45 @@
 
   // `dataChanged` es falso cuando solo repintamos lo mismo con otro aspecto (el
   // ojo): el mapa no tiene por qué volver a pedir nada para tapar sus cifras.
+  // Futuros de OKX: se piden aparte porque vienen en vivo de la API y no son
+  // movimientos. La tarjeta solo aparece si hay alguna posición abierta; sin
+  // claves o con OKX caído, avisa en la leyenda en vez de esconder el fallo.
+  async function loadFuturos() {
+    const card = $("fut-card"), leg = $("fut-legend"), body = $("fut-body");
+    let d, ok = false;
+    try {
+      const r = await fetch("/api/cartera/futuros");
+      // 400 = esta cartera no tiene claves de OKX: no hay nada que enseñar ni que avisar.
+      if (r.status === 400) { card.hidden = true; return; }
+      ok = r.ok; d = await r.json();
+    }
+    catch (e) { d = { error: "No pude leer OKX." }; }
+    if (!ok || d.error) {
+      card.hidden = false;
+      body.innerHTML = "";
+      leg.textContent = `⚠ ${d.error || "No pude leer OKX."}`;
+      return;
+    }
+    const rows = d.positions || [];
+    card.hidden = rows.length === 0;
+    if (!rows.length) return;
+    const pctCell = (x) => x == null ? "—"
+      : `<span style="color:${x >= 0 ? POS : NEG}">${x >= 0 ? "+" : ""}${x}%</span>`;
+    body.innerHTML = rows.map((r) => `<tr>
+        <td>${esc(r.inst_id)}</td><td>${esc(r.side)}</td>
+        <td class="num">${qty(r.contracts)}</td><td class="num">${r.lever == null ? "—" : r.lever + "x"}</td>
+        <td class="num">${nat(r.avg_px, "", 4)}</td><td class="num">${nat(r.mark_px, "", 4)}</td>
+        <td class="num">${nat(r.liq_px, "", 4)}</td>
+        <td class="num">${nat(r.margin, r.ccy)}</td><td class="num">${signed(r.upl, " " + esc(r.ccy))}</td>
+        <td class="num">${pctCell(r.upl_pct)}</td><td class="num">${eur(r.value_eur)}</td>
+        <td class="mut">${esc(r.opened || "")}</td></tr>`).join("");
+    const base = P && P.summary ? P.summary.market_value : null;
+    const notes = [`${rows.length} abierta${rows.length === 1 ? "" : "s"}`, `valor ${eur(d.total_eur)}`];
+    if (base != null) notes.push(`cartera + futuros ${eur(base + d.total_eur)}`);
+    if ((d.unvalued || []).length) notes.push(`⚠ sin cambio a EUR: ${d.unvalued.join(", ")} — fuera del total`);
+    leg.textContent = notes.join(" · ");
+  }
+
   function render(p, reloadHistory = true, dataChanged = true) {
     P = p;                                  // último payload, para repintar sin pedirlo otra vez
     const s = p.summary || {};
@@ -212,7 +251,7 @@
     if (dataChanged) loadRebal();
     if (dataChanged) { loadZones(); loadPerfYCorr(); loadEstado(); loadAport();
                        loadCcy(); loadClases(); loadPeriodos(); loadSectores(); loadXray();
-                       loadDividendos(); }
+                       loadDividendos(); loadFuturos(); }
     else paintZones();
     if (reloadHistory) loadHistory();     // skipped on first load: already in flight
   }

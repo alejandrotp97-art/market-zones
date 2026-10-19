@@ -553,3 +553,129 @@ def test_cli_error_de_okx_sale_con_1_sin_credenciales(db_temporal, tmp_path, mon
     assert "sin respuesta de OKX" in salida.err
     assert "secreto-de-prueba" not in salida.err and "clave-falsa" not in salida.err
 
+
+# ── posiciones de derivados (futuros) ─────────────────────────────────────
+
+def _pos(inst="BTC-USD_UM_XPERP-310404", pos="20", margin="54.6", upl="-0.0096", ccy="USDC",
+         lever="3", pos_side="net", ratio="-0.000175", mgn="isolated", imr=""):
+    return {"instType": "FUTURES", "instId": inst, "pos": pos, "posSide": pos_side,
+            "avgPx": "81900", "markPx": "81895.2", "liqPx": "54984.99", "lever": lever,
+            "mgnMode": mgn, "margin": margin, "imr": imr, "upl": upl, "uplRatio": ratio,
+            "ccy": ccy, "notionalUsd": "163.79", "cTime": str(TS)}
+
+
+def test_resumir_posiciones_valora_margen_mas_resultado_en_euros():
+    r = okx.resumir_posiciones([_pos(), _pos(inst="LIT-USD_UM_XPERP-310704", margin="54.48525",
+                                             upl="0.0267", lever="2", ratio="0.00049")],
+                               {"USDC": 0.9})
+    btc, lit = r["positions"]
+    assert btc["inst_id"] == "BTC-USD_UM_XPERP-310404"
+    assert btc["side"] == "largo" and btc["contracts"] == 20 and btc["lever"] == 3
+    assert btc["margin"] == 54.6 and btc["upl"] == -0.0096 and btc["ccy"] == "USDC"
+    assert btc["value_eur"] == round((54.6 - 0.0096) * 0.9, 2)
+    assert btc["upl_eur"] == round(-0.0096 * 0.9, 2)
+    assert btc["upl_pct"] == -0.02
+    assert btc["opened"] == "2026-10-08 01:30"
+    assert lit["lever"] == 2
+    assert r["total_eur"] == round((54.6 - 0.0096 + 54.48525 + 0.0267) * 0.9, 2)
+    assert r["unvalued"] == []
+
+
+def test_resumir_posiciones_ignora_cerradas_y_marca_las_sin_cambio():
+    r = okx.resumir_posiciones([_pos(pos="0"), _pos(inst="X-USD", ccy="ZZZ")], {"USDC": 0.9})
+    assert [p["inst_id"] for p in r["positions"]] == ["X-USD"]
+    assert r["positions"][0]["value_eur"] is None
+    assert r["unvalued"] == ["X-USD"]
+    assert r["total_eur"] == 0
+
+
+def test_resumir_posiciones_corto_y_margen_cruzado():
+    r = okx.resumir_posiciones([_pos(pos="-5", margin="", imr="30", mgn="cross")], {"USDC": 1.0})
+    p = r["positions"][0]
+    assert p["side"] == "corto" and p["contracts"] == 5
+    assert p["margin"] == 30 and p["value_eur"] == round(30 - 0.0096, 2)
+
+
+def _fake_posiciones(filas, cambio="0.9"):
+    llamadas = []
+
+    def get(path, headers):
+        llamadas.append(path)
+        if path.startswith("/api/v5/account/positions"):
+            return {"code": "0", "data": filas}
+        if path.startswith("/api/v5/market/ticker"):
+            inst = path.split("instId=")[1]
+            return {"code": "0", "data": [{"instId": inst, "last": cambio}]}
+        raise AssertionError(f"ruta inesperada {path}")
+    get.llamadas = llamadas
+    return get
+
+
+def test_endpoint_futuros_devuelve_posiciones_en_euros(cliente, monkeypatch):
+    get = _fake_posiciones([_pos()])
+    monkeypatch.setattr(okx, "http_get", get)
+    r = cliente.get("/api/cartera/futuros")
+    assert r.status_code == 200
+    d = r.get_json()
+    assert d["positions"][0]["inst_id"] == "BTC-USD_UM_XPERP-310404"
+    assert d["total_eur"] == round((54.6 - 0.0096) * 0.9, 2)
+    assert d["fx"] == {"USDC": 0.9}
+    assert "/api/v5/market/ticker?instId=USDC-EUR" in get.llamadas
+    texto = r.get_data(as_text=True)
+    assert "secreto-de-prueba" not in texto and "clave-falsa" not in texto
+
+
+def test_endpoint_futuros_sin_configuracion_no_toca_la_red(cliente, monkeypatch, tmp_path):
+    monkeypatch.setenv("CARTERA_OKX_ENV", str(tmp_path / "no-existe.env"))
+
+    def no_debe_llamarse(path, headers):
+        raise AssertionError("no debía consultar OKX sin configuración")
+
+    monkeypatch.setattr(okx, "http_get", no_debe_llamarse)
+    r = cliente.get("/api/cartera/futuros")
+    assert r.status_code == 400
+    assert "OKX_API_KEY" in r.get_json()["error"]
+
+
+def test_endpoint_futuros_error_de_okx_responde_502(cliente, monkeypatch):
+    def falla(path, headers):
+        raise okx.OkxError("sin respuesta de OKX")
+
+    monkeypatch.setattr(okx, "http_get", falla)
+    r = cliente.get("/api/cartera/futuros")
+    assert r.status_code == 502
+    assert "sin respuesta de OKX" in r.get_json()["error"]
+
+
+def test_endpoint_futuros_sin_cambio_deja_la_posicion_sin_valorar(cliente, monkeypatch):
+    def get(path, headers):
+        if path.startswith("/api/v5/account/positions"):
+            return {"code": "0", "data": [_pos()]}
+        return {"code": "51001", "msg": "Instrument ID does not exist", "data": []}
+
+    monkeypatch.setattr(okx, "http_get", get)
+    d = cliente.get("/api/cartera/futuros").get_json()
+    assert d["unvalued"] == ["BTC-USD_UM_XPERP-310404"] and d["total_eur"] == 0
+
+
+# ── instancias de otras personas ──────────────────────────────────────────
+
+def test_instancia_con_base_propia_no_hereda_las_claves_del_propietario(monkeypatch):
+    monkeypatch.delenv("CARTERA_OKX_ENV", raising=False)
+    monkeypatch.setenv("CARTERA_DB", "/tmp/otra-persona/cartera.db")
+    cfg, faltan = okx.leer_config()
+    assert cfg is None and faltan == list(okx.CLAVES)
+
+
+def test_instancia_con_base_propia_usa_su_propio_env(monkeypatch, tmp_path):
+    propio = tmp_path / "propio.env"
+    propio.write_text("OKX_API_KEY=a\nOKX_API_SECRET=b\nOKX_API_PASSPHRASE=c\n", encoding="utf-8")
+    monkeypatch.setenv("CARTERA_DB", "/tmp/otra-persona/cartera.db")
+    monkeypatch.setenv("CARTERA_OKX_ENV", str(propio))
+    assert okx.leer_config()[0] == {"key": "a", "secret": "b", "passphrase": "c"}
+
+
+def test_instancia_principal_sigue_usando_el_env_por_defecto(monkeypatch):
+    monkeypatch.delenv("CARTERA_OKX_ENV", raising=False)
+    monkeypatch.delenv("CARTERA_DB", raising=False)
+    assert okx.ruta_env() == okx.ENV_DEFAULT

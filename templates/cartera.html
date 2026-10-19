@@ -198,6 +198,24 @@
           </table></div>
         </section>
 
+        <!-- futuros: posiciones de derivados de OKX, leídas en vivo. No son
+             movimientos (margen + resultado abierto, no unidades compradas), así
+             que no entran en los totales de arriba: se suman aparte. -->
+        <section class="card" data-card="futuros" id="fut-card" hidden>
+          <div class="card-h"><span>Futuros (OKX)</span><span id="fut-legend" class="legend"></span></div>
+          <div class="scroll"><table class="tbl">
+            <thead><tr>
+              <th>Contrato</th><th>Lado</th>
+              <th class="num">Contratos</th><th class="num">Apal.</th>
+              <th class="num">Entrada</th><th class="num">Marca</th>
+              <th class="num" title="Precio al que OKX liquidaría la posición">Liquidación</th>
+              <th class="num">Margen</th><th class="num">P&L abierto</th><th class="num">%</th>
+              <th class="num" title="Margen más P&L abierto, en EUR al cambio de OKX">Valor</th>
+              <th>Abierta</th>
+            </tr></thead><tbody id="fut-body"></tbody>
+          </table></div>
+        </section>
+
         <!-- rentabilidad por tramos: la tabla de arriba dice cuánto llevas desde
              que compraste; esta dice cuánto ha hecho cada posición HOY, esta
              semana, este mes... Ganancia en euros con las compras y ventas del

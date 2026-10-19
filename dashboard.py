@@ -1960,6 +1960,24 @@ def api_cartera_okx_sync():
     return jsonify(resultado)
 
 
+@app.route("/api/cartera/futuros")
+def api_cartera_futuros():
+    """Posiciones de derivados abiertas en OKX, en vivo y valoradas en EUR.
+
+    No se guardan como movimientos: un futuro es margen más un resultado aún no
+    cobrado, no unidades compradas a un precio. Sin claves, 400 con los nombres
+    que faltan; OKX caído, 502.
+    """
+    cfg, faltan = _okx.leer_config()
+    if cfg is None:
+        return jsonify({"error": "OKX no configurado. Faltan: " + ", ".join(faltan)}), 400
+    try:
+        datos = _okx.posiciones_abiertas(cfg)
+    except _okx.OkxError as e:
+        return jsonify({"error": f"No pude leer OKX: {e}"}), 502
+    return _json_response(datos, max_age=0)
+
+
 @app.route("/api/cartera/export")
 def api_cartera_export():
     """The movement book as a CSV the importer accepts unchanged.
