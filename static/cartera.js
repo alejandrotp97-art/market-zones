@@ -170,14 +170,18 @@
     if (!rows.length) return;
     const pctCell = (x) => x == null ? "—"
       : `<span style="color:${x >= 0 ? POS : NEG}">${x >= 0 ? "+" : ""}${x}%</span>`;
+    // Cuatro decimales sólo donde hacen falta: en 81.900 no dicen nada y
+    // empujaban fuera de la tarjeta la columna que importa, el valor en euros.
+    const px = (x) => nat(x, "", x != null && Math.abs(x) >= 100 ? 2 : 4);
     body.innerHTML = rows.map((r) => `<tr>
-        <td>${esc(r.inst_id)}</td><td>${esc(r.side)}</td>
+        <td title="${esc(r.inst_id)}"><span class="a-name">${esc(String(r.inst_id).split("_")[0])}</span>
+          <div class="a-sym">${r.opened ? "desde " + esc(r.opened) : esc(r.inst_id)}</div></td>
+        <td>${esc(r.side)}</td>
         <td class="num">${qty(r.contracts)}</td><td class="num">${r.lever == null ? "—" : r.lever + "x"}</td>
-        <td class="num">${nat(r.avg_px, "", 4)}</td><td class="num">${nat(r.mark_px, "", 4)}</td>
-        <td class="num">${nat(r.liq_px, "", 4)}</td>
-        <td class="num">${nat(r.margin, r.ccy)}</td><td class="num">${signed(r.upl, " " + esc(r.ccy))}</td>
-        <td class="num">${pctCell(r.upl_pct)}</td><td class="num">${eur(r.value_eur)}</td>
-        <td class="mut">${esc(r.opened || "")}</td></tr>`).join("");
+        <td class="num">${eur(r.value_eur)}</td><td class="num">${signed(r.upl)}</td>
+        <td class="num">${pctCell(r.upl_pct)}</td><td class="num">${nat(r.margin, r.ccy)}</td>
+        <td class="num">${px(r.avg_px)}</td><td class="num">${px(r.mark_px)}</td>
+        <td class="num">${px(r.liq_px)}</td></tr>`).join("");
     const base = P && P.summary ? P.summary.market_value : null;
     const notes = [`${rows.length} abierta${rows.length === 1 ? "" : "s"}`, `valor ${eur(d.total_eur)}`];
     if (base != null) notes.push(`cartera + futuros ${eur(base + d.total_eur)}`);
