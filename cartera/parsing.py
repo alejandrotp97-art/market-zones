@@ -44,6 +44,12 @@ CARTERA_EXPORT_COLS = ["fecha", "ticker", "nombre", "tipo", "cantidad", "precio"
                        "comision", "nota"]
 
 _ISIN_RE = re.compile(r"^[A-Z]{2}[A-Z0-9]{9}[0-9]$")
+# El identificador de Morningstar de un fondo sin bolsa, con o sin la plaza:
+# `0P000011YA` y `0P000011YA.F` son el MISMO fondo. Yahoo lo usa tal cual de
+# símbolo, así que no hay que adivinar nada — pero TAMPOCO es un ticker al que
+# subir a mayúsculas y dar por bueno: sin la plaza no cotiza, y el nombre del
+# activo vive en esa misma búsqueda.
+_PERF_ID_RE = re.compile(r"^0P[A-Z0-9]{8}(\.[A-Z]{1,4})?$")
 
 _CORP_SUFFIX = {"INC", "INCORPORATED", "CORP", "CORPORATION", "CO", "COMPANY",
                 "LTD", "LIMITED", "PLC", "SA", "NV", "AG", "SE", "LLC", "LP",
@@ -207,6 +213,14 @@ def side_es(side: str) -> str:
 # ── identidad de un instrumento ───────────────────────────────────────────
 def looks_like_isin(s: str) -> bool:
     return bool(_ISIN_RE.match(str(s).strip().upper()))
+
+
+def looks_like_perf_id(s: str) -> bool:
+    """`0P000011YA`, `0P000011YA.F` — el identificador de Morningstar de un
+    fondo cotizado a NAV. Se distingue de un ticker porque nadie escribe un
+    símbolo de Yahoo empezando por `0P` y con ocho caracteres fijos detrás, y
+    porque sin traducir no sirve: `0P000011YA` no cotiza en ninguna parte."""
+    return bool(_PERF_ID_RE.match(str(s).strip().upper()))
 
 
 def symbol_isin(symbol: str) -> str:
