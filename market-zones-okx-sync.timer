@@ -1,0 +1,13 @@
+[Unit]
+Description=Sincronización diaria de operaciones OKX a la cartera de market-zones (15:05 UTC)
+
+[Timer]
+# Hora exacta, sin RandomizedDelaySec: el usuario la fijó a las 15:05 UTC.
+# AccuracySec=1s evita que systemd agrupe el disparo hasta un minuto después.
+OnCalendar=*-*-* 15:05:00 UTC
+AccuracySec=1s
+# Si la máquina estaba apagada a las 15:05, se ejecuta al arrancar.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

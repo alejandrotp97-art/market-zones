@@ -32,6 +32,7 @@ import pandas as pd
 from flask import Flask, Response, jsonify, redirect, render_template, request, send_from_directory
 
 import geo
+from cartera import okx as _okx
 from cartera.dividends import forecast as _div_forecast
 from cartera.dividends import monthly_received as _div_received
 from cartera.exposure import by_asset_class as _by_asset_class
@@ -884,6 +885,14 @@ def _cartera_conn():
         c.execute("ALTER TABLE movements ADD COLUMN name TEXT")
     if "kind" not in have:
         c.execute("ALTER TABLE movements ADD COLUMN kind TEXT")
+    # Identificador de origen para las operaciones importadas de OKX. El índice
+    # único es lo que hace idempotente la sincronización: repetirla no duplica.
+    # NULL no choca con NULL en SQLite, así que los movimientos manuales siguen
+    # sin conflictos. Se crea en cada conexión (IF NOT EXISTS), como el resto.
+    if "source_id" not in have:
+        c.execute("ALTER TABLE movements ADD COLUMN source_id TEXT")
+    c.execute("CREATE UNIQUE INDEX IF NOT EXISTS movements_source_id "
+              "ON movements(source_id)")
     # El TER no lo publica el endpoint de cotizaciones que usa este panel, y no
     # se inventa: lo escribe quien tiene el folleto delante. Tabla aparte y no
     # una columna en `movements` porque es una propiedad del INSTRUMENTO, no de
@@ -1931,6 +1940,24 @@ def api_cartera_upload():
                                    "quantity": r["quantity"], "price": r["price"]}
                                   for r in dupes[:10]]}
     return jsonify(p)
+
+
+@app.route("/api/cartera/okx/sync", methods=["POST"])
+def api_cartera_okx_sync():
+    """Trae las operaciones spot de OKX como movimientos (solo lectura, a demanda).
+
+    La guardia CSRF y la de cartera ya cubren este POST por ser global. Sin claves
+    responde 400 con los NOMBRES de las que faltan, nunca con sus valores.
+    """
+    cfg, faltan = _okx.leer_config()
+    if cfg is None:
+        return jsonify({"error": "OKX no configurado. Faltan: " + ", ".join(faltan)}), 400
+    try:
+        with _cartera_conn() as c:
+            resultado = _okx.sincronizar(c, cfg)
+    except _okx.OkxError as e:
+        return jsonify({"error": f"No pude leer OKX: {e}"}), 502
+    return jsonify(resultado)
 
 
 @app.route("/api/cartera/export")

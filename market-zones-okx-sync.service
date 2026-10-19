@@ -1,0 +1,45 @@
+[Unit]
+Description=market-zones - sincroniza las operaciones spot de OKX con cartera.db (API de solo lectura, idempotente por source_id). Sin trading, sin retiradas.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/alex/bots/market-zones
+Environment=PYTHONUNBUFFERED=1
+Environment=CARTERA_OKX_ENV=/home/alex/oficina/.env
+ExecStart=/home/alex/bots/market-zones/.venv/bin/python /home/alex/bots/market-zones/okx_sync.py
+
+# Sale con 0 si sincroniza y con 1 si no hay claves o OKX falla. No hay código
+# "sin cambios": una sincronización sin novedades es un 0 con added=0.
+
+# SIN PrivateNetwork=true, a propósito: esta unidad necesita salir a
+# eea.okx.com. (La copia de seguridad sí lo lleva, porque no toca la red.)
+#
+# El .env de las claves vive en /home/alex/oficina/.env, fuera de
+# ReadWritePaths. ProtectHome=read-only lo deja LEGIBLE (sólo impide escribir en
+# /home), y el fichero es 0600 del mismo usuario que ejecuta la unidad. Si algún
+# día se endurece con ProtectHome=yes o tmpfs sobre /home, la lectura del .env
+# falla y la unidad sale con 1 y el motivo "OKX no configurado".
+ProtectSystem=strict
+ProtectHome=read-only
+# La base y su -journal se escriben en el mismo directorio: hace falta el árbol
+# entero, no sólo cartera.db.
+ReadWritePaths=/home/alex/bots/market-zones
+PrivateTmp=true
+NoNewPrivileges=true
+
+TimeoutStartSec=120
+MemoryHigh=200M
+MemoryMax=300M
+OOMScoreAdjust=200
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=market-zones-okx-sync
+
+# Instalar (NO hecho aquí):
+#   cp market-zones-okx-sync.{service,timer} ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now market-zones-okx-sync.timer
+# Probar ahora:  systemctl --user start market-zones-okx-sync.service
+# Ver el JSON:   journalctl --user -u market-zones-okx-sync.service -n 5
