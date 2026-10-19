@@ -49,7 +49,13 @@ class OkxError(Exception):
 # ── configuración ─────────────────────────────────────────────────────────
 
 def ruta_env() -> str:
-    return os.environ.get("CARTERA_OKX_ENV") or ENV_DEFAULT
+    """Archivo de claves. Una instancia con base propia (`CARTERA_DB`, la cartera de
+    otra persona) nunca hereda las del propietario: sin su `CARTERA_OKX_ENV`, no hay
+    claves, y ni la sincronización ni los futuros leen la cuenta de otro."""
+    propio = os.environ.get("CARTERA_OKX_ENV")
+    if propio:
+        return propio
+    return "" if os.environ.get("CARTERA_DB") else ENV_DEFAULT
 
 
 def leer_env(path: str) -> dict:
@@ -304,3 +310,74 @@ def sincronizar(c, cfg: dict, get=None) -> dict:
     return {"added": anadidas, "existing": existentes, "skipped": len(omitidas),
             "skipped_reasons": motivos, "truncated": truncado}
 
+
+# ── posiciones de derivados ───────────────────────────────────────────────
+# Un futuro no es poseer el activo: es un margen depositado más un resultado aún
+# no cobrado. Por eso no entra en `movements` (cantidad x precio) y se lee en
+# vivo, sin guardarlo: lo que vale ahora es lo que dice OKX ahora.
+
+RUTA_POSICIONES = "/api/v5/account/positions"
+
+
+def _cambio_eur(get, cfg: dict, moneda: str):
+    """EUR por unidad de `moneda` (último del contado <moneda>-EUR de OKX). None si no hay par."""
+    if moneda == "EUR":
+        return 1.0
+    try:
+        filas = _datos(get, cfg, "/api/v5/market/ticker?instId=" + urllib.parse.quote(f"{moneda}-EUR"))
+    except OkxError:
+        return None
+    ultimo = _num((filas[0] if filas else {}).get("last"))
+    return ultimo if ultimo and ultimo > 0 else None
+
+
+def resumir_posiciones(filas: list, cambios: dict) -> dict:
+    """Posiciones abiertas con su valor en EUR = (margen + resultado no realizado) x cambio.
+
+    Una posición cuya moneda de margen no tiene cambio queda sin valorar: se lista,
+    pero no suma al total, y se nombra en `unvalued`.
+    """
+    posiciones, sin_valorar, total = [], [], 0.0
+    for r in filas:
+        pos = _num(r.get("pos"), 0.0) or 0.0
+        if abs(pos) < 1e-12:
+            continue
+        lado = r.get("posSide")
+        if lado not in ("long", "short"):
+            lado = "long" if pos > 0 else "short"
+        moneda = str(r.get("ccy") or "")
+        # En margen aislado OKX da `margin`; en cruzado viene vacío y el que cuenta es `imr`.
+        margen = _num(r.get("margin")) if r.get("margin") not in (None, "") else _num(r.get("imr"))
+        resultado = _num(r.get("upl"), 0.0)
+        fx = cambios.get(moneda)
+        valor = (margen + resultado) * fx if (fx and margen is not None) else None
+        ratio = _num(r.get("uplRatio"))
+        apertura = _num(r.get("cTime"))
+        inst = str(r.get("instId") or "")
+        posiciones.append({
+            "inst_id": inst, "inst_type": r.get("instType"),
+            "side": "largo" if lado == "long" else "corto",
+            "contracts": abs(pos), "avg_px": _num(r.get("avgPx")), "mark_px": _num(r.get("markPx")),
+            "liq_px": _num(r.get("liqPx")), "lever": _num(r.get("lever")), "mgn_mode": r.get("mgnMode"),
+            "ccy": moneda, "margin": margen, "upl": resultado,
+            "upl_pct": round(ratio * 100, 2) if ratio is not None else None,
+            "notional_usd": _num(r.get("notionalUsd")),
+            "upl_eur": round(resultado * fx, 2) if fx else None,
+            "value_eur": round(valor, 2) if valor is not None else None,
+            "opened": (datetime.datetime.fromtimestamp(apertura / 1000, TZ_MADRID).strftime("%Y-%m-%d %H:%M")
+                       if apertura else None),
+        })
+        if valor is None:
+            sin_valorar.append(inst)
+        else:
+            total += valor
+    return {"positions": posiciones, "total_eur": round(total, 2), "unvalued": sin_valorar}
+
+
+def posiciones_abiertas(cfg: dict, get=None) -> dict:
+    """Lee las posiciones abiertas de OKX (solo lectura) y las valora en EUR."""
+    get = get or http_get
+    filas = _datos(get, cfg, RUTA_POSICIONES)
+    monedas = sorted({str(r.get("ccy") or "") for r in filas if (_num(r.get("pos"), 0.0) or 0.0) != 0})
+    cambios = {m: fx for m in monedas if (fx := _cambio_eur(get, cfg, m)) is not None}
+    return {**resumir_posiciones(filas, cambios), "fx": cambios}

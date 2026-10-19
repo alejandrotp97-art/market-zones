@@ -593,3 +593,15 @@ En orden de peso:
    redundancia rechazó cuatro indicadores por correlacionar 0,61–0,92 con lo
    que ya había.
 5. **¿Responde una pregunta que alguien con dinero dentro se hace de verdad?**
+
+## Futuros de OKX
+
+`GET /api/cartera/futuros` lee en vivo las posiciones de derivados abiertas en OKX
+(`/api/v5/account/positions`, clave de solo lectura) y las valora en EUR como
+margen + P&L abierto, al cambio del contado `<moneda>-EUR` de OKX. No se guardan
+como movimientos: un futuro no es poseer el activo. La tarjeta «Futuros (OKX)» de
+`/cartera` las lista y suma «cartera + futuros» aparte de los totales de contado.
+
+Sin claves responde 400 y la tarjeta no aparece. Una instancia con base propia
+(`CARTERA_DB`) nunca usa las claves del propietario: necesita su propio
+`CARTERA_OKX_ENV`.
