@@ -239,6 +239,17 @@ números del resumen viven fuera de una tarjeta, así que llevan `padding:0 15px
 —borde más relleno— para caer sobre esas mismas líneas. Tres columnas iguales
 cortarían en el 33% y el 66%, que no son líneas de esta página.
 
+**El orden lo elige quien mira (2026-10-18).** El orden de abajo es el de
+fábrica. Cada tarjeta lleva un asa (⠿) junto al título: se arrastra dentro de
+su columna, o se mueve con ↑ ↓ con el asa enfocada. El orden se guarda en el
+navegador (`localStorage`, clave `cartera-orden`) como lista de claves —el `id`
+de la tarjeta o su `data-card`—, así que cada tarjeta nueva necesita una clave
+única (lo comprueba `tests/test_cartera_orden.py`). Una tarjeta que no estaba
+cuando se guardó el orden entra detrás de la que la precede por defecto.
+«Restablecer el orden de las tarjetas», al pie, vuelve al de fábrica. No se
+cruza de columna: el raíl mide 400px y las gráficas anchas no se redibujan ahí.
+Código: `static/orden.js` y `static/orden.css`.
+
 ### Columna principal
 
 1. **Resumen** — invertido, valor de mercado, P&L no realizado, P&L realizado
