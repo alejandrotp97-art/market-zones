@@ -1920,6 +1920,17 @@
     sideMode();
   }
   $("f-cancel").addEventListener("click", () => cancelEdit());
+  // Elegir un resultado del bloque «Yahoo Finance». El formulario sólo manda el
+  // nombre cuando `sel` coincide con el símbolo tecleado, así que sin esto un
+  // clic en la lista no hace nada —y el movimiento se apunta con el nombre
+  // vacío, que es exactamente como llegó este plan de pensiones al libro.
+  function pick(x) {
+    sel = { symbol: x.symbol, name: x.name, kind: x.kind };
+    fTk.value = x.symbol; fRes.hidden = true;
+    fPick.innerHTML = `${kbadge(x.kind)} <b>${esc(x.name)}</b>`;
+    fPick.hidden = false;
+    showCcy(x.symbol);                  // la divisa en la que hay que teclear el precio
+  }
   // Un clic fuera cierra cada lista por su cuenta: son dos buscadores distintos
   // y abrir uno tiene que cerrar el otro, no dejar dos desplegables encendidos.
   document.addEventListener("click", (e) => {

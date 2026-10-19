@@ -55,6 +55,7 @@ from cartera.parsing import csv_text as _csv_text
 from cartera.parsing import csv_text_read as _csv_text_read
 from cartera.parsing import instrument_kind as _instrument_kind
 from cartera.parsing import looks_like_isin as _looks_like_isin
+from cartera.parsing import looks_like_perf_id as _looks_like_perf_id
 from cartera.parsing import mov_key as _mov_key
 from cartera.parsing import name_from_meta as _name_from_meta
 from cartera.parsing import norm_col as _norm_col
@@ -995,6 +996,32 @@ _KIND_ES = {"EQUITY": "Acción", "ETF": "ETF", "MUTUALFUND": "Fondo", "INDEX": "
 SYMBOL_ALIASES = {"BITCOIN EUR": ("BTC-EUR", "Bitcoin EUR", "Cripto")}
 
 
+def _nombre_de_cotizacion(x: dict, sym: str) -> str:
+    """El nombre del activo, no su propio código otra vez.
+
+    Para los fondos que Yahoo cotiza a NAV desde Morningstar, `shortname` ES el
+    símbolo (`0P000011YA.F`) y el nombre vive sólo en `longname`. Con el orden
+    anterior el desplegable enseñaba el código dos veces y el NOMBRE no aparecía
+    en ninguna parte de la pantalla: elegirlo apuntaba un movimiento llamado
+    `0P000011YA.F`. Sólo se salta `shortname` cuando no dice nada que el símbolo
+    ya no diga: para el resto es el más corto, el que se lee en una lista.
+    """
+    for v in (x.get("shortname"), x.get("longname")):
+        v = str(v or "").strip()
+        if v and v != sym:
+            return v
+    return sym
+
+
+def _busca_en_yahoo(q: str, limit: int, params: str) -> list:
+    url = ("https://query2.finance.yahoo.com/v1/finance/search?q="
+           + urllib.parse.quote(q)
+           + f"&quotesCount={int(limit)}&newsCount=0{params}")
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(req, timeout=12) as r:
+        return json.load(r).get("quotes", [])
+
+
 def _yahoo_search(q: str, limit: int = 12) -> list:
     q = (q or "").strip()
     if len(q) < 2:
@@ -1004,12 +1031,15 @@ def _yahoo_search(q: str, limit: int = 12) -> list:
     if hit and time.time() - hit[0] < 300:
         return hit[1]
     try:
-        url = ("https://query2.finance.yahoo.com/v1/finance/search?q="
-               + urllib.parse.quote(q)
-               + f"&quotesCount={int(limit)}&newsCount=0&lang=es-ES&region=ES")
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=12) as r:
-            quotes = json.load(r).get("quotes", [])
+        quotes = _busca_en_yahoo(q, limit, "&lang=es-ES&region=ES")
+        if not quotes:
+            # `region=ES` descarta las entradas de los fondos que no cotizan en
+            # ninguna bolsa española: «BBVA Plan Megatendencia» se queda sin un
+            # solo resultado desde España, mientras que el mismo texto sin
+            # filtro devuelve el fondo. Sólo se reintentará cuando el filtro no
+            # haya dicho nada —lo que ese filtro ordena bien sigue ordenado como
+            # él lo ordena—, así que una búsqueda corriente paga UNA petición.
+            quotes = _busca_en_yahoo(q, limit, "")
     except Exception:
         return []                                 # transient failure -> do NOT cache
     out = []
@@ -1019,7 +1049,7 @@ def _yahoo_search(q: str, limit: int = 12) -> list:
         if not sym or qt not in _KIND_ES:
             continue
         out.append({"symbol": sym, "kind": _instrument_kind(sym, _KIND_ES[qt]),
-                    "name": x.get("shortname") or x.get("longname") or sym,
+                    "name": _nombre_de_cotizacion(x, sym),
                     "exchange": x.get("exchDisp", "")})
     _cache_put(_search_cache, key, (time.time(), out), cap=256)
     return out
@@ -1035,7 +1065,7 @@ def _resolve_symbol(query: str):
     alias = SYMBOL_ALIASES.get(q.upper())
     if alias:
         return alias
-    if _looks_like_isin(q) or " " in q:
+    if _looks_like_isin(q) or " " in q or _looks_like_perf_id(q):
         res = _yahoo_search(q)
         # An ISIN names ONE instrument, so the listing whose symbol is built from
         # that ISIN is that instrument — taken before any preference by type.
@@ -1046,6 +1076,17 @@ def _resolve_symbol(query: str):
             want = q.upper()
             for r in res:
                 if _symbol_isin(r["symbol"]) == want:
+                    return r["symbol"], r["name"], r["kind"]
+        # Un identificador de Morningstar nombra UN fondo igual que un ISIN, y es
+        # el ÚNICO camino para los que no cotizan: pegar `0P000011YA` sin la plaza
+        # tiene que dar el mismo fondo que `0P000011YA.F`, porque los dos son él.
+        # Sin esto el formulario se quedaba con el código en mayúsculas y el
+        # nombre vacío, y la posición no tenía con qué rotularse en el mapa.
+        if _looks_like_perf_id(q):
+            want = q.upper()
+            for r in res:
+                sym = str(r["symbol"] or "").upper()
+                if sym == want or sym.startswith(want + "."):
                     return r["symbol"], r["name"], r["kind"]
         # The query may BE the instrument's own name: Yahoo labels BTC-EUR
         # shortname "Bitcoin EUR", and the first hit for "BITCOIN EUR" is a micro
@@ -1657,10 +1698,11 @@ def _parse_upload(filename: str, data: bytes):
     # al revés, una nota que sea sólo un tabulador vuelve como apóstrofo.
     _des = _csv_text_read if list(df.columns) == CARTERA_EXPORT_COLS else str
     rows, errors = [], []
-    # Each distinct LOOKUP —an ISIN or a free-text name with a space— costs one
-    # outbound Yahoo search, so a crafted file is a request amplifier pointed at
-    # a third party. Resolutions are memoised per file and capped; past the cap
-    # the raw ticker is kept as it came.
+    # Each distinct LOOKUP —an ISIN, a free-text name with a space, or a
+    # Morningstar `0P…` identifier— costs one outbound Yahoo search, so a crafted
+    # file is a request amplifier pointed at a third party. Resolutions are
+    # memoised per file and capped; past the cap the raw ticker is kept as it
+    # came.
     resolved: dict[str, tuple] = {}
     for i, row in df.iterrows():
         try:
@@ -1669,9 +1711,12 @@ def _parse_upload(filename: str, data: bytes):
                 continue
             nm = (_des(str(row[cols["name"]])).strip() if "name" in cols and pd.notna(row[cols["name"]]) else "")
             tk, kind = raw.upper(), ""
-            # Un ISIN o un nombre con espacios: los dos son texto que hay que
-            # traducir a un símbolo; un código de una sola palabra ya lo es.
-            if _looks_like_isin(raw) or " " in raw:
+            # Un ISIN, un nombre con espacios o un identificador `0P…`: los tres
+            # son texto que hay que traducir a un símbolo. Un código de una sola
+            # palabra SÍ lo es — `SPY` —, pero `0P000011YA` no cotiza en ninguna
+            # parte sin su plaza, y sin traducirlo el movimiento se queda sin
+            # nombre.
+            if _looks_like_isin(raw) or " " in raw or _looks_like_perf_id(raw):
                 if raw in resolved:
                     sym, rn, kd = resolved[raw]
                 elif len(resolved) < MAX_ISIN_LOOKUPS:
