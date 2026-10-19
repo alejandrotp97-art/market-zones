@@ -14,9 +14,17 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from cartera.firds import (apalancado, decode_cfi, domicile, es_etc,
-                           etc_candidatos, fold, iter_listings, mejor_nombre,
-                           sin_paraguas)
+from cartera.firds import (
+    apalancado,
+    decode_cfi,
+    domicile,
+    es_etc,
+    etc_candidatos,
+    fold,
+    iter_listings,
+    mejor_nombre,
+    sin_paraguas,
+)
 
 NS = "urn:iso:std:iso:20022:tech:xsd:auth.017.001.02"
 

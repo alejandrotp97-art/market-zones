@@ -10,6 +10,7 @@ import os
 import sqlite3
 import sys
 import time
+import xml.etree.ElementTree as ET
 import zipfile
 
 import pytest
@@ -93,7 +94,7 @@ def test_el_catalogo_se_reemplaza_entero_o_nada(tmp_path):
     with zipfile.ZipFile(roto, "w") as zf:
         zf.writestr("x.xml", b"<esto no es> FIRDS")
 
-    with pytest.raises(Exception):
+    with pytest.raises(ET.ParseError):
         ING.ingerir([str(roto)], {"source": "prueba"}, str(db))
 
     assert db.read_bytes() == b"catalogo viejo"
@@ -485,7 +486,6 @@ FILA_MS = {"SecId": "F0GBR04AZ2", "Name": "Bestinver Internacional FI",
 
 
 def _ms(monkeypatch, *filas):
-    import io
     import json as _json
     D._ms_cache.clear()          # la caché vive 5 min y falsearía el test siguiente
     monkeypatch.setattr(D.urllib.request, "urlopen",
