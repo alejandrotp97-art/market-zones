@@ -77,6 +77,15 @@ PROXIES = {
         "asset_class": "bond", "proxy_isin": "IE00BSKRJX20",
         "proxy_name": "iShares EUR Government Bond 20yr Target Duration UCITS ETF",
         "proxy_note": "mismo segmento (deuda soberana euro larga), no el mismo índice"},
+    # Un plan de pensiones no cotiza en ningún mercado, así que ni el registro de
+    # la UE ni justETF lo perfilan: sin esto queda en `needs_proxy` y la posición
+    # no aparece en el mapa, sólo en la lista de «fuera del mapa».
+    "0P000011YA.F": {
+        "asset_class": "equity", "proxy_isin": "IE00BM67HT60",
+        "proxy_name": "Xtrackers MSCI World Information Technology UCITS ETF 1C",
+        "proxy_note": "el plan sigue 70 % MSCI World IT + 30 % MSCI World "
+                      "Communication Services; aquí se toma sólo la pata de "
+                      "tecnología, que es la mayor"},
     "FR0013416716.SG": {
         "asset_class": "commodity", "proxy_isin": None,
         "proxy_name": None,

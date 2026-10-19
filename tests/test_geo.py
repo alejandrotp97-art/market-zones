@@ -237,3 +237,16 @@ def test_unknown_fund_asks_for_a_human_choice_instead_of_guessing():
     # seeder refuses to pick.
     r = S.resolve("0P0000XYZ9.F", "Fondo que no conocemos")
     assert r["needs_proxy"] is True and r["proxy_isin"] is None
+
+
+def test_the_bbva_tech_plan_has_a_reference_etf():
+    """Sin entrada en `PROXIES` el sembrador lo deja en `needs_proxy` con pesos
+    vacíos: la posición sale en la lista «fuera del mapa» y nunca se colorea
+    ningún país. Elegido UNA vez y a mano, como el resto, sobre el índice de
+    referencia del plan — MSCI World Information Technology (70 %) + MSCI World
+    Communication Services (30 %) — y la pata que se toma se dice en el
+    `proxy_note`, que es lo que la ficha de fuentes enseña."""
+    r = S.resolve("0P000011YA.F", "BBVA Plan Megatendencia Tecnología PP")
+    assert r["proxy_isin"] == "IE00BM67HT60"
+    assert r["asset_class"] == "equity"
+    assert r["is_proxy"] is True and r["needs_proxy"] is False
