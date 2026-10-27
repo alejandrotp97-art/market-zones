@@ -93,3 +93,17 @@ def test_api_json_gets_the_headers_too(client):
     r = client.get("/api/does-not-exist")
     assert r.headers["X-Content-Type-Options"] == "nosniff"
     assert policy(r)["frame-ancestors"] == "'none'"
+
+
+def test_swing_gives_up_on_a_slow_upstream_quickly(client, monkeypatch):
+    """A hung :8775 must not hold one of the 8 waitress threads for 30 s."""
+    seen = {}
+
+    def slow(req, timeout=None):
+        seen["timeout"] = timeout
+        raise TimeoutError("timed out")
+
+    monkeypatch.setattr(D.urllib.request, "urlopen", slow)
+    r = client.get("/swing")
+    assert r.status_code == 503 and "no disponible" in r.get_data(as_text=True)
+    assert seen["timeout"] <= 8

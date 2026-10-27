@@ -2647,7 +2647,7 @@ def abraham_page(filename: str = "index.html"):
 # sostiene este reenvío no es que no haya scripts, es que no haya una segunda
 # petición: un `src` cualquiera apuntaría a :8775, que no cruza el túnel.
 ZONAS_V2_URL = os.environ.get("ZONAS_V2_URL", "http://127.0.0.1:8775")
-ZONAS_V2_TIMEOUT = 30
+ZONAS_V2_TIMEOUT = 8   # a cold /swing takes ~1.3 s; a hung :8775 must not hold a thread for long
 
 
 @app.route("/swing")
