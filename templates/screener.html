@@ -55,7 +55,7 @@
      reaching the browser as "S&amp;P 500". `tojson` emits JSON escapes
      (&, <, U+2028), so the value survives intact AND can never close
      the tag. #}
-  <script>window.__TICKERS__ = {{ curated|tojson }};</script>
+  <script nonce="{{ csp_nonce() }}">window.__TICKERS__ = {{ curated|tojson }};</script>
   <script src="{{ asset('screener.js') }}"></script>
 </body>
 </html>

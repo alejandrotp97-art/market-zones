@@ -109,7 +109,7 @@
 
   {# See screener.html: `{{ }}` inside <script> HTML-escapes, which the script
      parser never decodes. `tojson` is the correct escaper for this context. #}
-  <script>window.__TICKERS__ = {{ curated|tojson }};</script>
+  <script nonce="{{ csp_nonce() }}">window.__TICKERS__ = {{ curated|tojson }};</script>
   <script src="{{ asset('comite.js') }}"></script>
 </body>
 </html>

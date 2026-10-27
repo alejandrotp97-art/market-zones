@@ -13,6 +13,7 @@ import csv
 import datetime
 import gzip
 import html
+import secrets
 import io
 import json
 import math
@@ -29,7 +30,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import numpy as np
 import pandas as pd
-from flask import Flask, Response, jsonify, redirect, render_template, request, send_from_directory
+from flask import Flask, Response, g, jsonify, redirect, render_template, request, send_from_directory
 
 import geo
 from cartera import okx as _okx
@@ -389,6 +390,47 @@ def _csrf_guard():
         return jsonify({"error": "Petición rechazada: falta la cabecera "
                                  f"{CSRF_HEADER}."}), 403
     return None
+
+
+# ── Security headers ──────────────────────────────────────────────────────
+# The pages build most of their HTML with innerHTML from API data. A strict
+# Content-Security-Policy makes anything that slipped through unescaped inert:
+# only this app's script files and inline scripts carrying the response's nonce
+# run. Third-party static pages (/abraham) are not ours to rewrite, so they get
+# the rules that cannot break them: no framing, no plugins, no <base>.
+FRAME_RULES = ["object-src 'none'", "base-uri 'none'", "frame-ancestors 'none'"]
+
+
+def csp_nonce() -> str:
+    if "csp_nonce" not in g:
+        g.csp_nonce = secrets.token_urlsafe(18)
+    return g.csp_nonce
+
+
+app.jinja_env.globals["csp_nonce"] = csp_nonce
+
+
+def _csp() -> str:
+    if request.path.startswith("/abraham"):
+        return "; ".join(FRAME_RULES)
+    return "; ".join([
+        "default-src 'self'",
+        f"script-src 'self' 'nonce-{csp_nonce()}'",
+        "style-src 'self' 'unsafe-inline'",  # style="" built by the scripts
+        "img-src 'self' data:",
+        "connect-src 'self'",
+        "form-action 'self'",
+        *FRAME_RULES,
+    ])
+
+
+@app.after_request
+def _security_headers(resp):
+    resp.headers["Content-Security-Policy"] = _csp()
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    resp.headers["X-Frame-Options"] = "DENY"
+    resp.headers["Referrer-Policy"] = "same-origin"  # no-referrer would send Origin: null on POST
+    return resp
 
 
 # ── La cartera no se sirve a ciegas ───────────────────────────────────────
@@ -2528,6 +2570,8 @@ def swing():
             f"{html.escape(str(exc))}.</p><p>Comprueba el servicio con "
             "<code>systemctl --user status zonas-v2-dashboard</code>.</p>",
             status=503, mimetype="text/html")
+    # Its one inline script gets this response's nonce, or the CSP would block it.
+    body = body.replace(b"<script>", f'<script nonce="{csp_nonce()}">'.encode())
     return Response(body, mimetype="text/html")
 
 
