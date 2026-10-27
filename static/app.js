@@ -171,8 +171,12 @@
     renderSide(tgtBuy, t.buy, t.ccy, "tgt-buy", t.conf, t.vol);
     renderSide(tgtSell, t.sell, t.ccy, "tgt-sell", t.conf, t.vol);
   }
+  // Strings from the API (currency codes, lever and zone names) are escaped before
+  // they reach innerHTML; numbers and the constants below go in as they are.
+  const esc = (s) => String(s == null ? "" : s).replace(/[<>&"']/g, (c) =>
+    ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;", "'": "&#39;" })[c]);
   function money(ccy, v) {
-    return v == null ? "—" : ccy + Math.round(v).toLocaleString("es");
+    return v == null ? "—" : esc(ccy) + Math.round(v).toLocaleString("es");
   }
   const mrow = (k, v) => `<div class="m-row"><span>${k}</span><b>${v}</b></div>`;
   const sPct = (p) => p == null ? ""
@@ -182,12 +186,12 @@
     const dir = s.u <= 50 ? "COMPRA → Capitulación" : "VENTA → Euforia";
     const pct = s.pct != null ? sPct(s.pct) + " vs hoy" : "";
     const m2 = s.m2.price == null ? "ninguna palanca sola llega"
-      : `${money(ccy, s.m2.price)} · ${s.m2.lever}`;
+      : `${money(ccy, s.m2.price)} · ${esc(s.m2.lever)}`;
     const m3 = s.m3 == null ? "sin muestra en zona"
       : `${money(ccy, s.m3.mid)} <span class="band">[${Math.round(s.m3.lo)}–${Math.round(s.m3.hi)}]</span><i class="n">n=${s.m3.n}</i>`;
     // Banda: el consenso es la ENTRADA; `band` es el borde típico hacia dentro.
     const confChip = conf
-      ? `<span class="tgt-conf conf-${conf}">${conf}${vol != null ? ` · vol ${Math.round(vol)}%` : ""}</span>`
+      ? `<span class="tgt-conf conf-${esc(conf)}">${esc(conf)}${vol != null ? ` · vol ${Math.round(vol)}%` : ""}</span>`
       : "";
     const bandRow = s.band == null ? ""
       : `<div class="tgt-band">${s.u <= 50 ? "fondo" : "techo"} típico `
@@ -552,7 +556,7 @@
     tip.innerHTML =
       `<div class="t-date">${fmtDate(p.t)}</div>` +
       `<div class="t-row"><span>Precio</span><b>${p.close == null ? "—" : fmtPrice(p.close)}</b></div>` +
-      `<div class="t-row"><span>Score</span><b style="color:${colorForScore(p.score)}">${p.score.toFixed(1)} · ${p.zone || ""}</b></div>` +
+      `<div class="t-row"><span>Score</span><b style="color:${colorForScore(p.score)}">${p.score.toFixed(1)} · ${esc(p.zone)}</b></div>` +
       `<div class="t-sep"></div>` +
       `<div class="t-row"><span>Stretch</span><b>${comp("stretch")}</b></div>` +
       `<div class="t-row"><span>RSI(14)</span><b>${comp("rsi")}</b></div>` +
