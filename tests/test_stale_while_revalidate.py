@@ -108,3 +108,30 @@ def test_portfolio_price_series_are_also_served_stale_and_refreshed(monkeypatch)
 def test_a_missing_series_is_still_fetched_in_the_request(monkeypatch):
     monkeypatch.setattr(D, "fetch_daily", lambda t, years=25: frame(30.0))
     assert D._close_series("BBB").iloc[-1] == 30.0
+
+
+def test_concurrent_cold_requests_share_one_build_and_never_crash():
+    """_get_lock mutates (and prunes) a shared dict: it must run under _lock, or two
+    threads get different locks (double Yahoo call) and pruning raises RuntimeError."""
+    old_interval = sys.getswitchinterval()
+    sys.setswitchinterval(1e-6)
+    errors, dups = [], 0
+    try:
+        for trial in range(300):
+            builds = []
+            gate = threading.Barrier(12)
+
+            def worker():
+                gate.wait()
+                try:
+                    D._encoded(f"probe|{trial}", lambda: (builds.append(1), time.sleep(0.002), {"t": trial})[2])
+                except Exception as e:          # noqa: BLE001 - any error is the defect
+                    errors.append(repr(e))
+
+            threads = [threading.Thread(target=worker) for _ in range(12)]
+            for t in threads: t.start()
+            for t in threads: t.join()
+            dups += len(builds) > 1
+    finally:
+        sys.setswitchinterval(old_interval)
+    assert errors == [] and dups == 0, (errors[:3], dups)

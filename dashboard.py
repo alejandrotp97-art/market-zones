@@ -309,7 +309,8 @@ def _encoded(key: str, build, limited: bool = False):
 
 
 def _rebuild(key: str, build, limited: bool):
-    lk = _get_lock(key)
+    with _lock:   # _get_lock mutates and prunes the shared _locks dict
+        lk = _get_lock(key)
     # Single-flight: concurrent requests for the same key wait here and then
     # read the fresh entry, instead of each firing its own slow Yahoo call.
     with lk:
@@ -332,6 +333,7 @@ def _rebuild(key: str, build, limited: bool):
 STALE_MAX = 24 * 3600   # older than this, a cached answer is rebuilt in the request
 _refreshing: set[str] = set()
 _refresh_lock = threading.Lock()
+_refresh_slots = threading.BoundedSemaphore(4)   # at most 4 Yahoo refreshes at once
 
 
 def _refresh_in_background(tag: str, fn) -> None:
@@ -344,7 +346,8 @@ def _refresh_in_background(tag: str, fn) -> None:
 
     def run():
         try:
-            fn()
+            with _refresh_slots:
+                fn()
         except Exception:
             pass
         finally:
