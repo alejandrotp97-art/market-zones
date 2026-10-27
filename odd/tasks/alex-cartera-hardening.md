@@ -4,7 +4,7 @@ Branch: fix/alex-cartera-hardening · Delivery: ask-on-risk · Tests: `.venv/bin
 Scope note: nacho/nico instances run the same code but are ON STANDBY: only `market-zones.service` is restarted.
 
 ## Specs
-- S1 Security headers on every response: CSP with a per-response nonce on the app's own pages (inline scripts in comite.html and screener.html carry it), `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: same-origin` (no-referrer would make POSTs send `Origin: null` and trip the CSRF gate). Proxied/third-party HTML (`/swing`, `/abraham/*`) keeps its inline script working: it gets frame-ancestors/object-src/base-uri only.
+- S1 Security headers on every response: CSP with a per-response nonce on the app's own pages (inline scripts in comite.html and screener.html carry it), `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: same-origin` (no-referrer would make POSTs send `Origin: null` and trip the CSRF gate). `/swing` (proxied) gets the full CSP: its one inline script receives the nonce. Third-party static `/abraham/*` keeps working with frame-ancestors/object-src/base-uri only.
 - S2 `static/app.js` escapes every string it puts into `innerHTML` (only numbers and constants go in raw).
 - S3 Access by SSH tunnel only: user `alex` removed from the carteras Caddy site (basicauth line and map entry); `PUBLIC_HOST` stays unset. Verbatim (user): "sí, vamos con el túnel".
 - S4 Optimisation plan, executed (user: "crea y ejecuta un plan de optimización"):
@@ -14,7 +14,7 @@ Scope note: nacho/nico instances run the same code but are ON STANDBY: only `mar
 
 ## Tasks
 - T1 S1 inline · done db803fa (11 tests RED→GREEN, suite 839)
-- T2 S2 inline · done c6a6dcb (no JS test runner: node --check + esc probe; browser check pending)
+- T2 S2 inline · done c6a6dcb (no JS test runner: node --check + esc probe; browser: target card renders, 0 CSP errors)
 - T3 S3 inline · user configs done (~/etc carteras Caddyfiles, backups .bak-<ts>); /etc/caddy pending user sudo script caddy-close-alex.sh
 - T4 S4a inline · done b8a655a (7 tests RED→GREEN) + 28970e0 (pre-existing test leak fixed)
 - T5 S4b inline · done bd58a28 (6 tests)
