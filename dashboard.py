@@ -484,6 +484,50 @@ def _security_headers(resp):
     return resp
 
 
+# ── Compression ───────────────────────────────────────────────────────────
+# Through the SSH tunnel nothing sits in front of waitress, so pages and static
+# files are gzipped here. The API already sends pre-gzipped bytes (Content-
+# Encoding set), and those are left alone. Static files never change under the
+# same ETag, so their gzip is kept and served again without recompressing.
+COMPRESSIBLE = ("text/html", "text/css", "text/javascript", "application/javascript",
+                "application/json", "image/svg+xml")
+GZIP_MIN_BYTES = 1024
+_gz_static: dict[tuple[str, str], bytes] = {}
+_gz_static_lock = threading.Lock()
+
+
+@app.after_request
+def _compress(resp):
+    if (resp.status_code != 200 or "Content-Encoding" in resp.headers
+            or resp.mimetype not in COMPRESSIBLE or resp.is_streamed and not resp.direct_passthrough
+            or "gzip" not in request.headers.get("Accept-Encoding", "")):
+        return resp
+    resp.vary.add("Accept-Encoding")
+    etag, weak = resp.get_etag()
+    key = (request.path, etag) if etag else None
+    with _gz_static_lock:
+        gz = _gz_static.get(key) if key else None
+    if gz is None:
+        resp.direct_passthrough = False
+        raw = resp.get_data()
+        if len(raw) < GZIP_MIN_BYTES:
+            return resp
+        gz = gzip.compress(raw, 6)
+        if key:
+            with _gz_static_lock:
+                if len(_gz_static) >= CACHE_MAX:
+                    _gz_static.pop(next(iter(_gz_static)))
+                _gz_static[key] = gz
+    resp.set_data(gz)
+    resp.headers["Content-Encoding"] = "gzip"
+    if etag:
+        resp.set_etag(etag + "-gz", weak=weak)
+        # send_file judged If-None-Match against the plain ETag; judge it again
+        # against the gzip one so a browser revalidating its copy gets a 304.
+        resp.make_conditional(request)
+    return resp
+
+
 # ── La cartera no se sirve a ciegas ───────────────────────────────────────
 # Esta aplicación no autentica a nadie, y nunca ha hecho falta: el aislamiento
 # es el loopback más un túnel SSH. `PUBLIC_HOST` es la única variable que rompe
