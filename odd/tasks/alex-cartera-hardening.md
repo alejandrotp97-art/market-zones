@@ -15,7 +15,7 @@ Scope note: nacho/nico instances run the same code but are ON STANDBY: only `mar
 ## Tasks
 - T1 S1 inline · done db803fa (11 tests RED→GREEN, suite 839)
 - T2 S2 inline · done c6a6dcb (no JS test runner: node --check + esc probe; browser: target card renders, 0 CSP errors)
-- T3 S3 inline · user configs done (~/etc carteras Caddyfiles, backups .bak-<ts>); /etc/caddy pending user sudo script caddy-close-alex.sh
+- T3 S3 inline · done: ~/etc carteras Caddyfiles + /etc/caddy (user ran sudo script; live config users hogar/nacho/nico only, no :8771 backend; admin API 200 again; backup Caddyfile.bak-20261027-161243)
 - T4 S4a inline · done b8a655a + 9f88fe2 (7 tests RED→GREEN) + 28970e0 (pre-existing test leak fixed)
 - T5 S4b inline · done bd58a28 (6 tests)
 - T6 S4c inline · done 51cd2f6 (1 test)
