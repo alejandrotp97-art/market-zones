@@ -16,7 +16,7 @@ Scope note: nacho/nico instances run the same code but are ON STANDBY: only `mar
 - T1 S1 inline · done db803fa (11 tests RED→GREEN, suite 839)
 - T2 S2 inline · done c6a6dcb (no JS test runner: node --check + esc probe; browser: target card renders, 0 CSP errors)
 - T3 S3 inline · user configs done (~/etc carteras Caddyfiles, backups .bak-<ts>); /etc/caddy pending user sudo script caddy-close-alex.sh
-- T4 S4a inline · done b8a655a (7 tests RED→GREEN) + 28970e0 (pre-existing test leak fixed)
+- T4 S4a inline · done b8a655a + 9f88fe2 (7 tests RED→GREEN) + 28970e0 (pre-existing test leak fixed)
 - T5 S4b inline · done bd58a28 (6 tests)
 - T6 S4c inline · done 51cd2f6 (1 test)
 
@@ -26,3 +26,4 @@ Scope note: nacho/nico instances run the same code but are ON STANDBY: only `mar
 - L3 Baseline (explorer, curl on 127.0.0.1): cold /api/zones 1.27 s, /api/regime 1.72 s, /api/cartera/history 1.10 s, /swing 1.26 s; warm 5-30 ms. Static ~300 KB JS uncompressed; pages 6-25 KB uncompressed.
 - L4 T3 incident: `systemctl --user reload carteras-proxy` ran `caddy reload`, which (admin off in that instance) sent the user config to the SYSTEM Caddy on :2019; it failed to bind :8780 and kept serving the old config, but its admin API stopped listening. ExecReload removed from carteras-proxy.service; system Caddy must be restarted (not reloaded) by the sudo script. carteras-proxy listens on *:8780 plain HTTP — firewall state unknown (needs root).
 - L5 Live after restart of market-zones.service only (nacho/nico untouched): suite 853; gzip cartera.js 124→39 KB, /cartera 25→7.5 KB, /swing 96→25 KB; Chromium 8 pages, 0 CSP violations, 0 writes, target card renders. 3×502 on /api/regime for ISIN.SG funds = Yahoo has no daily history (pre-existing).
+- L6 Independent verifier: S1 S2 S4b S4c PASS; S4a FAIL (blocker: _get_lock outside _lock → RuntimeError 500 + duplicate builds, repro 39 errors/300 rounds vs 0 on main). Fixed in 9f88fe2 (RED 3/3 → GREEN 3/3, suite 854); advisory 'N parallel Yahoo refreshes' addressed with a 4-slot semaphore. Other advisories (shared rate bucket, unlocked _series_cache pre-existing, NoHistory cached up to 24 h) accepted.
