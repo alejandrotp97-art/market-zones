@@ -26,6 +26,15 @@ def _series(n=300, px=100.0):
     return pd.Series([px] * n, index=idx)
 
 
+@pytest.fixture(autouse=True)
+def _restore_real_fetchers():
+    """_stub replaces module functions; put the real ones back after each test so
+    later test files do not inherit the stubs."""
+    real = D._close_series, D._quote_meta
+    yield
+    D._close_series, D._quote_meta = real
+
+
 def _stub(series_of, meta_of):
     D._close_series = lambda t: series_of.get(t)
     D._quote_meta = lambda t: meta_of.get(t, (None, None))
