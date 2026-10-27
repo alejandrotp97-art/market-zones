@@ -290,12 +290,26 @@ def _encoded(key: str, build, limited: bool = False):
     soon as it is serialized — only the bytes survive. With `limited=True` a
     MISS spends a token and raises `TooBusy` when there are none; a hit is
     always free, so the limiter is invisible until someone starts looping.
+
+    Stale-while-revalidate: an entry past CACHE_TTL but younger than STALE_MAX
+    is answered at once and rebuilt by one background refresh, so a visitor
+    never waits for Yahoo on a symbol the panel has already shown.
     """
     with _lock:
         hit = _cache.get(key)
-        if hit and time.time() - hit[0] < CACHE_TTL:
-            return hit[1], hit[2]
-        lk = _get_lock(key)
+        if hit:
+            age = time.time() - hit[0]
+            if age < CACHE_TTL:
+                return hit[1], hit[2]
+            if age < STALE_MAX:
+                stale = hit[1], hit[2]
+                _refresh_in_background(f"enc|{key}", lambda: _rebuild(key, build, limited))
+                return stale
+    return _rebuild(key, build, limited)
+
+
+def _rebuild(key: str, build, limited: bool):
+    lk = _get_lock(key)
     # Single-flight: concurrent requests for the same key wait here and then
     # read the fresh entry, instead of each firing its own slow Yahoo call.
     with lk:
@@ -312,6 +326,43 @@ def _encoded(key: str, build, limited: bool = False):
         with _lock:
             _payload_put(key, raw, gz)
         return raw, gz
+
+
+# ── Background refreshes ──────────────────────────────────────────────────
+STALE_MAX = 24 * 3600   # older than this, a cached answer is rebuilt in the request
+_refreshing: set[str] = set()
+_refresh_lock = threading.Lock()
+
+
+def _refresh_in_background(tag: str, fn) -> None:
+    """Run `fn` once in a daemon thread unless a refresh for `tag` is already
+    running. Failures (Yahoo down, TooBusy) keep the stale entry: no retry loop."""
+    with _refresh_lock:
+        if tag in _refreshing:
+            return
+        _refreshing.add(tag)
+
+    def run():
+        try:
+            fn()
+        except Exception:
+            pass
+        finally:
+            with _refresh_lock:
+                _refreshing.discard(tag)
+
+    threading.Thread(target=run, name=f"refresh {tag}", daemon=True).start()
+
+
+def _wait_refreshes(timeout: float) -> bool:
+    """Tests: wait until no background refresh is running."""
+    end = time.time() + timeout
+    while time.time() < end:
+        with _refresh_lock:
+            if not _refreshing:
+                return True
+        time.sleep(0.01)
+    return False
 
 
 def _get_lock(key) -> threading.Lock:
@@ -3370,8 +3421,18 @@ def _close_series(ticker: str):
     """
     t = ticker.upper().strip()
     hit = _series_cache.get(t)
-    if hit and time.time() - hit[0] < 600:
-        return hit[1]
+    if hit:
+        age = time.time() - hit[0]
+        if age < 600:
+            return hit[1]
+        if age < STALE_MAX:   # answer now, refresh behind the visitor's back
+            _refresh_in_background(f"series|{t}", lambda: _fetch_close_series(t))
+            return hit[1]
+    return _fetch_close_series(t)
+
+
+def _fetch_close_series(t: str):
+    """Download, cache and return the daily close series for `t` (see _close_series)."""
     splits, divs = [], []
     try:
         df = fetch_daily(t, years=25)
