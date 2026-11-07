@@ -34,3 +34,4 @@ Assumption: the band keeps its meaning (typical depth into the zone, P50 among t
 - L7 — Target vs real zone entry (OOS mean |log err|): buy 0.113 M1 / 0.149 M3 / 0.119 cons; buy raw 0.106 / 0.169 / 0.127; sell 0.066 / 0.112 / 0.080; sell raw 0.056 / 0.110 / 0.071. Fitted blend gives M1 0.85-1.00 of the weight.
 - L8 — Robustness (bootstrap by asset, 2006+): sell and buy-raw significant, 16/19 assets, both eras; buy on the shown score neutral (+0.005, CI includes 0). BTC/ETH alone mixed, n 8-27 (noise).
 - L9 — Band anchored on M1: shipped k still beats the refit OOS (buy 0.0722 vs 0.0750; sell 0.337 vs 0.339) → K_BUY/K_SELL unchanged. Live service NOT restarted: deploy is the user's call.
+- L10 (2026-11-07) — "implentalo": main fast-forwarded to 4bfa26c, suite green, market-zones / @nacho / @nico restarted; :8771/:8782/:8783 serve consensus == M1 for BTC-USD.
