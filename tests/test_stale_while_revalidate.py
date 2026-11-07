@@ -121,11 +121,11 @@ def test_concurrent_cold_requests_share_one_build_and_never_crash():
             builds = []
             gate = threading.Barrier(12)
 
-            def worker():
+            def worker(gate=gate, trial=trial, builds=builds):
                 gate.wait()
                 try:
                     D._encoded(f"probe|{trial}", lambda: (builds.append(1), time.sleep(0.002), {"t": trial})[2])
-                except Exception as e:          # noqa: BLE001 - any error is the defect
+                except Exception as e:          # any error is the defect
                     errors.append(repr(e))
 
             threads = [threading.Thread(target=worker) for _ in range(12)]

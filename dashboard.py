@@ -13,12 +13,12 @@ import csv
 import datetime
 import gzip
 import html
-import secrets
 import io
 import json
 import math
 import os
 import re
+import secrets
 import sqlite3
 import subprocess
 import sys
@@ -30,7 +30,16 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import numpy as np
 import pandas as pd
-from flask import Flask, Response, g, jsonify, redirect, render_template, request, send_from_directory
+from flask import (
+    Flask,
+    Response,
+    g,
+    jsonify,
+    redirect,
+    render_template,
+    request,
+    send_from_directory,
+)
 
 import geo
 from cartera import okx as _okx
@@ -502,7 +511,7 @@ _gz_static_lock = threading.Lock()
 @app.after_request
 def _compress(resp):
     if (resp.status_code != 200 or "Content-Encoding" in resp.headers
-            or resp.mimetype not in COMPRESSIBLE or resp.is_streamed and not resp.direct_passthrough
+            or resp.mimetype not in COMPRESSIBLE or (resp.is_streamed and not resp.direct_passthrough)
             or "gzip" not in request.headers.get("Accept-Encoding", "")):
         return resp
     resp.vary.add("Accept-Encoding")
