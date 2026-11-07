@@ -60,7 +60,8 @@ def test_epoch_ms_survives_second_resolution():
     that yields 1083 instead of 1083677400000."""
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
     from dashboard import _epoch_ms
-    idx = pd.to_datetime([1083677400, 1083763800], unit="s", utc=True)
+    # pandas 3.1 no longer infers second resolution from unit="s": pin it.
+    idx = pd.to_datetime([1083677400, 1083763800], unit="s", utc=True).as_unit("s")
     s = pd.Series(idx)
     assert str(s.dtype).startswith("datetime64[s"), "fixture must be second-resolution"
     got = _epoch_ms(s)
