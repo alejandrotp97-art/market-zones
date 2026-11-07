@@ -19,8 +19,8 @@ Assumption: the band keeps its meaning (typical depth into the zone, P50 among t
 | T1 | S1,S3 | inline | done | MC touch study committed 178e2cf: not calibrated enough → not shipped |
 | T2 | S2 | inline | done | `band_walkforward.py run`: 1571 as-ofs, 19 assets (+ETH-USD), vol 63/252/756 at the as-of; tests RED→GREEN |
 | T3 | S2,S3 | inline | done | no band candidate beats the shipped k (see L4-L6) → band NOT changed |
-| T5 | S1,S2 | inline | pending | target entry study: price at real zone entry vs M1 / M3 / consensus / walk-forward weighted mix |
-| T4 | S1,S4 | inline | pending | ship the winner in `zones/target.py` (or document no change) |
+| T5 | S1,S2 | inline | done | cc51767: M1 beats the median consensus OOS (L7-L8); tests RED→GREEN |
+| T4 | S1,S4 | inline | done | 8eebc05: headline = M1 (M3 fallback), key `consensus` kept; band K unchanged; tests RED→GREEN, suite green, card checked on a temp instance :8791 |
 
 ## Log
 
@@ -31,3 +31,6 @@ Assumption: the band keeps its meaning (typical depth into the zone, P50 among t
 - L5 — Extra factors k*vol*z^g (vratio, sell distance, buy distance): buy -1.6% to -5.7%; sell s_dist +1.5% but coverage 0.49→0.40 and worse in quality → rejected.
 - L6 — Recency-window refit (last 4/6/8/10 years): worse than shipped on both sides. Conclusion: band unchanged; the open lever is the target level itself (T5).
 - Engram mirror pending: mem_save returned ambiguous_project (several git repos under the cwd).
+- L7 — Target vs real zone entry (OOS mean |log err|): buy 0.113 M1 / 0.149 M3 / 0.119 cons; buy raw 0.106 / 0.169 / 0.127; sell 0.066 / 0.112 / 0.080; sell raw 0.056 / 0.110 / 0.071. Fitted blend gives M1 0.85-1.00 of the weight.
+- L8 — Robustness (bootstrap by asset, 2006+): sell and buy-raw significant, 16/19 assets, both eras; buy on the shown score neutral (+0.005, CI includes 0). BTC/ETH alone mixed, n 8-27 (noise).
+- L9 — Band anchored on M1: shipped k still beats the refit OOS (buy 0.0722 vs 0.0750; sell 0.337 vs 0.339) → K_BUY/K_SELL unchanged. Live service NOT restarted: deploy is the user's call.
