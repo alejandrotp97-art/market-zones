@@ -69,19 +69,32 @@ def test_curve_is_monotone_up_to_the_vol_wiggle():
     assert drops <= 1, f"curve not monotone: {drops} drops"
 
 
-def test_consensus_is_the_median_of_m1_and_m3_only():
-    # M2 is a diagnostic (driver), not a vote: it must never enter the consensus.
+def test_headline_target_is_m1():
+    # research/target_entry: M1 alone lands closer to the price at which the
+    # asset really enters the zone than the old median(M1, M3), out of sample.
+    # M2 (diagnostic) and M3 (history) never move the headline while M1 exists.
     df = _frame()
     t = compute(df, "TEST")
     for side in ("buy", "sell"):
         s = t[side]
-        pts = [p for p in (s["m1"], (s["m3"] or {}).get("mid")) if p is not None]
-        pts.sort()
-        exp = pts[len(pts) // 2] if len(pts) % 2 else (pts[len(pts) // 2 - 1] + pts[len(pts) // 2]) / 2
-        assert abs(s["consensus"] - round(exp, 2)) < 0.02
-        # M2's price, when it exists and differs from M1/M3, must not move the median.
-        if s["m2"]["price"] is not None and s["m2"]["price"] not in (s["m1"], (s["m3"] or {}).get("mid")):
-            assert s["consensus"] != round(s["m2"]["price"], 2) or s["consensus"] == round(exp, 2)
+        assert s["m3"] is not None and abs(s["m3"]["mid"] - s["m1"]) > 0.5
+        assert s["consensus"] == s["m1"]
+
+
+def test_headline_falls_back_to_m3_when_m1_has_no_solution():
+    from zones.target import _headline
+    assert _headline(None, {"mid": 5.0}) == 5.0
+    assert _headline(3.0, {"mid": 5.0}) == 3.0
+    assert _headline(None, None) is None
+    assert _headline(3.0, None) == 3.0
+
+
+def test_band_hangs_from_the_headline_target():
+    df = _frame()
+    t = compute(df, "TEST")
+    assert t["buy"]["band"] < t["buy"]["consensus"]
+    assert t["sell"]["band"] > t["sell"]["consensus"]
+    assert t["buy"]["pct"] == round((t["buy"]["m1"] - t["price"]) / t["price"] * 100, 1)
 
 
 def test_short_history_returns_none():

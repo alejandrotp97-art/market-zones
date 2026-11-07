@@ -189,7 +189,7 @@
       : `${money(ccy, s.m2.price)} · ${esc(s.m2.lever)}`;
     const m3 = s.m3 == null ? "sin muestra en zona"
       : `${money(ccy, s.m3.mid)} <span class="band">[${Math.round(s.m3.lo)}–${Math.round(s.m3.hi)}]</span><i class="n">n=${s.m3.n}</i>`;
-    // Banda: el consenso es la ENTRADA; `band` es el borde típico hacia dentro.
+    // Banda: el objetivo (M1) es la ENTRADA; `band` es el borde típico hacia dentro.
     const confChip = conf
       ? `<span class="tgt-conf conf-${esc(conf)}">${esc(conf)}${vol != null ? ` · vol ${Math.round(vol)}%` : ""}</span>`
       : "";
@@ -232,9 +232,9 @@
        + shade(t.sell.consensus, t.sell.band, "rgba(229,87,92,.15)");
     const pts = c.map((p) => `${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(" ");
     g += `<polyline points="${pts}" fill="none" stroke="#3a4a63" stroke-width="2.2" stroke-linejoin="round"/>`;
-    // Score sobre la curva por interpolación. El consenso es la MEDIANA de M1 y
-    // M3, así que NO cae en el borde de zona — ahí sólo cae M1, que es su raíz
-    // exacta. Sin interpolar, el punto del consenso flotaría fuera de la línea.
+    // Score sobre la curva por interpolación. El titular es M1 (cae en el borde
+    // de zona), pero el anillo de M3 y el respaldo por M3 cuando M1 no tiene
+    // solución NO caen ahí: sin interpolar flotarían fuera de la línea.
     const scoreAt = (p) => {
       if (p <= c[0][0]) return c[0][1];
       const last = c[c.length - 1];
@@ -317,9 +317,9 @@
         + `<text x="${tx.toFixed(1)}" y="${ty.toFixed(1)}" fill="${col}" font-size="13.5" font-weight="700" `
         + `text-anchor="${up ? "end" : "middle"}">${txt}</text>`;
     };
-    // SECUNDARIO: M1 baja a anillo hueco sin cifra. El valor exacto sigue en la
-    // tarjeta, así que no se pierde el dato y la zona de compra deja de
-    // amontonar tres números en 40 px.
+    // SECUNDARIO: M3 (contraste histórico) como anillo hueco sin cifra. El
+    // titular ya es M1, así que el anillo enseña cuánto se separa la historia
+    // del modelo; el valor exacto sigue en la tarjeta.
     const secondary = (price) => {
       if (price == null) return "";
       const x = X(price), y = Y(scoreAt(price));
@@ -329,7 +329,7 @@
        + vline(t.sell.consensus, SELL_C, false) + vline(t.sell.band, SELL_C, true);
     g += caliper(t.buy.band, t.buy.consensus, 40, BUY_C)
        + caliper(t.sell.band, t.sell.consensus, 174, SELL_C);
-    g += secondary(t.buy.m1) + secondary(t.sell.m1);
+    g += secondary((t.buy.m3 || {}).mid) + secondary((t.sell.m3 || {}).mid);
     g += primary(t.buy.consensus, BUY_C, "upleft")
        + primary(t.sell.consensus, SELL_C, "up");
     g += `<circle cx="${hx.toFixed(1)}" cy="${hy.toFixed(1)}" r="5" fill="#26303f" stroke="#fff" stroke-width="2"/>` +

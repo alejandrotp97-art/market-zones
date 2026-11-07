@@ -19,8 +19,11 @@ stretched for years without touching it.
               translated to today's moving average -> an empirical band, no model
               linearity assumed.
 
-Converge -> the level is trustworthy. Diverge -> the regime has stretched and the
-mechanical inversion is leaning on an extrapolation the history does not support.
+Headline target = M1 (M3 only when M1 has no solution): out of sample it is the
+closest to the price at which the zone is really entered (see _headline). M3
+stays as the cross-check: converge -> the level is trustworthy; diverge -> the
+regime has stretched and the inversion leans on an extrapolation the history
+does not support.
 """
 from __future__ import annotations
 
@@ -207,15 +210,9 @@ def compute(df: pd.DataFrame, symbol: str, vol_w: float = VOL_W_DEFAULT, *,
     a_buy, a_sell = analog(True), analog(False)
 
     def side(m1, m2v, m3, u):
-        # Consensus = median of M1 (model) and M3 (history) only. M2 does NOT
-        # vote: its price freezes the other four components, so it is a diagnostic
-        # (which lever drives the flip, or "none can alone"), not a real level —
-        # and it shares M1's engine, so letting it vote would double-count the
-        # model against the single independent voice (M3).
-        pts = [p for p in (m1, (m3 or {}).get("mid")) if p is not None]
-        pts.sort()
-        cons = (pts[len(pts) // 2] if len(pts) % 2
-                else (pts[len(pts) // 2 - 1] + pts[len(pts) // 2]) / 2.0) if pts else None
+        # The headline target (key "consensus", kept for the panel contract) is
+        # M1, with M3 only as fallback. See _headline for the evidence.
+        cons = _headline(m1, m3)
         # banda: el objetivo (consenso) es la ENTRADA; `band` es el borde típico
         # hacia dentro de la zona (compra: hacia abajo; venta: hacia arriba).
         is_buy = u <= 50
@@ -257,6 +254,20 @@ def compute(df: pd.DataFrame, symbol: str, vol_w: float = VOL_W_DEFAULT, *,
         "sell": sell_side,
         "curve": curve,
     }
+
+
+def _headline(m1, m3):
+    """Headline target = M1 (exact inversion); M3's mid only when M1 has no
+    solution. It used to be the median of M1 and M3. A causal walk-forward over
+    25 years and 19 assets (research/target_entry) scored each against the price
+    at which the asset REALLY entered the zone later: M1 alone was closer than
+    the median on 16/19 assets (sell, and buy on score_raw) and never worse on
+    the shown score; a fitted M1/M3 blend gave M1 85-100 % of the weight. M3 stays
+    in the block as an independent cross-check (converge = trustworthy level),
+    M2 stays a diagnostic. Neither votes."""
+    if m1 is not None:
+        return m1
+    return (m3 or {}).get("mid")
 
 
 def _r(x, nd: int = 2):

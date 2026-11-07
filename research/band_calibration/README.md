@@ -6,7 +6,7 @@ Esta carpeta guarda ese estudio para poder **re-validarlo una vez al año**.
 
 ## Qué es la banda
 
-El objetivo (consenso M1+M3) es la **entrada** de la zona. El precio casi nunca se
+El objetivo (M1 desde 2026-11-07; antes la mediana M1+M3) es la **entrada** de la zona. El precio casi nunca se
 detiene ahí: la cruza y sigue corriendo hacia dentro. La banda muestra hasta dónde
 suele correr:
 
@@ -58,3 +58,21 @@ Si se movieron menos, no tocar nada: es ruido.
 - 2026-08-16 — Calibración inicial. K_BUY=0.64, K_SELL=1.16. Spearman +0.78/+0.82.
   Universo: ^GSPC ^RUT ^IXIC AAPL MSFT WMT JNJ V BRK-B NVDA MU LLY TSLA EAT UMBF
   VSAT MOG-A BTC-USD (18 activos, grilla trimestral 25 años, ventana forward 2 años).
+- 2026-11-07 — Walk-forward fuera de muestra (`band_walkforward.py`, 19 activos con
+  ETH-USD, vol del as-of como en el panel): ningún candidato le gana al `k` fijo
+  (refit global, por clase, potencia `a·vol^b`, vol 63/756, factores extra,
+  ventanas recientes). El objetivo pasó a M1 (`research/target_entry/`); con M1 de
+  ancla el `k` vigente sigue ganando fuera de muestra (compra 0.0722 vs 0.0750
+  refit; venta 0.337 vs 0.339). K_BUY/K_SELL **sin cambios**.
+
+## Walk-forward (2026-11-07)
+
+```bash
+.venv/bin/python research/band_calibration/band_walkforward.py run     # ~7 min
+.venv/bin/python research/band_calibration/band_walkforward.py eval    # candidatos × ventana de vol
+.venv/bin/python research/band_calibration/band_walkforward.py extra   # factores extra
+```
+
+Métrica: pinball q=0.5 sobre la profundidad real entre los toques; cobertura =
+proporción de toques que quedó dentro de la banda. Un as-of del año Y solo
+entrena con muestras cuya ventana de 2 años ya había cerrado antes del 1-ene de Y.
